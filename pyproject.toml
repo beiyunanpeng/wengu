@@ -1,0 +1,56 @@
+[project]
+name = "wengu"
+version = "0.0.0"
+description = "面向中国初中家庭的自托管 AI 学习工作台（内部代号 StudyDesk）"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "wengu contributors" }]
+keywords = ["education", "self-hosted", "spaced-repetition", "mistake-notebook", "k12"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Framework :: FastAPI",
+    "Intended Audience :: End Users/Desktop",
+]
+# 具体运行时依赖见 wengu-api/requirements.txt；这里只留工具链
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+extend-exclude = ["migrations/versions", "LearnDesk-原始方案", "cn-math-taxonomy-main", "Phase0-实测"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
+ignore = [
+    "E501",   # line length 交给 formatter
+    "B008",   # 允许函数默认值调用 Depends()
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-ra --strict-markers --strict-config"
+testpaths = ["wengu-api/tests"]
+asyncio_mode = "auto"
+markers = [
+    "unit: 单元测试（掌握度/间隔/judgeAnswer/Schema/幂等）",
+    "integration: 集成测试（迁移/导入/任务领取重试/水位）",
+    "e2e: 端到端（拍照→批改→入本→复习→讲解）",
+    "memory: 记忆回归（事件不重复、摘要可重建、矛盾不覆盖）",
+    "eval: AI 黄金集回归（改 prompt/换供应商/升 Schema 必跑）",
+]
+
+[tool.pyright]
+typeCheckingMode = "standard"
+pythonVersion = "3.11"
+include = ["wengu-api/app"]
+exclude = ["**/__pycache__", ".venv", "venv", "migrations/versions"]
+reportCallIssue = "none"

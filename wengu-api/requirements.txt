@@ -1,0 +1,55 @@
+# wengu-api Python 依赖
+# 遵循 AGENTS.md：模块化单体、SQLite 内嵌、无 Redis/Celery/外部 MQ/向量库
+
+# ---- Web 框架 ----
+fastapi>=0.115,<0.120
+uvicorn[standard]>=0.32,<0.40
+python-multipart>=0.0.9            # 文件上传
+
+# ---- 数据层 ----
+SQLAlchemy>=2.0,<2.1
+alembic>=1.13,<1.15
+# 注：sqlite3 是 Python 标准库，不需要额外依赖；开启 WAL/foreign_keys 在 app.core.database
+
+# ---- 校验与序列化 ----
+pydantic>=2.9,<3
+pydantic-settings>=2.5,<3
+python-frontmatter>=1.1,<2         # 加载 llm_prompts/*.md 的 frontmatter
+
+# ---- 提示注入防御 / 表达式沙箱 ----
+# 使用标准库 ast + html 处理；bleach 用于内联 SVG/HTML 净化（AGENTS §5）
+bleach>=6.1,<7
+
+# ---- HTTP 客户端（Provider 层调用云 API）----
+httpx>=0.27,<0.28
+
+# ---- 加密（v2.4 云备份 AESGCM + scrypt）----
+cryptography>=43,<45
+
+# ---- OCR 行聚类切题预处理（v2.4，可选：本地不联网）----
+# 主选 RapidOCR（含 onnxruntime 后端）；备选 PaddleOCR
+rapidocr-onnxruntime>=1.3,<2
+# paddleocr>=2.7,<3                # 若切 Paddle 打开这行、注掉 rapidocr
+
+# ---- 图像预处理 ----
+pillow>=10,<12
+opencv-python-headless>=4.10,<5    # 行检测 / 裁切
+
+# ---- 数学精确比较（judgeAnswer 用）----
+sympy>=1.13,<2                     # 有理数、方程、开方精确等值判断
+
+# ---- 定时/后台 ----
+apscheduler>=3.10,<4               # 进程内定时器（日队列刷新、家长周报等）
+
+# ---- 日志 ----
+structlog>=24,<26                  # 结构化日志（不落 PII、不落题目全文）
+
+# ---- 邮件（家长低频周报，可选）----
+# aiosmtplib>=3,<4                 # 若走邮件推送打开
+
+# ---- 开发/测试（也放这份，pip install 一次到位；正式 CI 可拆 dev.txt）----
+pytest>=8,<9
+pytest-asyncio>=0.24,<0.25
+httpx>=0.27,<0.28                  # 兼作测试客户端
+ruff>=0.6,<0.8
+pip-licenses>=4,<5                 # 汇总第三方 License 到 THIRD-PARTY-NOTICES 附加报告

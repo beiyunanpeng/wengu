@@ -1,0 +1,10 @@
+# wengu 工程配置约定
+
+- 语言：TypeScript / Python 混用
+- 缩进：**2 空格**（前端 TS/JSON/YAML），**4 空格**（Python）
+- 换行：LF
+- 编码：UTF-8（无 BOM）
+- 行尾去空白：`trim_trailing_whitespace = true`（Markdown 除外）
+- 文件末尾保留换行
+
+由 EditorConfig 统一；`.vscode/settings.json` 与 IDE 需尊重此文件。

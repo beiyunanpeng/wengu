@@ -1,0 +1,56 @@
+# wengu 本地一键起（家长部署主路径）
+# 无外部依赖：SQLite + 本地卷即全部；无 MySQL / Redis / 外部 MQ
+services:
+  api:
+    build: ./wengu-api
+    image: wengu/api:latest
+    container_name: wengu-api
+    env_file:
+      - ./wengu-api/.env
+    volumes:
+      - ./data:/app/data                # SQLite + uploads + config/app-config.json
+      - ./seeds:/app/seeds:ro           # 外部 seed 只读挂载（家长自建，仓库不分发）
+      - ./llm_prompts:/app/llm_prompts:ro  # 提示词真源只读挂载
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  web:
+    build: ./wengu-web
+    image: wengu/web:latest
+    container_name: wengu-web
+    depends_on:
+      - api
+    ports:
+      - "5173:80"                       # nginx 静态托管，映射到 5173 免与本地 vite 冲突
+    restart: unless-stopped
+
+  # 可选：远程访问用 Tailscale（AGENTS §3 推荐）。取消注释即启用。
+  # tailscale:
+  #   image: tailscale/tailscale:latest
+  #   container_name: wengu-tailscale
+  #   hostname: wengu-at-home
+  #   environment:
+  #     - TS_AUTHKEY=${TS_AUTHKEY}
+  #     - TS_STATE_DIR=/var/lib/tailscale
+  #     - TS_SERVE_CONFIG=/config/serve.json
+  #   volumes:
+  #     - ./tailscale-state:/var/lib/tailscale
+  #     - ./deploy/tailscale/serve.json:/config/serve.json:ro
+  #   devices:
+  #     - /dev/net/tun
+  #   cap_add:
+  #     - NET_ADMIN
+  #   network_mode: service:api
+  #   restart: unless-stopped
+
+# 注：
+# 1) 公网暴露前必须自行加反向代理鉴权（Tailscale / Caddy basic auth / Nginx + OAuth）；
+#    wengu 默认按"本机 / 可信内网"设计，见 AGENTS.md §2.4。
+# 2) 数据全部在 ./data 目录下，备份/迁移 = 拷这一坨（含 wengu.db + uploads/ + app-config.json）。

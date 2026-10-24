@@ -1,0 +1,11 @@
+{
+  "typeCheckingMode": "standard",
+  "pythonVersion": "3.11",
+  "venvPath": ".",
+  "venv": "venv",
+  "include": ["app", "scripts", "tests"],
+  "exclude": ["**/__pycache__", "venv", "migrations/versions"],
+  "reportCallIssue": "none",
+  "reportMissingImports": true,
+  "reportMissingTypeStubs": false
+}
