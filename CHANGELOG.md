@@ -7,8 +7,19 @@
 
 ## [Unreleased]
 
+下一步按 `TICKETS.md` 顺序推进：**P1-1b 知识点 seed 装载**（导入 `cn-math-taxonomy` 初中部分）或 **P1-2 Provider 适配层**。
+
 ### Added
 
+- **P1-1 数据模型 + 事件溯源/幂等骨架**（2026-10-24）：迁移 `0002_p1_1_core_schema` 建 13 张表——
+  `learning_events`（append-only 事实源，`idempotency_key UNIQUE`，触发器钉死禁 UPDATE/DELETE）、
+  `attempts`、`mistake_versions`（只追加，`UNIQUE(mistake_id, version)`，建议值/确认值分离存储）、
+  `knowledge_seed`、`concepts` + `concept_aliases`、`import_batches`（sha256 去重）+ `ingestion_drafts`、
+  `review_schedules`（只存排期决策事实，不存掌握度/毕业）、`ai_jobs`（`idempotency_key` + `to_event_id` 水位）、
+  `model_runs`（审计不落题目全文/PII）、`user_role`、`prerequisite_edges`（hard/soft）。
+  确定性重算骨架 `services/recompute.py`（mastery / is_graduated 尾部连对≥3 / stats，纯函数可重放）；
+  幂等写入骨架 `services/events.py`（`record_event` / `create_import_batch` / `append_mistake_version`，
+  SAVEPOINT 消化冲突、同事务不污染）。
 - **P1-0 Repo 骨架**（2026-10-24）：
   - FastAPI 应用工厂 + `/health`（含数据库连通检查，失败返回 503）。
   - 配置层：`wengu-api/.env` 读取 + `config/app-config.json` mtime 热加载（优先级高于 `.env`）。
