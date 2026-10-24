@@ -7,9 +7,34 @@
 
 ## [Unreleased]
 
-设计已定稿（内部代号 StudyDesk、对外名 wengu，v2.4），代码尚未开工。下一步按 `TICKETS.md` 顺序推进：
-- **P0-1 已跑首轮**（9 题 × 5 档，边界表本轮未回填）→ 下一轮补样本 + OCR 切题预处理 + qwen3.5-ocr 车道 + 关 thinking 后再回填。
-- **P1-0 Repo 骨架** 待开工。
+### Added
+
+- **P1-0 Repo 骨架**（2026-10-24）：
+  - FastAPI 应用工厂 + `/health`（含数据库连通检查，失败返回 503）。
+  - 配置层：`wengu-api/.env` 读取 + `config/app-config.json` mtime 热加载（优先级高于 `.env`）。
+  - SQLite：异步引擎（aiosqlite）+ WAL / `foreign_keys=ON` / `busy_timeout=5000`。
+  - Alembic 迁移骨架 + 初始空基线 `0001_initial_empty`（upgrade/downgrade 已验证）。
+  - `VisionProvider` 抽象 + 确定性 mock provider；`llm_prompts/*.md` 版本化加载器（frontmatter `id`+`version`，重复/缺失 fail-fast）。
+  - 本地 PIN scrypt 哈希/校验工具（单用户，无 JWT/多租户）。
+  - React 19 + Vite + TypeScript + Mantine + KaTeX 空壳，显示 `wengu · 温故`。
+  - API/web Dockerfile + compose 健康检查与 `--wait` 支持；GitHub Actions（ruff + pytest + compose config + tsc + build）。
+  - 测试：12 项（配置热加载、PIN、SQLite pragma/CRUD、health、迁移、mock provider、prompt loader）。
+
+### Changed
+
+- Makefile 支持 Windows `cmd.exe` 与 `PYTHON`/`PORT`/`M`/`D` 变量；`install-web` 改用 `npm ci`；新增 `downgrade`；`up` 使用 `--wait`。
+- compose：`wengu-api/.env` 改为可选 `env_file`，默认无需密钥即可起；挂载 `config/`；健康检查不再依赖 curl。
+- API Dockerfile 增加 `PIP_INDEX_URL` 构建参数（默认清华源，加速国内构建；`docker compose build --build-arg PIP_INDEX_URL=https://pypi.org/simple` 可还原）。
+
+### Verified
+
+- `docker compose up -d --build --wait` 双服务 healthy（2026-10-24，Docker Desktop 29.9.2）：`wengu-api` 8100→8000 `/health` 200、`wengu-web` 5000→80 页面正常；容器内 Alembic 自动 `upgrade head`。
+- 前置：Docker Engine 配置 registry mirrors `docker.m.daocloud.io` + `docker.1ms.run`；本机 8000/5173 被 Hyper-V 动态保留段占用，用 `WENGU_API_PORT` / `WENGU_WEB_PORT` 覆盖。
+
+### Still blocked
+
+- P0-1 边界表未回填：P1-0 不含任何自动入库/自动排复习逻辑（AGENTS §2 闸门）。
+- GitHub Actions 待首次 push 后观察运行结果。
 
 ## [0.0.0] - 2026-10-24
 

@@ -9,6 +9,7 @@ python-multipart>=0.0.9            # 文件上传
 # ---- 数据层 ----
 SQLAlchemy>=2.0,<2.1
 alembic>=1.13,<1.15
+aiosqlite>=0.20,<1                 # SQLAlchemy async + SQLite 的标准异步驱动
 # 注：sqlite3 是 Python 标准库，不需要额外依赖；开启 WAL/foreign_keys 在 app.core.database
 
 # ---- 校验与序列化 ----

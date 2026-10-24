@@ -32,6 +32,8 @@ wengu-web/dist/
 config/app-config.json
 
 # ---- 运行时数据（本地）----
+data/
+backups/
 wengu-api/data/
 wengu-api/uploads/
 wengu-api/*.db

@@ -44,10 +44,35 @@
 git clone https://github.com/<你>/wengu.git
 cd wengu
 cp wengu-api/.env.example wengu-api/.env
-# 编辑 .env，填入你的豆包/阿里百炼 API Key
-docker compose up -d
-# 浏览器打开 http://localhost:8000 → 首次运行向导引导你完成配置
+# 编辑 .env，填入你的豆包/阿里百炼 API Key（P1-0 空跑可先不填）
+docker compose up -d --build --wait
+# 前端：http://localhost:5173
+# 后端健康检查：http://localhost:8000/health
 ```
+
+> 若 `8000` 被系统保留（Windows Hyper-V 常见），改用：
+> `WENGU_API_PORT=8100 docker compose up -d --build --wait`（PowerShell: `$env:WENGU_API_PORT=8100; docker compose up -d --build --wait`）。
+
+> 国内网络建议在 Docker Desktop → Settings → Docker Engine 配置 registry mirrors（如 `https://docker.m.daocloud.io`），否则拉取基础镜像会很慢或失败。API 镜像构建默认走清华 pip 源，可用 `--build-arg PIP_INDEX_URL=...` 覆盖。
+
+### 本地开发（不用 Docker）
+
+```bash
+make install-api     # 创建 wengu-api/venv（Python 3.12）并装依赖
+make upgrade         # 建/升级 SQLite 到最新迁移
+make dev-api         # http://localhost:8000/health
+# 另开终端
+make install-web     # npm ci
+make dev-web         # http://localhost:5173
+```
+
+`make test` / `make lint` / `make migration-test` 分别跑测试、ruff、迁移回退测试。
+Windows 上若 `make` 不在 PATH，重开终端或安装 [GNU Make](https://winget.run/pkg/ezwinports/make)（`winget install ezwinports.make`）。
+
+## 📦 当前进度
+
+- ✅ **P1-0 Repo 骨架**（2026-10-24）：FastAPI `/health` + SQLite WAL + Alembic 基线 + React 空壳（Mantine + KaTeX）+ Docker/CI；`docker compose up` 双服务 healthy 已实测。
+- ⏳ 下一张工单：**P1-1 数据模型 + 事件溯源/幂等骨架**（见 `TICKETS.md`）。
 
 ## 📖 文档地图
 

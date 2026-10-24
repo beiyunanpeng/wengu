@@ -43,11 +43,12 @@ wengu-web/
 ## 快速开始
 
 ```bash
-cd wengu-web
-cp ../wengu-api/.env.example ../wengu-api/.env   # 后端先备好
-make install-web                                  # 从仓库根跑
-make dev-web                                      # http://localhost:5173
+# 从仓库根跑
+make install-web        # npm ci
+make dev-web            # http://localhost:5173
 ```
+
+当前为 P1-0 空壳：只显示 **wengu · 温故** 与一个 KaTeX 公式，用于验证构建与渲染链路；无业务路由。
 
 ## 关键 UI 纪律
 
@@ -60,4 +61,4 @@ make dev-web                                      # http://localhost:5173
 
 ## 第一张工单
 
-**P1-0 Repo 骨架**：起一个能编译、能路由、能显示 `Hello wengu` 的空壳 + KaTeX 集成，能进 CI 冒烟即可。**不要提前堆业务页面**。
+**P1-0 Repo 骨架**：能编译、能显示 `wengu · 温故` 的空壳 + KaTeX 集成，能进 CI 冒烟即可。**不要提前堆业务页面**。

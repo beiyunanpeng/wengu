@@ -31,15 +31,30 @@ wengu-api/
 ## 快速开始
 
 ```bash
-cd wengu-api
-cp .env.example .env                # 填 API Key
-make install-api                    # 从仓库根跑：建 venv + 装依赖
-make dev-api                        # 从仓库根跑：http://localhost:8000/docs
+# 从仓库根跑
+make install-api                    # 创建 venv（Python 3.12）+ 安装依赖
+make upgrade                        # SQLite 建库并升到最新迁移
+make dev-api                        # http://localhost:8000/health 与 /docs
+
+# 测试与检查
+make test
+make lint
+make migration-test
+make downgrade D=base               # 回退到空库（保留空的 alembic_version 表）
 ```
+
+> 端口：默认 8000。若被系统保留（Windows Hyper-V 常见），`make dev-api PORT=8100`。
+> 数据库文件：默认 `wengu-api/data/wengu.db`（`WENGU_DB_PATH` 可改），首次运行自动建目录。
+> 健康检查返回：`{"status":"ok","service":"wengu-api","version":"0.0.0","database":"ok"}`。
+
+## 当前状态（P1-0）
+
+- 已有：配置（`.env` + `config/app-config.json` 热加载）、SQLite WAL/外键/busy_timeout、本地 PIN 哈希工具、`/health`、Alembic 基线迁移、`VisionProvider` 抽象 + 确定性 mock、提示词版本化加载器。
+- 未做（后续工单）：真实数据库表（P1-1）、真实模型供应商（P1-2）、采集/批改/错题/复习/讲解/UI（P1-3 起）。**P1-0 不包含任何业务逻辑。**
 
 ## 第一张工单
 
-**P1-0 Repo 骨架**（见 `../TICKETS.md`）——建 FastAPI + SQLite + `/health` + 冒烟测试 + CI 绿。
+**P1-0 Repo 骨架**（见 `../TICKETS.md`）——已完成：FastAPI + SQLite + `/health` + 冒烟测试 + CI。
 **不要提前写业务逻辑**：`AGENTS.md` §2 明确 Phase 0 边界表未回填前禁止实现"错题自动入库"和"自动排复习"。
 
 ## 关键纪律（不要绕过）

@@ -6,30 +6,46 @@ services:
     image: wengu/api:latest
     container_name: wengu-api
     env_file:
-      - ./wengu-api/.env
+      - path: ./wengu-api/.env
+        required: false                  # P1-0 不需要密钥；家长填 .env 后自动生效
+    environment:
+      WENGU_ENV: ${WENGU_ENV:-prod}
+      WENGU_DATA_DIR: /app/data
+      WENGU_UPLOADS_DIR: /app/data/uploads
+      WENGU_DB_PATH: /app/data/wengu.db
+      WENGU_PROMPTS_DIR: /app/llm_prompts
+      WENGU_APP_CONFIG_PATH: /app/config/app-config.json
     volumes:
-      - ./data:/app/data                # SQLite + uploads + config/app-config.json
+      - ./data:/app/data                # SQLite + uploads
+      - ./config:/app/config            # app-config.json 热配置（UI 可写）
       - ./seeds:/app/seeds:ro           # 外部 seed 只读挂载（家长自建，仓库不分发）
       - ./llm_prompts:/app/llm_prompts:ro  # 提示词真源只读挂载
     ports:
-      - "8000:8000"
+      - "${WENGU_API_PORT:-8000}:8000"  # 8000 被系统保留时：WENGU_API_PORT=8100 docker compose up
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 15s
+      start_period: 20s
 
   web:
     build: ./wengu-web
     image: wengu/web:latest
     container_name: wengu-web
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     ports:
-      - "5173:80"                       # nginx 静态托管，映射到 5173 免与本地 vite 冲突
+      - "${WENGU_WEB_PORT:-5173}:80"    # nginx 静态托管，映射到 5173 免与本地 vite 冲突
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   # 可选：远程访问用 Tailscale（AGENTS §3 推荐）。取消注释即启用。
   # tailscale:
@@ -53,4 +69,5 @@ services:
 # 注：
 # 1) 公网暴露前必须自行加反向代理鉴权（Tailscale / Caddy basic auth / Nginx + OAuth）；
 #    wengu 默认按"本机 / 可信内网"设计，见 AGENTS.md §2.4。
-# 2) 数据全部在 ./data 目录下，备份/迁移 = 拷这一坨（含 wengu.db + uploads/ + app-config.json）。
+# 2) 数据全部在 ./data 目录下，备份/迁移 = 拷这一坨（含 wengu.db + uploads/）。
+# 3) 运行时热配置在 ./config/app-config.json；密钥仍在 wengu-api/.env。
