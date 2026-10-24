@@ -24,7 +24,6 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-
 from app.core.config import get_settings
 from app.providers.http import ProviderHttpError, chat_completions
 
