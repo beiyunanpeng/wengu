@@ -43,9 +43,15 @@ wengu-api/*.db-shm
 logs/
 *.log
 
-# ---- seed 与外部数据源（本仓库不分发，家长按需自建）----
+# ---- seed 数据 ----
+# seeds/data/ = 转换后的 cn-math-taxonomy 初中包，随仓库分发（CC BY-NC 4.0，_source.json 内嵌署名）
+# seeds/local/ 与 seeds/mappings/ = 家长自建（化学/语文 seed、教材包对照），不进仓库
 seeds/*.json
 seeds/*.yaml
+seeds/local/
+seeds/mappings/*.json
+!seeds/data/
+!seeds/data/**
 !seeds/README.md
 !seeds/**/.gitkeep
 

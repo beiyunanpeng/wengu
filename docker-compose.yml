@@ -14,11 +14,12 @@ services:
       WENGU_UPLOADS_DIR: /app/data/uploads
       WENGU_DB_PATH: /app/data/wengu.db
       WENGU_PROMPTS_DIR: /app/llm_prompts
+      WENGU_SEEDS_DIR: /app/seeds
       WENGU_APP_CONFIG_PATH: /app/config/app-config.json
     volumes:
       - ./data:/app/data                # SQLite + uploads
       - ./config:/app/config            # app-config.json 热配置（UI 可写）
-      - ./seeds:/app/seeds:ro           # 外部 seed 只读挂载（家长自建，仓库不分发）
+      - ./seeds:/app/seeds:ro           # seed 包（data/ 随仓库分发；local/ 与 mappings/ 家长自建）
       - ./llm_prompts:/app/llm_prompts:ro  # 提示词真源只读挂载
     ports:
       - "${WENGU_API_PORT:-8000}:8000"  # 8000 被系统保留时：WENGU_API_PORT=8100 docker compose up

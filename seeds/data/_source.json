@@ -1,0 +1,22 @@
+{
+ "name": "cn-math-taxonomy（初中部分）",
+ "upstream_url": "https://github.com/xiaoyang111222/cn-math-taxonomy",
+ "upstream_commit": null,
+ "upstream_license": "CC BY-NC 4.0",
+ "nc_statement": "限个人非商用：署名 + 非商业使用（CC BY-NC 4.0 §3(a)）",
+ "imported_at": "2026-10-24",
+ "imported_by": "wengu-api/scripts/import_seed.py",
+ "filter": "grade 7-9（初中）；dependencies 仅保留两端点均在装载集内的边",
+ "grade_semantics_note": "上游 grade 10-16 语义为'册'（高中），本次未导入",
+ "counts": {
+  "topics_total_upstream": 1821,
+  "topics_imported": 664,
+  "topics_by_subject": {
+   "英语": 257,
+   "数学": 315,
+   "物理": 92
+  },
+  "dependencies_imported": 1018,
+  "dependencies_dropped_cross_boundary": 74
+ }
+}

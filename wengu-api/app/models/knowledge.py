@@ -19,6 +19,7 @@ class KnowledgeSeed(Base):
     id: Mapped[str] = mapped_column(Text, primary_key=True)  # 如 cnm_*
     subject: Mapped[str] = mapped_column(Text, nullable=False)
     name: Mapped[str] = mapped_column(Text, nullable=False)
+    domain: Mapped[str | None] = mapped_column(Text, nullable=True)  # 如 数与代数
     grade: Mapped[str | None] = mapped_column(Text, nullable=True)
     semester: Mapped[str | None] = mapped_column(Text, nullable=True)
     chapter: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -7,9 +7,25 @@
 
 ## [Unreleased]
 
-下一步按 `TICKETS.md` 顺序推进：**P1-1b 知识点 seed 装载**（导入 `cn-math-taxonomy` 初中部分）或 **P1-2 Provider 适配层**。
+下一步按 `TICKETS.md` 顺序推进：**P1-2 Provider 适配层**（含成本护栏）。
 
 ### Added
+
+- **P1-1b 知识点 seed 装载**（2026-10-24）：`cn-math-taxonomy` 初中部分入库。
+  - 转换脚本 `wengu-api/scripts/import_seed.py`（`make seed-load`，开发者一次性跑）：
+    过滤 grade 7–9（664 点 = 数学 315 + 英语 257 + 物理 92），12 核心字段直映 + 按前缀显式化
+    subject，`unaudited: true` 全打、`blind_verified: true` 仅数学；先修边 1018 条仅留两端点
+    均在装载集内的（跨学段 74 条丢弃并计数）；`_source.json` 内嵌署名（URL/CC BY-NC 4.0/NC 声明）。
+  - seed 包 `seeds/data/{topics,dependencies,_source}.json` 随仓库分发（JSON = 唯一真源；
+    SQLite 为幂等装载副本 + FK 锚点）；`seeds/local/`（化学/语文自建）与 `seeds/mappings/`
+    （教材包对照，status: example|draft|reviewed）家长自建、不进 Git。
+  - 运行时装载器 `app/seed/loader.py`：启动自动装载（幂等可重入、fail-fast 校验、
+    先修边全量同步、内存索引邻接表供回溯诊断）；教材包机制照抄、数据不附带。
+  - 迁移 `0003`：`knowledge_seed` 补 `domain` 列；`GET /api/seed/summary` 只读返回
+    各学科点数 + `unaudited`/`blind_verified` 计数（透传路径，纯查询不触发模型）。
+  - 容器实测：`topics_total 664 / edges 1018`，数学 315/315/315、物理 92/92/0、英语 257/257/0。
+  - 修正 P1-0 文档矛盾：AGENTS §2.6 定"seed 随仓库分发"，`seeds/README.md`、
+    `THIRD-PARTY-NOTICES.md §1`、`.gitignore`（`data/` 通配曾误伤 `seeds/data/`）改为与新决定一致。
 
 - **P1-1 数据模型 + 事件溯源/幂等骨架**（2026-10-24）：迁移 `0002_p1_1_core_schema` 建 13 张表——
   `learning_events`（append-only 事实源，`idempotency_key UNIQUE`，触发器钉死禁 UPDATE/DELETE）、

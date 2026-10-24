@@ -92,8 +92,8 @@ dev-web:
 
 # ---------- 数据与迁移 ----------
 seed-load:
-	@echo "===> 装载 knowledge_seed + prerequisite_edges..."
-	cd wengu-api && $(VENV_PY) -m scripts.import_seed
+	@echo "===> 从 cn-math-taxonomy 转换初中 seed 到 seeds/data/（一次性，开发者跑）..."
+	cd wengu-api && $(VENV_PY) -m scripts.import_seed --src ../cn-math-taxonomy-main
 
 migrate:
 	cd wengu-api && $(VENV_ALEMBIC) revision --autogenerate -m "$(M)"

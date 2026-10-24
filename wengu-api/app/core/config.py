@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     prompts_dir: Path = Field(
         default=PROJECT_ROOT / "llm_prompts", validation_alias="WENGU_PROMPTS_DIR"
     )
+    seeds_dir: Path = Field(
+        default=PROJECT_ROOT / "seeds", validation_alias="WENGU_SEEDS_DIR"
+    )
     app_config_path: Path = Field(
         default=PROJECT_ROOT / "config" / "app-config.json",
         validation_alias="WENGU_APP_CONFIG_PATH",
@@ -57,6 +60,7 @@ class Settings(BaseSettings):
         )
         self.db_path = self.data_dir / "wengu.db" if self.db_path is None else _resolve(self.db_path)
         self.prompts_dir = _resolve(self.prompts_dir)
+        self.seeds_dir = _resolve(self.seeds_dir)
         self.app_config_path = _resolve(self.app_config_path)
         return self
 
