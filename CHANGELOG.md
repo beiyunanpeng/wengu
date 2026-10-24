@@ -29,12 +29,12 @@
 ### Verified
 
 - `docker compose up -d --build --wait` 双服务 healthy（2026-10-24，Docker Desktop 29.9.2）：`wengu-api` 8100→8000 `/health` 200、`wengu-web` 5000→80 页面正常；容器内 Alembic 自动 `upgrade head`。
+- GitHub Actions 首跑全绿（2026-10-24，run 40095188340）：api 32s / web 19s，ruff + pytest 12 + compose config + tsc + build 全过。
 - 前置：Docker Engine 配置 registry mirrors `docker.m.daocloud.io` + `docker.1ms.run`；本机 8000/5173 被 Hyper-V 动态保留段占用，用 `WENGU_API_PORT` / `WENGU_WEB_PORT` 覆盖。
 
 ### Still blocked
 
 - P0-1 边界表未回填：P1-0 不含任何自动入库/自动排复习逻辑（AGENTS §2 闸门）。
-- GitHub Actions 待首次 push 后观察运行结果。
 
 ## [0.0.0] - 2026-10-24
 
