@@ -1,4 +1,4 @@
-"""Vision provider contract. Real vendor adapters arrive in P1-2; only mock exists now."""
+"""Provider contracts. 适配层唯一边界：加一家 = 一个文件 + 配置，业务零改动。"""
 
 from __future__ import annotations
 
@@ -38,19 +38,57 @@ class Explanation:
     hint_level: int = 0
 
 
+@dataclass(frozen=True)
+class TokenUsage:
+    input_tokens: int = 0
+    output_tokens: int = 0
+
+
+@dataclass(frozen=True)
+class CallMeta:
+    """每次调用的可审计元数据（进 model_runs / ai-raw，绝不进日志正文）。"""
+
+    provider: str
+    model: str
+    latency_ms: int
+    usage: TokenUsage = field(default_factory=TokenUsage)
+    raw: dict[str, object] = field(default_factory=dict)
+
+
 class VisionProvider(ABC):
-    """Exchangeable provider boundary; adding a vendor must not touch business code."""
+    """Exchangeable provider boundary; adding a vendor must not touch business code.
+
+    prompt 一律由调用方（gateway）从 llm_prompts 真源渲染后传入——代码不留 prompt 正文。
+    """
 
     name: str
 
     @abstractmethod
-    async def extract_problem(self, image_path: str) -> ExtractedProblem:
+    async def extract_problem(
+        self, image_path: str, *, prompt: str
+    ) -> tuple[ExtractedProblem, CallMeta]:
         """Read problem text and the student's answer from an image."""
 
     @abstractmethod
-    async def grade(self, problem_text: str, student_answer: str) -> GradeResult:
+    async def grade(
+        self, problem_text: str, student_answer: str, *, prompt: str
+    ) -> tuple[GradeResult, CallMeta]:
         """Give a conservative hint for process questions; never judge objective ones."""
 
     @abstractmethod
-    async def solve_explain(self, problem_text: str, hint_level: int = 0) -> Explanation:
+    async def solve_explain(
+        self, problem_text: str, *, prompt: str, hint_level: int = 0
+    ) -> tuple[Explanation, CallMeta]:
         """Produce the staged explanation used by the tutoring engine."""
+
+
+class TextProvider(ABC):
+    """OpenAI-compat 文本侧（DeepSeek/GLM/Kimi）：讲解、判分辅助、标签预填等。"""
+
+    name: str
+
+    @abstractmethod
+    async def complete(
+        self, prompt: str, *, temperature: float | None = None
+    ) -> tuple[str, CallMeta]:
+        """Run a single-turn completion and return (text, call metadata)."""

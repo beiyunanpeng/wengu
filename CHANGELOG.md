@@ -7,9 +7,44 @@
 
 ## [Unreleased]
 
-下一步按 `TICKETS.md` 顺序推进：**P1-2 Provider 适配层**（含成本护栏）。
+下一步按 `TICKETS.md` 顺序推进：**P1-3 拍照上传链路**。
 
 ### Added
+
+- **P1-2 Provider 适配层 + 成本护栏**（2026-10-24）：视觉/文本双供应商可插拔落地，零厂商 SDK。
+  - 适配器：`providers/openai_vision.py` 共享 OpenAI-compat 实现（httpx 直连 chat/completions，
+    请求体绝不进错误消息），`doubao.py`（方舟 `/api/v3`）与 `qwen_vl.py`（DashScope
+    compatible-mode）薄子类；`text.py` OpenAITextProvider（DeepSeek 默认，GLM/Kimi 同构可扩）；
+    `tencent.py` 显式占位（调用即抛未实现）。基座 `http.py`：usage/latency 解析、
+    `extract_json_object` 宽松抢救（严格校验归 Schema 层，P1-4）、图片 data URL。
+  - 契约升级（`providers/base.py`）：三任务方法改收 gateway 渲染好的 `prompt: str`、
+    返回 `(结果, CallMeta)`——**代码不留 prompt 正文**，调用元数据（供应商/模型/token/延迟）
+    可审计；新增 `TextProvider`。mock 同步升级并新增 `MockTextProvider`。
+  - 路由注册表 `providers/registry.py`：`DEFAULT_ROUTING` 按 Phase 0 实测落点
+    （提取/判分/讲解→doubao，字形默写→qwen_vl，文本→deepseek），
+    `config/app-config.json` 的 `provider_routing` 热覆盖；缺密钥/模型名 fail-fast
+    （`ProviderConfigError`，模型名绝不猜），性价比/旗舰双档按 `model_tier_default` 选模型。
+  - 三级内容哈希缓存 `providers/cache.py`：L1 内存 → L2 `data/ai-cache/*.json`（原子写），
+    key = sha256(task+供应商+模型+prompt 版本+输入摘要)；prompt 改版本即全量失效
+    （回归可重放）；命中零模型调用、不计护栏。
+  - 成本护栏 `services/model_audit.py`：`check_daily_guard` 双闸——当日真实调用次数
+    （`WENGU_DAILY_CALL_LIMIT`，默认 200）+ 按 `model_prices` token 单价的成本估算
+    （`WENGU_DAILY_CALL_BUDGET_CNY`）；每次真实调用落 `model_runs`（P1-1 表复用：
+    prompt 版本/供应商/token 用量/状态，错误也留痕，**零题目全文/答案/URL**）。
+  - 网关 `services/ai_gateway.py`：业务唯一入口，管线 = 路由→护栏→缓存→调用→审计
+    （独立 session 提交，业务回滚不丢审计）；L3 原始响应落 `data/ai-raw/{date}/`。
+  - 配置：`.env.example` 重写 Provider 段（`WENGU_DOUBAO_/WENGU_QWEN_/WENGU_DEEPSEEK_`
+    value/flagship 分档）；`config/README.md` 补 `provider_routing`/`model_prices` 热配置说明。
+  - 验证：64 tests 全绿（新增 http/适配器/缓存/审计/gateway 端到端共 28 个用例，
+    MockTransport 零网络零密钥）；ruff 零告警；容器重建 healthy，`/api/seed/summary`
+    数据完好，容器内路由冒烟通过。
+  - **真实连通冒烟**（2026-10-24，`python -m scripts.smoke_providers [--prefer-dotenv]`）：
+    四家全验——百炼 `qwen3.5-ocr`（244 ms）/`qwen3.8-max`（1539 ms）文本调用通过；
+    方舟 `doubao-seed-2-1-lite/pro-260915` **带图视觉调用通过**（64×64 试色图均正确
+    答"红色"）。沉淀的坑进 `.env.example` 注释：模型 ID 全小写大小写敏感（展示名
+    ≠ API id）、百炼 OpenAI 兼容地址 `.../compatible-mode/v1`（非 `/api/v1`）、
+    方舟模型需控制台"开通"后才可调用、seed-2.1 为推理模型（有 reasoning_tokens，
+    延迟/成本偏高，P1-4 选型再测）；`turbo-260628` 可用但 Phase 0 实测更差更贵，默认不用。
 
 - **P1-1b 知识点 seed 装载**（2026-10-24）：`cn-math-taxonomy` 初中部分入库。
   - 转换脚本 `wengu-api/scripts/import_seed.py`（`make seed-load`，开发者一次性跑）：
@@ -24,8 +59,10 @@
   - 迁移 `0003`：`knowledge_seed` 补 `domain` 列；`GET /api/seed/summary` 只读返回
     各学科点数 + `unaudited`/`blind_verified` 计数（透传路径，纯查询不触发模型）。
   - 容器实测：`topics_total 664 / edges 1018`，数学 315/315/315、物理 92/92/0、英语 257/257/0。
-  - 修正 P1-0 文档矛盾：AGENTS §2.6 定"seed 随仓库分发"，`seeds/README.md`、
-    `THIRD-PARTY-NOTICES.md §1`、`.gitignore`（`data/` 通配曾误伤 `seeds/data/`）改为与新决定一致。
+  - 数据范围口径：`.gitignore` 原注释"不分发"指**外部原始仓**（`cn-math-taxonomy-main/`，
+    仍被忽略、永不入库）；本次按 AGENTS §2.6 让**转换后的初中 seed 包**随仓库分发，
+    `seeds/README.md`、`THIRD-PARTY-NOTICES.md §1` 同步；并修复 `.gitignore` 的 `data/`
+    通配误伤 `seeds/data/` 的问题。
 
 - **P1-1 数据模型 + 事件溯源/幂等骨架**（2026-10-24）：迁移 `0002_p1_1_core_schema` 建 13 张表——
   `learning_events`（append-only 事实源，`idempotency_key UNIQUE`，触发器钉死禁 UPDATE/DELETE）、

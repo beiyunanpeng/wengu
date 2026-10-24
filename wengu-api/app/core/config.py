@@ -7,7 +7,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 API_DIR = Path(__file__).resolve().parents[2]
@@ -50,7 +50,37 @@ class Settings(BaseSettings):
     daily_call_budget_cny: float = Field(
         default=10.0, ge=0, validation_alias="WENGU_DAILY_CALL_BUDGET_CNY"
     )
+    daily_call_limit: int = Field(default=200, ge=1, validation_alias="WENGU_DAILY_CALL_LIMIT")
     variant_on_demand: bool = Field(default=True, validation_alias="WENGU_VARIANT_ON_DEMAND")
+    # Provider keys/models：模型名绝不猜——缺了在注册时 fail-fast（ProviderConfigError）。
+    # 密钥别名同时接受 wengu 前缀与上游标准名（ARK_*/DASHSCOPE_*），方便复用本机已有配置。
+    doubao_api_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("WENGU_DOUBAO_API_KEY", "ARK_API_KEY"),
+    )
+    doubao_base_url: str = Field(
+        default="https://ark.cn-beijing.volces.com/api/v3",
+        validation_alias=AliasChoices("WENGU_DOUBAO_BASE_URL", "ARK_BASE_URL"),
+    )
+    doubao_model_value: str | None = Field(default=None, validation_alias="WENGU_DOUBAO_MODEL_VALUE")
+    doubao_model_flagship: str | None = Field(
+        default=None, validation_alias="WENGU_DOUBAO_MODEL_FLAGSHIP"
+    )
+    qwen_api_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("WENGU_QWEN_API_KEY", "DASHSCOPE_API_KEY"),
+    )
+    qwen_base_url: str = Field(
+        default="https://dashscope.aliyuncs.com/compatible-mode/v1",
+        validation_alias=AliasChoices("WENGU_QWEN_BASE_URL", "DASHSCOPE_BASE_URL"),
+    )
+    qwen_model_value: str | None = Field(default=None, validation_alias="WENGU_QWEN_MODEL_VALUE")
+    qwen_model_flagship: str | None = Field(default=None, validation_alias="WENGU_QWEN_MODEL_FLAGSHIP")
+    deepseek_api_key: str | None = Field(default=None, validation_alias="WENGU_DEEPSEEK_API_KEY")
+    deepseek_base_url: str = Field(
+        default="https://api.deepseek.com", validation_alias="WENGU_DEEPSEEK_BASE_URL"
+    )
+    deepseek_model: str = Field(default="deepseek-chat", validation_alias="WENGU_DEEPSEEK_MODEL")
 
     @model_validator(mode="after")
     def _normalize_paths(self) -> Settings:
@@ -87,13 +117,19 @@ class AppConfigFile(BaseModel):
 
     model_tier_default: Literal["value", "flagship"] | None = None
     daily_call_budget_cny: float | None = Field(default=None, ge=0)
+    daily_call_limit: int | None = Field(default=None, ge=1)
     variant_on_demand: bool | None = None
+    provider_routing: dict[str, str] | None = None
+    model_prices: dict[str, dict[str, float]] | None = None
 
 
 class RuntimeConfig(BaseModel):
     model_tier_default: Literal["value", "flagship"]
     daily_call_budget_cny: float
+    daily_call_limit: int
     variant_on_demand: bool
+    provider_routing: dict[str, str]
+    model_prices: dict[str, dict[str, float]]
 
 
 _app_config_cache: dict[Path, tuple[int, AppConfigFile]] = {}
@@ -129,9 +165,16 @@ def get_runtime_config(path: Path | None = None) -> RuntimeConfig:
             if overrides.daily_call_budget_cny is not None
             else settings.daily_call_budget_cny
         ),
+        daily_call_limit=(
+            overrides.daily_call_limit
+            if overrides.daily_call_limit is not None
+            else settings.daily_call_limit
+        ),
         variant_on_demand=(
             overrides.variant_on_demand
             if overrides.variant_on_demand is not None
             else settings.variant_on_demand
         ),
+        provider_routing=overrides.provider_routing or {},
+        model_prices=overrides.model_prices or {},
     )
