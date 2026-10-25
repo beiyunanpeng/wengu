@@ -9,7 +9,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app import __version__
+from app.api.captures import router as captures_router
 from app.api.health import router as health_router
+from app.api.imports import router as imports_router
 from app.api.seed import router as seed_router
 from app.core.database import get_session_factory
 from app.seed.loader import load_seed
@@ -33,6 +35,8 @@ def create_app() -> FastAPI:
     application = FastAPI(title="wengu · 温故", version=__version__, lifespan=_lifespan)
     application.include_router(health_router)
     application.include_router(seed_router)
+    application.include_router(captures_router)
+    application.include_router(imports_router)
     return application
 
 

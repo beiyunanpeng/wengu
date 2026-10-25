@@ -7,9 +7,70 @@
 
 ## [Unreleased]
 
-下一步按 `TICKETS.md` 顺序推进：**P1-3 拍照上传链路**。
+下一步按 `TICKETS.md` 顺序推进：**P1-4 结构化提取（含提取质量前置闸门）**。
 
 ### Added
+
+- **P1-3b OCR 行聚类切题预处理**（2026-10-25）：整页照片 → 本地 OCR 行检测 → 题号锚点 +
+  垂直间隙聚类 → 裁单题子图，供 P1-4 精读；全程**不联网、不调 VLM**。
+  - 迁移 `0005`：`photo_capture_items`（FK→`photo_captures`、`UNIQUE(capture_id, seq)`、
+    `bbox_json`/`stored_path`/`anchor_label`/`status`）；capture 状态新增
+    `sliced`/`slice_failed`。迁移说明含备份/回退步骤。
+  - OCR 引擎 `app/preprocess/ocr.py`：`RapidOcrEngine`（rapidocr-onnxruntime，模型随
+    wheel 内置，本地 CPU）、懒加载进程内单例、`TextLine` 统一行框；识别分 < 0.4 丢弃。
+    引擎以 `OcrEngine` Protocol 抽象，可换 PaddleOCR。
+  - 切题算法 `app/services/slicer.py`（纯函数、可单测）：题号锚点正则
+    （`12.`/`3、`/`4．`/`12)`/`第5题`，`(?!\d)` 排除小数、题号 ≤100）；行距 >
+    **2.0×行高中位数**→ 新题边界（无题号的续行/小问随组）；双页中线 gutter 检测
+    （35%–65% 中带列差数组，空列连续 ≥2% 图宽即判定两栏，各栏独立聚类）；8px padding、
+    面积 <400 噪声丢弃、全局连续 `seq`。**零锚点整页拒绝切分**（`SliceError`，绝不瞎切）；
+    切块 >60 视为 OCR 噪声失控拒绝。
+  - 端点：`POST /api/captures/{id}/slice` 显式触发（Phase 0 闸门内不做自动链）——
+    幂等返回已切结果、`?force=true` 先删后插并**同路径覆盖 + 清理题数变少后的旧序号
+    裁图（零孤儿文件）**、重切失败保留上次成功切片不误标 `slice_failed`；
+    CPU 密集 OCR 走 `asyncio.to_thread`；无锚点 → 422 + `slice_failed`；母图丢失 → 410；
+    `GET /api/captures/{id}/items` 纯查询回显。裁图落
+    `uploads/slices/YYYY/MM/{sha256[:16]}-{seq}.png`。
+  - Fixtures + 开发脚本：`scripts/make_slicing_fixture.py` 生成双页 10 题
+    （含两行题、无题号续行、`第5题`、右栏两小问）与无锚点页及 truth JSON；
+    产物提交进 `tests/fixtures/`，容器无需 CJK 字体。
+  - 提示词：`llm_prompts/transcribe_image.md`（`id: transcribe_image` v1，逐字转写、
+    `〔?〕` 占位不猜）——首个真实 prompt 文件，供 P1-4/评测使用。
+  - **DoD 对比评测** `scripts/eval_slicing.py`：整页直读 vs 逐裁图转写，difflib 相似度对
+    truth；`--degrade`（旋转 1.5° + 高斯模糊 + 62% 缩放回放）模拟手机拍照劣化。
+    实测 doubao-seed-2-1-lite-260915：清晰图 Δ=+0.020（基本持平，合成页对整页 VLM 太简单）；
+    **劣化图 Δ=+0.057（切题显著占优，整页 0.870 vs 切题 0.927）**；单题裁图调用 p50 3.1s
+    （整页 15.4s），代价是裁图模式输入 token ≈10×（成本换准确率）。**尚未用真实作业照片
+    复验**，家长可拍照后跑同一脚本定论。
+  - Dockerfile 修复：rapidocr 依赖 `opencv-python`（GUI 版，需 libGL/libxcb）会盖掉
+    headless 包导致容器 `ImportError: libxcb.so.1`——改为安装后卸载 GUI 包并强制重装
+    `opencv-python-headless>=4.10,<5`；容器内 cv2 4.14.0 导入正常。
+  - 验证：测试 87 → 102（锚点形式/拒绝式样/单双栏聚类/噪声过滤/重切幂等与旧裁图清理/
+    无锚点 422/零 VLM 调用），`ruff check .` 全绿；容器实跑：双页 fixture → 10 items、
+    `column_split_x=1034`、2 行页眉丢弃、锚点 `['1.','2.','3、','4.',None,'第5题',...]`、
+    10 张裁图、force 重切后仍 10 文件 10 行（无孤儿）、无锚点页 422 + `slice_failed` + 0 行。
+
+- **P1-3 采集双通道**（2026-10-24）：拍照秒传落库 + 豆包 JSON 兜底导入，全程零模型调用。
+  - 迁移 `0004`：`photo_captures` 事实表（`sha256 UNIQUE` 幂等去重、`stored_path` 存
+    uploads 相对路径哈希改名、`status='pending'` 待 P1-3b/4 消费；Phase 0 闸门内
+    "触发"只到落库为止，不做识别/自动入库）。
+  - 主通道：`POST /api/captures` multipart 上传——流式写盘边算 sha256、magic bytes
+    嗅探（声明的 content-type 不可信，JPEG/PNG/WebP 白名单 + 声明与字节不符即 415）、
+    20MB 上限；同照片重传复用旧行旧路径并自愈缺失文件，零孤儿文件；
+    `GET /api/captures[?status=]` / `GET /api/captures/{id}` 纯查询。
+  - 兜底通道：`POST /api/imports`——封套校验（channel 白名单/单批 ≤500 题/报文 ≤5MB）→
+    逐项确定性校验归一（`services/ingestion.py`：控制字符清洗、字段类型/长度上限、
+    超长不静默截断算错误跳过、未知字段丢弃计数）→ `import_batches` sha256 去重
+    （重复导入返回旧 batch + `duplicate: true` 提醒）→ `ingestion_drafts` 写草稿
+    （`has_placeholder`/`is_incomplete` 打标，与将来 P1-4 提取通道共用草稿结构）；
+    坏项跳过 + 逐条错误报告（index/field/reason），batch 状态区分 imported/partial；
+    `GET /api/imports/{id}` / `.../drafts` 纯查询回显。
+  - 容器实测：真 PNG 上传 → `capture_id:1 pending`，重传 → `duplicate:true` 同 id，
+    库内 1 行 1 文件；JSON 导入（含 1 坏题）→ `partial` + 错误报告 + 2 草稿，
+    重复导入 → 同 `batch_id` + `duplicate:true`，库内终态 captures 1/batches 1/drafts 2。
+  - 测试 64 → 87：`test_ingestion_validation`（纯函数）、`test_captures_api` /
+    `test_imports_api`（真实迁移库 + ASGI 客户端，含"炸掉 AiGateway 仍通过"的
+    零模型调用断言）；`ruff check .` 全绿。
 
 - **P1-2 Provider 适配层 + 成本护栏**（2026-10-24）：视觉/文本双供应商可插拔落地，零厂商 SDK。
   - 适配器：`providers/openai_vision.py` 共享 OpenAI-compat 实现（httpx 直连 chat/completions，

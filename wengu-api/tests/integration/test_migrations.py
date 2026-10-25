@@ -19,6 +19,8 @@ EXPECTED_TABLES = {
     "concept_aliases",
     "import_batches",
     "ingestion_drafts",
+    "photo_captures",
+    "photo_capture_items",
     "review_schedules",
     "ai_jobs",
     "model_runs",

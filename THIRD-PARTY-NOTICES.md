@@ -48,6 +48,20 @@
 
 生产依赖的具体版本与许可证以 `wengu-api/requirements.txt` 与 `wengu-web/package.json` 为准。CI 应加 `pip-licenses` / `license-checker` 汇总，本文件人工维护顶层归属。
 
+### 5.1 OCR 运行时（P1-3b）
+
+切题预处理在本地 CPU 运行，**不联网**；Docker 镜像内置以下依赖：
+
+| 依赖 | 许可 | 用途 |
+| --- | --- | --- |
+| `rapidocr-onnxruntime` | Apache-2.0 | OCR 推理管线（随 wheel 内置 PaddleOCR PP-OCR 检测/识别模型，Apache-2.0） |
+| `onnxruntime` | MIT | ONNX 推理引擎 |
+| `opencv-python-headless` | Apache-2.0 | 图像预处理（容器内**强制使用 headless 版**，替换 rapidocr 声明的 GUI 版 `opencv-python`，避免 libGL/libxcb 依赖） |
+| `Pillow` | HPND | 读图与裁切 |
+| `numpy` / `shapely` / `pyclipper` / `PyYAML` | BSD-3-Clause / BSD-3-Clause / MIT / MIT | OCR 依赖链 |
+
+以上均为宽松许可，可随镜像分发；分发时保留本文件。
+
 ---
 
 ## 分发义务（给下游打包者）

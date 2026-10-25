@@ -13,7 +13,11 @@ WORKDIR /app
 
 COPY requirements.txt ./
 ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
-RUN pip install -i ${PIP_INDEX_URL} -r requirements.txt
+# rapidocr-onnxruntime 依赖 opencv-python（GUI 版，需 libGL/libxcb），容器里必须换回
+# headless 版：先卸载 GUI 包再强制重装 headless，确保 cv2 文件归属 headless。
+RUN pip install -i ${PIP_INDEX_URL} -r requirements.txt \
+    && pip uninstall -y opencv-python \
+    && pip install -i ${PIP_INDEX_URL} --no-deps --force-reinstall "opencv-python-headless>=4.10,<5"
 
 COPY app ./app
 COPY alembic.ini ./

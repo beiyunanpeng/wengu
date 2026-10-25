@@ -1,0 +1,50 @@
+{
+  "image": "two_page_spread.png",
+  "canvas": [
+    2300,
+    1560
+  ],
+  "min_slices": 10,
+  "questions": [
+    {
+      "anchor": "1.",
+      "text": "计算：(-3)+5=______"
+    },
+    {
+      "anchor": "2.",
+      "text": "解方程 2x+3=7"
+    },
+    {
+      "anchor": "3、",
+      "text": "化简：3a+2a-a"
+    },
+    {
+      "anchor": "4．",
+      "text": "已知 |a|=2，则 a=______"
+    },
+    {
+      "anchor": null,
+      "text": "答：a=±2，过程见下"
+    },
+    {
+      "anchor": "第5题",
+      "text": "求 y=2x-1 与 x 轴交点"
+    },
+    {
+      "anchor": "1.",
+      "text": "计算：根号16-根号9=______"
+    },
+    {
+      "anchor": "2.",
+      "text": "分解因式：x^2-4=______"
+    },
+    {
+      "anchor": "3.",
+      "text": "在三角形ABC中，角C=90度，AC=3，BC=4，求 AB 的长"
+    },
+    {
+      "anchor": "4.",
+      "text": "解不等式组 (1) x>1 (2) x≤3"
+    }
+  ]
+}

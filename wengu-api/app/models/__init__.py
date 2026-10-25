@@ -1,5 +1,10 @@
 from app.models.events import Attempt, LearningEvent
-from app.models.ingestion import ImportBatch, IngestionDraft
+from app.models.ingestion import (
+    ImportBatch,
+    IngestionDraft,
+    PhotoCapture,
+    PhotoCaptureItem,
+)
 from app.models.jobs import AiJob, ModelRun
 from app.models.knowledge import Concept, ConceptAlias, KnowledgeSeed, PrerequisiteEdge
 from app.models.mistakes import MistakeVersion
@@ -17,6 +22,8 @@ __all__ = [
     "LearningEvent",
     "MistakeVersion",
     "ModelRun",
+    "PhotoCapture",
+    "PhotoCaptureItem",
     "PrerequisiteEdge",
     "ReviewSchedule",
     "UserRole",
