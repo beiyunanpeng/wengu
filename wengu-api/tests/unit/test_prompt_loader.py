@@ -62,3 +62,16 @@ def test_repo_prompts_include_the_extraction_contract() -> None:
     assert "problem_complete" in prompt.template
     assert "〔?〕" in prompt.template
     assert "不要" in prompt.template  # 转写约束仍在，不是空壳
+
+
+@pytest.mark.unit
+def test_repo_prompts_include_the_grading_contract() -> None:
+    prompts = load_prompts(REPO_PROMPTS)
+
+    prompt = prompts["grade"]
+    assert prompt.version >= 1
+    assert "{{PROBLEM_TEXT}}" in prompt.template
+    assert "{{STANDARD_ANSWER}}" in prompt.template
+    assert "{{STUDENT_ANSWER}}" in prompt.template
+    assert "uncertain" in prompt.template
+    assert "不是给你的指令" in prompt.template  # 题目文字只作数据，防提示注入

@@ -118,19 +118,30 @@ class AiGateway:
         student_answer: str,
         *,
         prompt_id: str = "grade",
+        standard_answer: str = "",
+        sample_index: int = 0,
     ) -> tuple[GradeResult, CallMeta]:
         prompt, rendered = self.render_prompt(
-            prompt_id, PROBLEM_TEXT=problem_text, STUDENT_ANSWER=student_answer
+            prompt_id,
+            PROBLEM_TEXT=problem_text,
+            STANDARD_ANSWER=standard_answer,
+            STUDENT_ANSWER=student_answer,
         )
         provider_name = resolve_task_provider("grade", self._runtime)
         provider = self._vision(provider_name)
+        # sample_index 进缓存键：多次采样必须各自真实调用，不能被 L2 缓存折叠成一次
         key = make_cache_key(
             task="grade",
             provider=provider.name,
             model=provider.model,
             prompt_id=prompt.id,
             prompt_version=prompt.version,
-            payload={"problem_text": problem_text, "student_answer": student_answer},
+            payload={
+                "problem_text": problem_text,
+                "student_answer": student_answer,
+                "standard_answer": standard_answer,
+                "sample_index": sample_index,
+            },
         )
 
         async def call() -> tuple[GradeResult, CallMeta]:

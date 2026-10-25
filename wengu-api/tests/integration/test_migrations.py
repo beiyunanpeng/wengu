@@ -22,6 +22,11 @@ EXPECTED_TABLES = {
     "photo_captures",
     "photo_capture_items",
     "problem_extractions",
+    "problem_bank",
+    "grading_results",
+    "grading_versions",
+    "mistakes",
+    "practice_records",
     "review_schedules",
     "ai_jobs",
     "model_runs",
@@ -112,5 +117,61 @@ def test_learning_events_append_only_guard(tmp_path) -> None:
                     " VALUES ('attempt_wrong', 'student', 'guard-key-2')"
                 )
             )
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.integration
+def test_grading_versions_append_only_guard(tmp_path) -> None:
+    db_path = tmp_path / "grading-guard.db"
+    command.upgrade(_alembic_config(db_path), "head")
+
+    engine = create_engine(f"sqlite:///{db_path.as_posix()}")
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO grading_results"
+                    " (source_kind, source_id, question_type, problem_text, created_at, updated_at)"
+                    " VALUES ('problem_extraction', 1, 'objective', '1+1=?',"
+                    " CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO grading_versions"
+                    " (grading_id, version, action, verdict, source, created_at)"
+                    " VALUES (1, 1, 'suggested', 'correct', 'code', CURRENT_TIMESTAMP)"
+                )
+            )
+            with pytest.raises(sqlalchemy.exc.IntegrityError, match="append-only"):
+                connection.execute(text("UPDATE grading_versions SET verdict = 'wrong' WHERE id = 1"))
+            with pytest.raises(sqlalchemy.exc.IntegrityError, match="append-only"):
+                connection.execute(text("DELETE FROM grading_versions WHERE id = 1"))
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.integration
+def test_mistake_versions_append_only_guard(tmp_path) -> None:
+    db_path = tmp_path / "mistake-guard.db"
+    command.upgrade(_alembic_config(db_path), "head")
+
+    engine = create_engine(f"sqlite:///{db_path.as_posix()}")
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO mistake_versions"
+                    " (mistake_id, version, status, created_at)"
+                    " VALUES (1, 1, 'active', CURRENT_TIMESTAMP)"
+                )
+            )
+            with pytest.raises(sqlalchemy.exc.IntegrityError, match="append-only"):
+                connection.execute(
+                    text("UPDATE mistake_versions SET status = 'voided' WHERE id = 1")
+                )
+            with pytest.raises(sqlalchemy.exc.IntegrityError, match="append-only"):
+                connection.execute(text("DELETE FROM mistake_versions WHERE id = 1"))
     finally:
         engine.dispose()

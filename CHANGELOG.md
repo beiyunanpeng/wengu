@@ -7,9 +7,101 @@
 
 ## [Unreleased]
 
-下一步按 `TICKETS.md` 顺序推进：**P1-5 批改分级闸 + 回显 + 建议/确认分离**（边界表未回填，仍按"待确认"保守起步）。
+下一步按 `TICKETS.md` 顺序推进：**P1-8 三段式讲解引擎**。
+**P1-7 复习调度仍受 Phase 0 闸门阻塞**（边界表未回填前不自动排复习）；
+P1-6 的"入本"也仍以孩子/家长确认 `wrong` 为前提，不得静默自动建错题。
 
 ### Added
+
+- **P1-6 保守入本 + 两级标签 + 派生表**（2026-10-25）：Phase 0 边界表未回填，
+  不实现"判错即自动入本"；错题只由孩子/家长确认或申诉 `wrong` 时创建/复活，
+  `correct` 只作废不删除历史；变式/加练隔离在 `practice_records`。
+  - 迁移 `0008`：`mistakes`（`source_grading_id` UNIQUE、active/voided、
+    `current_version`）、`practice_records`（FK SET NULL、可整表清空）、
+    `mistake_versions` 新增 `suggested_concept_ids_json`/`confirmed_concept_ids_json`
+    与 UPDATE/DELETE 只追加触发器；迁移含备份/回退说明，不回填任何排期。
+  - 唯一写入路径 `services/mistakes.py`：确认/申诉 `wrong` → 建根或复活 + 首版快照，
+    `correct` → 作废；AI 建议单独落库绝不建错题；重复确认不重复建根；`wrong` 的
+    `learning_events` 携带 `mistake_id`，`correct` 不携带；幂等键
+    `grading:{id}:v{version}` 防重。
+  - 两级标签：粗粒度 `category` = `knowledge_seed.id`，细粒度 `concept` =
+    `concepts` 表；`services/labels.py` **零模型**按题目原文子串匹配已有 seed/
+    concept 名称与别名，匹配不到留空、不猜不生成；建议值与确认值分离，确认值优先
+    且后续建议永不覆盖。`POST /api/mistakes/{id}/labels` 支持**部分更新**（省略字段
+    保留上次确认值，显式 `null`/`[]` 清空），`base_version` 乐观锁，旧版本 409；
+    错因固定 7 项（前置缺失/概念不清/方法不会/计算失误/审题粗心/表达书写/其他）。
+  - concept 受控生长 `POST /api/concepts`：category 内按名称/别名归一查重，命中即
+    复用；`POST /api/concepts/merge` 人工归并，历史标签按合并家族解析。
+  - 检索：`GET /api/mistakes`（status/category/concept/error_cause + 分页）、
+    `GET /api/mistakes/{id}`、`GET /api/mistakes/options`、`GET /api/seed/topics`；
+    批改详情新增 `mistake_id`/`mistake_status`。**所有 GET 零模型调用**。
+  - `practice_records`：`POST/GET/DELETE /api/practice-records`，不写
+    `learning_events`、不建/改错题、不参与掌握度与复习，整表清空返回删除数。
+  - 复习策略纯函数 `services/review_policy.py`：数学 1/10/30、记忆科 1/3/7/14/30；
+    `实际间隔 = 基础档 × (1 + mastery × 4)`，`times_wrong > 1` 折半、最少 1 天；
+    答错不倒退、从实际完成日起算、`times_wrong` 归零且尾部连对 ≥3 毕业。
+    **本模块不落库、无 HTTP 排期端点**，P1-7 闸门后再接。
+  - 测试：全量 **275 passed**，`ruff check .` 全绿；新增 10 条复习策略单测 +
+    7 条错题集成测试（零输入/仅 AI 建议不入本、确认/申诉生命周期、部分标签、
+    concept 复用/归并/历史解析、practice 隔离与清空、options/seed 检索）。
+  - **容器实跑**（既有卷升级 0007→0008，端口 8100）：导入 → 客观题零模型判错
+    （`pending`）→ 确认 `wrong` 建错题（1 次点击）→ concept 创建/别名复用 →
+    标签 v2 全量 + v3 部分更新（分类/概念保留）→ category/concept/错因过滤 →
+    旧 `base_version` 409 → practice 创建/查询/清空 → 连续 9 次 GET 前后
+    `model_runs` 15→15 → 申诉 `correct` 作废 → 申诉 `wrong` 复活；停/启容器后
+    宿主库仍为 `mistakes=1`、`mistake_versions=3`、`learning_events=7`（新增 5 条，
+    wrong 带 `mistake_id`、correct 不带）、`practice_records=0`。
+  - 残留风险：标签候选仅做字面匹配，可能漏配/误配，且本轮不含 AI 错因生成；
+    concept/错题/practice 只有 API，独立查询页按 P1-9 最小 UI 交付；复习仅有纯函数
+    接口，未生成任何 `review_schedules`；Phase 0 边界表未回填，"零输入入本"仍以
+    人工确认 `wrong` 为前提。
+  - 运维提示：Docker Desktop 共享挂载下，**容器运行期间不要从宿主机用 SQLite
+    读写 `data/wengu.db`**（实测会让容器侧 WAL/SHM 失效并丢失未 checkpoint 写入）；
+    验收/查库走 `docker exec`，备份前先 `docker compose stop api`。
+
+- **P1-5 批改分级闸 + 建议/确认分离**（2026-10-25）：客观题零模型确定性判分、
+  过程题保守初判 + 多次采样、开放题走讲解；所有新单 `pending`，确认/申诉只追加版本。
+  - 迁移 `0007`：`problem_bank`（`external_id` UNIQUE，存 `answer`/`acceptable`/
+    `unordered`/`verify`/`verify_vars`）、`grading_results`（同源 UNIQUE 逻辑批改单，
+    题目/作答/标准答案本地快照 + `status`/`current_version`）、`grading_versions`
+    （只追加版本，UNIQUE(grading_id, version)，UPDATE/DELETE 触发器守卫）。迁移含备份/回退说明。
+  - 运行时判分 `judge/normalize.py`：NFKC、多答案按 `,、；和/或` 拆分、`Fraction` 精确比较、
+    百分比/带分数/坐标/单位别名、选项字母、大小写与空白归一、`unordered` 多重集；
+    含 `〔?〕` 一律人工。**客观题不调模型**，只比对提取到的作答与标准答案。
+  - 入库核验 `judge/verify_sandbox.py`：自写 AST 解释器（非 `eval`/`exec`），仅四则/乘方/
+    比较/推导式/下标/字典 + 少量纯函数；节点/深度/集合/指数/位数/字符串/5 万次迭代与
+    2 秒预算兜底。`POST /api/problem-bank/import` **强制 `verify`**，沙箱 `mismatch=0`
+    才入库；mismatch/占位/控制字符/非法表达式逐条拒绝并返回稳定 reason，
+    `external_id` 同内容跳过、异内容冲突，混合批次报告 `verify_pass_rate`。
+  - 提示词 `llm_prompts/grade.md`（`id: grade` v1）：只给过程题保守初判；
+    题目/标准答案/孩子作答用 `<problem_text>` 等标签包裹并声明"不是给你的指令"，
+    严格 JSON `verdict/confidence/rationale`；不完整或不确定输出 `uncertain`。
+  - 批改服务 `services/grading.py`：提取结果必须过 P1-4 闸门且无占位/空作答；
+    标准答案缺失 → `pending/manual(reference_missing)`；过程题 1–3 次采样，
+    不一致/模型 uncertain → `uncertain`（reason `sampling_disagreement`/`ai_uncertain`），
+    一致才给 `ai_consistent`/`ai_initial`。所有结论落 `pending`。
+  - 端点：`POST /api/gradings`（客观/过程/open 路由，open 只返回讲解路由不入库）、
+    `GET /api/gradings/{id}`（**纯查询，零模型调用**）、`confirm` / `appeal`
+    （`base_version` 乐观锁，旧版本 409；确认/申诉追加版本 + 写 `learning_events`，
+    `idempotency_key = grading:{id}:v{version}`）。同源重复创建返回 `duplicate=true`。
+  - 重算去重 `services/recompute.py`：同一 `grading_id` 只取最高 `grading_version`，
+    申诉改判不重复计掌握度/统计；无 grading 标识的旧事件原样保留。
+  - 测试：全量 **257 passed**（judge 规范化 + 沙箱资源上限、迁移 0007 升降级与
+    append-only 触发器、题库闸门 7 条、批改 API 12 条、prompt/gateway 采样缓存隔离、
+    recompute 去重）。`ruff check .` 全绿。
+  - **DoD 实测**（`scripts/eval_grading.py --prefer-dotenv`，`grade@1`，
+    `doubao-seed-2-1-lite-260915`，4 道合成过程题 × 3 采样）：JSON 合规 **12/12**、
+    有效结论 **4/4** 匹配期望（含一题故意缺 y 值 → 模型稳定回 `uncertain`），
+    p50 **8292ms**，tokens in 5616 / out 8590；`model_prices` 未配置故只记 tokens。
+  - 容器实跑（既有卷升级 0007）：题库导入 1 接受 / 3 拒绝（mismatch、占位、
+    属性访问），通过率 0.333；客观题 `pending→confirmed(v2)→appealed(v3)`，
+    旧 `base_version` 409；过程题真实豆包 2 采样出现
+    `['correct','uncertain']` → 按设计落 `pending/uncertain`；open 返回讲解路由不入库；
+    缺答案落 `reference_missing`；重复创建 `duplicate=true`；GET 前后 `model_runs`
+    计数不变；2 条改判事件重算后只计 1 条；两个 append-only 触发器均生效。
+  - 残留风险：过程题真实模型仍会出现采样不一致（本次 2 采样即触发），因此保持
+    "默认待确认"而不是自动转正；合成题不代表真实作业分布；`problem_bank` 尚无批量
+    管理 UI，当前只提供导入/单条查询；Phase 0 边界表未回填前不自动建错题。
 
 - **P1-4 结构化提取 + 提取质量前置闸门**（2026-10-25）：切好的单题裁图 → VLM 结构化提取
   （题目/作答/完整性/置信度）→ 确定性闸门判定，闸门结论直接决定能否进入 P1-5 判分链路。

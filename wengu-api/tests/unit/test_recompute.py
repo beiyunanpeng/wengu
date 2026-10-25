@@ -94,3 +94,34 @@ def test_recompute_is_deterministic_and_accepts_mapping_rows() -> None:
     second = (mastery(rows, "cnm_a"), is_graduated(rows, 1), stats(rows))
     assert first == second
     assert first[0] == 0.5
+
+
+@pytest.mark.unit
+def test_grading_versions_only_latest_counts() -> None:
+    """申诉/改判追加版本，但掌握度与统计只看同一 grading 的最高版本。"""
+
+    def graded(grading_id: int, version: int, correct: bool, seq: int) -> Event:
+        return Event(
+            type=ATTEMPT_CORRECT if correct else ATTEMPT_WRONG,
+            actor="student",
+            payload={
+                "grading_id": grading_id,
+                "grading_version": version,
+                "concept_id": "cnm_a",
+            },
+            occurred_at=seq,
+        )
+
+    events = [
+        graded(7, 1, False, 1),
+        graded(7, 2, True, 2),
+        graded(7, 3, False, 3),
+        graded(8, 1, True, 4),
+    ]
+    assert mastery(events, "cnm_a") == pytest.approx(0.5)
+
+    result = stats(events)
+    assert result["total_events"] == 2
+    assert result["attempts_correct"] == 1
+    assert result["attempts_wrong"] == 1
+    assert result["attempt_accuracy"] == pytest.approx(0.5)

@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any
 
@@ -122,12 +122,19 @@ async def append_mistake_version(
     status: str = "pending",
     suggested_category_id: str | None = None,
     category_confidence: float | None = None,
+    suggested_concept_ids: Sequence[int] | None = None,
     confirmed_category_id: str | None = None,
+    confirmed_concept_ids: Sequence[int] | None = None,
     confirmed_by: str | None = None,
     suggested_error_cause: str | None = None,
     confirmed_error_cause: str | None = None,
 ) -> MistakeVersion:
     """只追加版本：version = max+1（单写实例内安全），UNIQUE 约束做最终防线。"""
+
+    def _ids_json(values: Sequence[int] | None) -> str:
+        if values is None:
+            return "[]"
+        return json.dumps(sorted({int(value) for value in values}), ensure_ascii=False)
 
     current_max = (
         await session.execute(
@@ -148,7 +155,9 @@ async def append_mistake_version(
         status=status,
         suggested_category_id=suggested_category_id,
         category_confidence=category_confidence,
+        suggested_concept_ids_json=_ids_json(suggested_concept_ids),
         confirmed_category_id=confirmed_category_id,
+        confirmed_concept_ids_json=_ids_json(confirmed_concept_ids),
         confirmed_by=confirmed_by,
         suggested_error_cause=suggested_error_cause,
         confirmed_error_cause=confirmed_error_cause,

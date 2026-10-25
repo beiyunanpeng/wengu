@@ -16,6 +16,7 @@ llm_prompts/
 ├─ README.md
 ├─ transcribe_image.md            # 整页/裁图逐字转写（P1-3b 评测）
 ├─ extract_problem.md             # 题目+作答结构化提取（P1-4）
+├─ grade.md                       # 过程题保守初判 + 多次采样（P1-5）
 ├─ mistake_analysis.md            # 错因归类（P1-6）
 ├─ concept_reuse.md               # 细粒度 concept 受控生长（P1-6）
 ├─ explain_guide.md               # 三段式引导模式（P1-8）
@@ -45,5 +46,10 @@ applies_to: [doubao-seed-2-1, qwen3.8-max]
 - 结构化提取：`venv/Scripts/python scripts/eval_extraction.py --prefer-dotenv`
   （fixtures 在 `wengu-api/tests/fixtures/extraction/`，truth 随仓库提交）
 - 切题转写：`venv/Scripts/python scripts/eval_slicing.py --prefer-dotenv [--degrade]`
+- 过程题初判：`venv/Scripts/python scripts/eval_grading.py --prefer-dotenv`
+  （4 道合成过程题 × 3 采样；只记 JSON 合规/延迟/tokens/结论匹配，不打印题目全文）
+
+最新实跑（2026-10-25，`grade@1`，`doubao-seed-2-1-lite-260915`）：
+JSON 合规 12/12、有效结论 4/4、p50 8.3s、tokens in 5616 / out 8590。
 
 未跑评测的 prompt 不升版本、不进默认路由。

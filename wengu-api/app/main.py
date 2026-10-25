@@ -10,9 +10,14 @@ from fastapi import FastAPI
 
 from app import __version__
 from app.api.captures import router as captures_router
+from app.api.concepts import router as concepts_router
 from app.api.extractions import router as extractions_router
+from app.api.gradings import router as gradings_router
 from app.api.health import router as health_router
 from app.api.imports import router as imports_router
+from app.api.mistakes import router as mistakes_router
+from app.api.practice import router as practice_router
+from app.api.problem_bank import router as problem_bank_router
 from app.api.seed import router as seed_router
 from app.core.database import get_session_factory
 from app.seed.loader import load_seed
@@ -38,6 +43,11 @@ def create_app() -> FastAPI:
     application.include_router(seed_router)
     application.include_router(captures_router)
     application.include_router(extractions_router)
+    application.include_router(gradings_router)
+    application.include_router(mistakes_router)
+    application.include_router(concepts_router)
+    application.include_router(practice_router)
+    application.include_router(problem_bank_router)
     application.include_router(imports_router)
     return application
 

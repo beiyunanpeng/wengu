@@ -47,10 +47,31 @@ make downgrade D=base               # 回退到空库（保留空的 alembic_ver
 > 数据库文件：默认 `wengu-api/data/wengu.db`（`WENGU_DB_PATH` 可改），首次运行自动建目录。
 > 健康检查返回：`{"status":"ok","service":"wengu-api","version":"0.0.0","database":"ok"}`。
 
-## 当前状态（P1-0）
+## 当前状态（P1-5）
 
-- 已有：配置（`.env` + `config/app-config.json` 热加载）、SQLite WAL/外键/busy_timeout、本地 PIN 哈希工具、`/health`、Alembic 基线迁移、`VisionProvider` 抽象 + 确定性 mock、提示词版本化加载器。
-- 未做（后续工单）：真实数据库表（P1-1）、真实模型供应商（P1-2）、采集/批改/错题/复习/讲解/UI（P1-3 起）。**P1-0 不包含任何业务逻辑。**
+- 已完成：配置热加载、事件溯源 + 确定性重算、seed 装载、四家 provider 适配与成本护栏、
+  采集/导入/切题、结构化提取与质量闸门、**批改分级闸**。
+- P1-5 批改约定：
+  - 客观题：**零模型调用**，由代码规范化比对（`app/judge/normalize.py`）。
+  - 过程题：`grade.md` 保守初判 + 可选 1–3 次采样；不一致或模型不确定 → `uncertain`。
+  - 开放题：只返回 `{"route": "explanation"}`，不建批改单、不进错题流。
+  - 标准答案取 `problem_bank` 引用或请求显式 `answer`；缺失 → 人工，不调模型。
+  - **Phase 0 边界表未回填：所有新单 `pending`，确认/申诉只追加版本，不自动建错题。**
+- 主要端点：
+  - `POST /api/problem-bank/import` / `GET /api/problem-bank/items/{id}`
+  - `POST /api/gradings` / `GET /api/gradings/{id}`
+  - `POST /api/gradings/{id}/confirm` / `POST /api/gradings/{id}/appeal`（`base_version` 乐观锁）
+
+## 批改评测（真实模型，不进 CI）
+
+```bash
+# 4 道合成过程题 × 3 采样；只输出 JSON 合规/延迟/tokens/结论匹配，不打印题目全文
+venv/Scripts/python scripts/eval_grading.py --prefer-dotenv
+```
+
+最近一次（2026-10-25，`grade@1`，`doubao-seed-2-1-lite-260915`）：
+JSON 合规 12/12、有效结论 4/4、p50 8.3s、tokens in 5616 / out 8590。
+合成题只验证链路与提示词稳定性，不代表真实手写识别率。
 
 ## 第一张工单
 

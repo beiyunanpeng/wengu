@@ -140,6 +140,19 @@ async def test_grade_and_solve_explain_render_prompt_tokens(gateway) -> None:
 
 
 @pytest.mark.integration
+async def test_grade_sample_index_bypasses_cache(gateway) -> None:
+    gw, factory, _ = gateway
+    _, first = await gw.grade("题", "答", sample_index=0)
+    _, repeat = await gw.grade("题", "答", sample_index=0)
+    _, second = await gw.grade("题", "答", sample_index=1)
+
+    assert first.raw["cache_hit"] is False
+    assert repeat.raw["cache_hit"] is True
+    assert second.raw["cache_hit"] is False  # 多采样不能被缓存折叠成一次
+    assert await _run_count(factory) == 2
+
+
+@pytest.mark.integration
 async def test_complete_text_routes_to_text_provider(gateway) -> None:
     gw, factory, _ = gateway
     text, meta = await gw.complete_text(

@@ -55,6 +55,8 @@ docker compose up -d --build --wait
 
 > 国内网络建议在 Docker Desktop → Settings → Docker Engine 配置 registry mirrors（如 `https://docker.m.daocloud.io`），否则拉取基础镜像会很慢或失败。API 镜像构建默认走清华 pip 源，可用 `--build-arg PIP_INDEX_URL=...` 覆盖。
 
+> **查库/备份先停 API**：Docker Desktop 的共享挂载下，容器运行期间从宿主机用 SQLite 读写 `data/wengu.db` 会让容器侧 WAL/SHM 失效，可能丢失尚未 checkpoint 的写入（已实测）。备份前先 `docker compose stop api`；容器运行中查库请走 `docker exec wengu-api python -c "..."`。
+
 ### 本地开发（不用 Docker）
 
 ```bash
@@ -72,7 +74,13 @@ Windows 上若 `make` 不在 PATH，重开终端或安装 [GNU Make](https://win
 ## 📦 当前进度
 
 - ✅ **P1-0 Repo 骨架**（2026-10-24）：FastAPI `/health` + SQLite WAL + Alembic 基线 + React 空壳（Mantine + KaTeX）+ Docker/CI；`docker compose up` 双服务 healthy 已实测。
-- ⏳ 下一张工单：**P1-1 数据模型 + 事件溯源/幂等骨架**（见 `TICKETS.md`）。
+- ✅ **P1-1 数据模型 + 事件溯源/幂等 + seed 装载**：事实表、只追加 `learning_events`、确定性重算、`cn-math-taxonomy` 初中子集 seed 与教材包机制。
+- ✅ **P1-2 Provider 适配层 + 成本护栏**：豆包/Qwen/DeepSeek/mock、按题型路由、预算上限、三级缓存、`model_runs` 记账；四档真实模型连通实测。
+- ✅ **P1-3 / P1-3b 采集与切题**：拍照上传、豆包 JSON 兜底导入（sha256 去重）、本地 OCR 行聚类切单题；零锚点拒绝切分。
+- ✅ **P1-4 结构化提取 + 质量闸门**：VLM 提取题目/作答/完整性/置信度，确定性闸门拦 `〔?〕`/残题/空作答；整页兜底恒人工复核。
+- ✅ **P1-5 批改分级闸**：客观题零模型归一化判分、过程题保守初判、开放题讲解；建议/确认分离、申诉只追加版本、`verify` AST 沙箱入库核验。
+- ✅ **P1-6 保守入本 + 两级标签 + 派生表**（2026-10-25）：只有孩子/家长确认或申诉 `wrong` 才建错题；`category` + `concept` 受控生长；`practice_records` 隔离；复习策略纯函数（不落库、不排期）。
+- ⏳ 下一张工单：**P1-8 三段式讲解引擎**；**P1-7 复习调度受 Phase 0 闸门阻塞**（边界表回填前不自动排复习）。
 
 ## 📖 文档地图
 

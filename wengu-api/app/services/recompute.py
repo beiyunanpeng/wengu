@@ -41,11 +41,41 @@ def _payload(event: Event | Mapping[str, Any]) -> Mapping[str, Any]:
 def _events_for_mistake(events: Sequence[Event | Mapping[str, Any]], mistake_id: int) -> list[Any]:
     """同一 mistake 的作答事件，按 occurred_at 稳定排序（重放确定性）。"""
 
-    selected = [e for e in events if (e.mistake_id if isinstance(e, Event) else e.get("mistake_id")) == mistake_id]
+    selected = [e for e in _dedupe_grading_versions(events) if (e.mistake_id if isinstance(e, Event) else e.get("mistake_id")) == mistake_id]
     return sorted(
         selected,
         key=lambda e: (e.occurred_at if isinstance(e, Event) else e.get("occurred_at"), repr(e)),
     )
+
+
+def _dedupe_grading_versions(
+    events: Sequence[Event | Mapping[str, Any]],
+) -> list[Event | Mapping[str, Any]]:
+    """同一 grading 只保留最高版本：申诉/改判不重复计掌握度与统计。"""
+
+    best: dict[int, tuple[int, int]] = {}
+    enriched: list[tuple[int, bool]] = []
+    for index, event in enumerate(events):
+        payload = _payload(event)
+        grading_id = payload.get("grading_id")
+        grading_version = payload.get("grading_version")
+        valid = (
+            isinstance(grading_id, int)
+            and not isinstance(grading_id, bool)
+            and isinstance(grading_version, int)
+            and not isinstance(grading_version, bool)
+        )
+        if valid:
+            candidate = (grading_version, index)
+            if grading_id not in best or candidate > best[grading_id]:
+                best[grading_id] = candidate
+        enriched.append((index, valid))
+    keep = {candidate[1] for candidate in best.values()}
+    return [
+        event
+        for index, event in enumerate(events)
+        if not enriched[index][1] or index in keep
+    ]
 
 
 def mastery(events: Sequence[Event | Mapping[str, Any]], concept_id: str) -> float:
@@ -56,7 +86,7 @@ def mastery(events: Sequence[Event | Mapping[str, Any]], concept_id: str) -> flo
     """
 
     correct = wrong = 0
-    for event in events:
+    for event in _dedupe_grading_versions(events):
         event_type = event.type if isinstance(event, Event) else event.get("type")
         if event_type not in (ATTEMPT_CORRECT, ATTEMPT_WRONG):
             continue
@@ -91,7 +121,8 @@ def stats(events: Sequence[Event | Mapping[str, Any]]) -> dict[str, Any]:
 
     by_type: dict[str, int] = {}
     attempts_correct = attempts_wrong = 0
-    for event in events:
+    deduped = _dedupe_grading_versions(events)
+    for event in deduped:
         event_type = event.type if isinstance(event, Event) else event.get("type")
         by_type[event_type] = by_type.get(event_type, 0) + 1
         if event_type == ATTEMPT_CORRECT:
@@ -99,7 +130,7 @@ def stats(events: Sequence[Event | Mapping[str, Any]]) -> dict[str, Any]:
         elif event_type == ATTEMPT_WRONG:
             attempts_wrong += 1
     return {
-        "total_events": len(events),
+        "total_events": len(deduped),
         "by_type": by_type,
         "attempts_correct": attempts_correct,
         "attempts_wrong": attempts_wrong,
