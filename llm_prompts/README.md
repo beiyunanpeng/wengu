@@ -14,7 +14,8 @@
 ```
 llm_prompts/
 ├─ README.md
-├─ extract_grade.md               # 提取题目+作答+判分（P1-4/P1-5）
+├─ transcribe_image.md            # 整页/裁图逐字转写（P1-3b 评测）
+├─ extract_problem.md             # 题目+作答结构化提取（P1-4）
 ├─ mistake_analysis.md            # 错因归类（P1-6）
 ├─ concept_reuse.md               # 细粒度 concept 受控生长（P1-6）
 ├─ explain_guide.md               # 三段式引导模式（P1-8）
@@ -28,10 +29,10 @@ llm_prompts/
 
 ```markdown
 ---
-id: extract_grade
+id: extract_problem
 version: 1
-description: 整页作业照片 → 结构化题目 + 学生作答 + 判分
-applies_to: [doubao-seed-2-1-pro, qwen-vl-max]
+description: 单题裁图 → 题目原文 + 孩子作答 + 完整性 + 置信度
+applies_to: [doubao-seed-2-1, qwen3.8-max]
 ---
 
 （此处是发给模型的完整 prompt 正文……）
@@ -39,4 +40,10 @@ applies_to: [doubao-seed-2-1-pro, qwen-vl-max]
 
 ## 起步建议
 
-`P0-1` 下一轮之前先把 `extract_grade.md` 落进本目录——**首轮实测用的 prompt 应该被版本化并纳入回归基线**。
+新增/修改 prompt 必须同步更新对应的 fixture truth 与评测脚本，并留下实跑数字：
+
+- 结构化提取：`venv/Scripts/python scripts/eval_extraction.py --prefer-dotenv`
+  （fixtures 在 `wengu-api/tests/fixtures/extraction/`，truth 随仓库提交）
+- 切题转写：`venv/Scripts/python scripts/eval_slicing.py --prefer-dotenv [--degrade]`
+
+未跑评测的 prompt 不升版本、不进默认路由。

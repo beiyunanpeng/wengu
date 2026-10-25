@@ -13,6 +13,7 @@ import json
 from collections.abc import Callable
 from dataclasses import asdict
 from datetime import UTC, datetime
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -105,10 +106,11 @@ class AiGateway:
             problem_text=data["problem_text"],
             student_answer=data.get("student_answer"),
             confidence=data.get("confidence"),
+            problem_complete=data.get("problem_complete"),
             needs_human_review=bool(data.get("needs_human_review", True)),
             raw=data.get("raw") or {},
         )
-        return result, self._meta(provider, envelope, cache_hit)
+        return result, self._meta(provider, envelope, cache_hit, prompt)
 
     async def grade(
         self,
@@ -144,7 +146,7 @@ class AiGateway:
             source=data.get("source", "ai"),
             rationale=data.get("rationale"),
         )
-        return result, self._meta(provider, envelope, cache_hit)
+        return result, self._meta(provider, envelope, cache_hit, prompt)
 
     async def solve_explain(
         self,
@@ -180,7 +182,7 @@ class AiGateway:
             answer=data.get("answer"),
             hint_level=int(data.get("hint_level", level)),
         )
-        return result, self._meta(provider, envelope, cache_hit)
+        return result, self._meta(provider, envelope, cache_hit, prompt)
 
     # ---- 文本侧 -------------------------------------------------------------
 
@@ -206,7 +208,7 @@ class AiGateway:
         envelope, cache_hit = await self._cached(
             key, task="text", prompt=prompt, provider=provider, call=call
         )
-        return envelope["result"]["text"], self._meta(provider, envelope, cache_hit)
+        return envelope["result"]["text"], self._meta(provider, envelope, cache_hit, prompt)
 
     # ---- 核心管线 -----------------------------------------------------------
 
@@ -262,15 +264,26 @@ class AiGateway:
         )
 
     @staticmethod
-    def _meta(provider: Any, envelope: dict[str, Any], cache_hit: bool) -> CallMeta:
+    def _meta(
+        provider: Any, envelope: dict[str, Any], cache_hit: bool, prompt: Prompt
+    ) -> CallMeta:
         usage = envelope.get("usage") or {}
         return CallMeta(
             provider=provider.name,
             model=envelope.get("model", provider.model),
             latency_ms=int(envelope.get("latency_ms", 0)),
+            prompt_id=prompt.id,
+            prompt_version=prompt.version,
             usage=TokenUsage(
                 input_tokens=int(usage.get("input_tokens", 0)),
                 output_tokens=int(usage.get("output_tokens", 0)),
             ),
             raw={"cache_hit": cache_hit},
         )
+
+
+@lru_cache
+def get_ai_gateway() -> AiGateway:
+    """进程内单例：prompt 装载/缓存/护栏共用，测试用 dependency_overrides 替换。"""
+
+    return AiGateway()

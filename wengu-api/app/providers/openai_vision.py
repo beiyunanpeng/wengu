@@ -21,7 +21,9 @@ from app.providers.http import (
     image_to_data_url,
 )
 
-_TIMEOUT = 60.0
+# 豆包 value 档对极小裁图偶发 50s+ 长推理（实测 51.9s/3496 output tokens），
+# 60s 会在容器/网关开销下误杀；120s 留出余量，仍由调用方逐条计时审计。
+_TIMEOUT = 120.0
 
 
 def _coerce_optional_str(value: Any) -> str | None:
@@ -34,6 +36,57 @@ def _coerce_optional_float(value: Any) -> float | None:
     if isinstance(value, bool) or not isinstance(value, int | float):
         return None
     return float(value)
+
+
+def _coerce_extract_text(value: Any, *, field_name: str, provider: str) -> str:
+    """严格层：题目文本只接受字符串（或字符串数组，join 救回）。"""
+
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list) and all(isinstance(item, str) for item in value):
+        return "\n".join(item for item in value if item.strip())
+    raise ProviderResponseError(
+        f"{provider}: extract_problem.{field_name} 类型非法（期望字符串）"
+    )
+
+
+def _coerce_extract_answer(value: Any, *, provider: str) -> str | None:
+    """作答允许字符串/数字/null；列表按行拼接；其余类型视为结构错误。"""
+
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    if isinstance(value, int | float) and not isinstance(value, bool):
+        return str(value)
+    if isinstance(value, list) and all(isinstance(item, str) for item in value):
+        return "\n".join(item for item in value if item.strip())
+    raise ProviderResponseError(
+        f"{provider}: extract_problem.student_answer 类型非法（期望字符串/数字/null）"
+    )
+
+
+def _coerce_optional_bool(value: Any) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered == "true":
+            return True
+        if lowered == "false":
+            return False
+    return None
+
+
+def _coerce_confidence(value: Any) -> float | None:
+    """置信度只在 [0,1] 内可信；越界视为未知，不制造虚假精确。"""
+
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    number = float(value)
+    if 0.0 <= number <= 1.0:
+        return number
+    return None
 
 
 class OpenAIVisionProvider(VisionProvider):
@@ -94,9 +147,14 @@ class OpenAIVisionProvider(VisionProvider):
         resp = await self._chat(self._build_extract_messages(image_path, prompt))
         data = self._json_object(resp, task="extract_problem")
         extracted = ExtractedProblem(
-            problem_text=str(data.get("problem_text") or ""),
-            student_answer=_coerce_optional_str(data.get("student_answer")),
-            confidence=_coerce_optional_float(data.get("confidence")),
+            problem_text=_coerce_extract_text(
+                data.get("problem_text"), field_name="problem_text", provider=self.name
+            ),
+            student_answer=_coerce_extract_answer(
+                data.get("student_answer"), provider=self.name
+            ),
+            confidence=_coerce_confidence(data.get("confidence")),
+            problem_complete=_coerce_optional_bool(data.get("problem_complete")),
             needs_human_review=True,
             raw=data,
         )

@@ -15,6 +15,7 @@ class MockVisionProvider(VisionProvider):
                 problem_text=f"[mock] problem from {image_path}",
                 student_answer=None,
                 confidence=0.0,
+                problem_complete=True,
                 needs_human_review=True,
             ),
             CallMeta(provider=self.name, model="mock-vision", latency_ms=0),

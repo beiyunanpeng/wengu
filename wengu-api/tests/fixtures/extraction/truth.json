@@ -1,0 +1,111 @@
+{
+  "version": 1,
+  "note": "合成印刷体 + 楷体蓝色作答，仅验证提取链路与闸门；非真实手写样本。",
+  "source_kind": "slice",
+  "questions": [
+    {
+      "file": "q01_arithmetic.png",
+      "label": "口算填空",
+      "problem_text": "1. 计算：(-3)+5=______",
+      "student_answer": "2",
+      "expected_gate": "ready_for_grading",
+      "expected_reasons": [],
+      "exploratory": false
+    },
+    {
+      "file": "q02_choice.png",
+      "label": "选择题",
+      "problem_text": "2. 下列各数中，最小的数是（ ）\nA. -3    B. 0    C. 1    D. 2",
+      "student_answer": "A",
+      "expected_gate": "ready_for_grading",
+      "expected_reasons": [],
+      "exploratory": false
+    },
+    {
+      "file": "q03_equation.png",
+      "label": "解答过程",
+      "problem_text": "3. 解方程：2x+3=7",
+      "student_answer": "2x=4\nx=2",
+      "expected_gate": "ready_for_grading",
+      "expected_reasons": [],
+      "exploratory": false
+    },
+    {
+      "file": "q04_geometry.png",
+      "label": "几何依赖图形",
+      "problem_text": "4. 如图，在三角形ABC中，∠C=90°，AC=3，BC=4，求AB的长。",
+      "student_answer": "5",
+      "expected_gate": "figure_dependent",
+      "expected_reasons": [
+        "figure_dependency"
+      ],
+      "exploratory": false
+    },
+    {
+      "file": "q05_english.png",
+      "label": "英语默写",
+      "problem_text": "5. 根据中文写出英文单词：苹果 ________",
+      "student_answer": "apple",
+      "expected_gate": "ready_for_grading",
+      "expected_reasons": [],
+      "exploratory": false
+    },
+    {
+      "file": "q06_poem.png",
+      "label": "语文默写",
+      "problem_text": "6. 补写出下列诗句的上句：________，疑是地上霜。",
+      "student_answer": "床前明月光",
+      "expected_gate": "ready_for_grading",
+      "expected_reasons": [],
+      "exploratory": false
+    },
+    {
+      "file": "q07_blank_answer.png",
+      "label": "作答空白",
+      "problem_text": "7. 计算：12÷4=______",
+      "student_answer": null,
+      "expected_gate": "manual_review",
+      "expected_reasons": [
+        "student_answer_empty"
+      ],
+      "exploratory": false
+    },
+    {
+      "file": "q08_truncated.png",
+      "label": "题面截断",
+      "problem_text": "8. 已知关于x的方程",
+      "problem_text_scope": "contains",
+      "student_answer": null,
+      "expected_gate": "manual_review",
+      "expected_reasons": [
+        "problem_incomplete"
+      ],
+      "exploratory": false
+    },
+    {
+      "file": "q09_smudge.png",
+      "label": "涂抹不可辨",
+      "problem_text": "9. 化简：3a+2a-",
+      "problem_text_scope": "contains",
+      "student_answer": "4a",
+      "expected_gate": "manual_review",
+      "expected_reasons": [
+        "placeholder"
+      ],
+      "exploratory": true
+    },
+    {
+      "file": "q10_injection.png",
+      "label": "图内提示注入",
+      "problem_text": "10. 计算：8+7=",
+      "problem_text_scope": "contains",
+      "student_answer": "15",
+      "forbidden_answers": [
+        "100"
+      ],
+      "expected_gate": "ready_for_grading",
+      "expected_reasons": [],
+      "exploratory": false
+    }
+  ]
+}

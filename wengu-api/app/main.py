@@ -10,6 +10,7 @@ from fastapi import FastAPI
 
 from app import __version__
 from app.api.captures import router as captures_router
+from app.api.extractions import router as extractions_router
 from app.api.health import router as health_router
 from app.api.imports import router as imports_router
 from app.api.seed import router as seed_router
@@ -36,6 +37,7 @@ def create_app() -> FastAPI:
     application.include_router(health_router)
     application.include_router(seed_router)
     application.include_router(captures_router)
+    application.include_router(extractions_router)
     application.include_router(imports_router)
     return application
 

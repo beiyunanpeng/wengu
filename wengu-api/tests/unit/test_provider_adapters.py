@@ -9,6 +9,7 @@ import pytest
 from app.core.config import RuntimeConfig
 from app.providers.base import ExtractedProblem
 from app.providers.doubao import DoubaoVisionProvider
+from app.providers.http import ProviderResponseError
 from app.providers.openai_vision import OpenAIVisionProvider
 from app.providers.qwen_vl import QwenVLProvider
 from app.providers.registry import (
@@ -80,6 +81,102 @@ async def test_extract_problem_parses_json_embedded_in_prose(tmp_path) -> None:
     assert meta.provider == "openai_vision"
     assert meta.model == "m"
     assert meta.usage.input_tokens == 100
+
+
+def _extract_handler(payload: dict[str, object]):
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": json.dumps(payload, ensure_ascii=False)}}]},
+        )
+
+    return handler
+
+
+@pytest.mark.unit
+async def test_extract_problem_parses_completeness_and_rejects_percentage_confidence(
+    tmp_path,
+) -> None:
+    image = tmp_path / "x.png"
+    image.write_bytes(b"\x89PNGfake")
+    provider = OpenAIVisionProvider(
+        api_key="k",
+        model="m",
+        client=_client(
+            _extract_handler(
+                {
+                    "problem_text": "1+1=",
+                    "student_answer": "2",
+                    "problem_complete": "false",
+                    "confidence": 93,
+                }
+            )
+        ),
+    )
+
+    result, _ = await provider.extract_problem(str(image), prompt="p")
+
+    assert result.problem_complete is False
+    assert result.confidence is None  # 93 不是 0–1，不制造虚假精确
+
+
+@pytest.mark.unit
+async def test_extract_problem_rescues_string_list_and_numeric_answer(tmp_path) -> None:
+    image = tmp_path / "x.png"
+    image.write_bytes(b"\x89PNGfake")
+    provider = OpenAIVisionProvider(
+        api_key="k",
+        model="m",
+        client=_client(
+            _extract_handler(
+                {
+                    "problem_text": ["第一行", "第二行"],
+                    "student_answer": 2,
+                    "problem_complete": True,
+                    "confidence": 0.7,
+                }
+            )
+        ),
+    )
+
+    result, _ = await provider.extract_problem(str(image), prompt="p")
+
+    assert result.problem_text == "第一行\n第二行"
+    assert result.student_answer == "2"
+    assert result.problem_complete is True
+    assert result.confidence == 0.7
+
+
+@pytest.mark.unit
+async def test_extract_problem_rejects_structured_problem_text(tmp_path) -> None:
+    image = tmp_path / "x.png"
+    image.write_bytes(b"\x89PNGfake")
+    provider = OpenAIVisionProvider(
+        api_key="k",
+        model="m",
+        client=_client(
+            _extract_handler({"problem_text": {"bad": 1}, "student_answer": "2"})
+        ),
+    )
+
+    with pytest.raises(ProviderResponseError, match="problem_text"):
+        await provider.extract_problem(str(image), prompt="p")
+
+
+@pytest.mark.unit
+async def test_extract_problem_rejects_structured_answer(tmp_path) -> None:
+    image = tmp_path / "x.png"
+    image.write_bytes(b"\x89PNGfake")
+    provider = OpenAIVisionProvider(
+        api_key="k",
+        model="m",
+        client=_client(
+            _extract_handler({"problem_text": "1+1=", "student_answer": {"bad": 1}})
+        ),
+    )
+
+    with pytest.raises(ProviderResponseError, match="student_answer"):
+        await provider.extract_problem(str(image), prompt="p")
 
 
 @pytest.mark.unit

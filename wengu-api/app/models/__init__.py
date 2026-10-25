@@ -1,4 +1,5 @@
 from app.models.events import Attempt, LearningEvent
+from app.models.extraction import ProblemExtraction
 from app.models.ingestion import (
     ImportBatch,
     IngestionDraft,
@@ -25,6 +26,7 @@ __all__ = [
     "PhotoCapture",
     "PhotoCaptureItem",
     "PrerequisiteEdge",
+    "ProblemExtraction",
     "ReviewSchedule",
     "UserRole",
 ]

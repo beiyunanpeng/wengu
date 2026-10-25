@@ -17,6 +17,7 @@ class ExtractedProblem:
     problem_text: str
     student_answer: str | None
     confidence: float | None = None
+    problem_complete: bool | None = None
     needs_human_review: bool = True
     raw: dict[str, object] = field(default_factory=dict)
 
@@ -51,6 +52,8 @@ class CallMeta:
     provider: str
     model: str
     latency_ms: int
+    prompt_id: str = ""
+    prompt_version: int = 0
     usage: TokenUsage = field(default_factory=TokenUsage)
     raw: dict[str, object] = field(default_factory=dict)
 

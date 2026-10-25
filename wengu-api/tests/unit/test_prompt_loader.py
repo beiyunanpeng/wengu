@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from app.prompts.loader import PromptError, load_prompts
+
+REPO_PROMPTS = Path(__file__).resolve().parents[3] / "llm_prompts"
 
 
 def _write(path, text: str) -> None:
@@ -47,3 +51,14 @@ def test_load_prompts_rejects_duplicates_and_bad_metadata(tmp_path) -> None:
 
     with pytest.raises(PromptError, match="prompt directory not found"):
         load_prompts(tmp_path / "missing-dir")
+
+
+@pytest.mark.unit
+def test_repo_prompts_include_the_extraction_contract() -> None:
+    prompts = load_prompts(REPO_PROMPTS)
+
+    prompt = prompts["extract_problem"]
+    assert prompt.version >= 1
+    assert "problem_complete" in prompt.template
+    assert "〔?〕" in prompt.template
+    assert "不要" in prompt.template  # 转写约束仍在，不是空壳

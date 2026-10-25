@@ -21,6 +21,7 @@ EXPECTED_TABLES = {
     "ingestion_drafts",
     "photo_captures",
     "photo_capture_items",
+    "problem_extractions",
     "review_schedules",
     "ai_jobs",
     "model_runs",

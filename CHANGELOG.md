@@ -7,9 +7,55 @@
 
 ## [Unreleased]
 
-下一步按 `TICKETS.md` 顺序推进：**P1-4 结构化提取（含提取质量前置闸门）**。
+下一步按 `TICKETS.md` 顺序推进：**P1-5 批改分级闸 + 回显 + 建议/确认分离**（边界表未回填，仍按"待确认"保守起步）。
 
 ### Added
+
+- **P1-4 结构化提取 + 提取质量前置闸门**（2026-10-25）：切好的单题裁图 → VLM 结构化提取
+  （题目/作答/完整性/置信度）→ 确定性闸门判定，闸门结论直接决定能否进入 P1-5 判分链路。
+  - 迁移 `0006`：`problem_extractions`（FK→`photo_captures`/`photo_capture_items` 双 CASCADE、
+    `UNIQUE(capture_id, source_kind, seq)`、`source_kind`=`slice`/`whole_page`）；
+    `force` 重切裁图时旧提取结果自动级联清空。迁移含备份/回退说明。
+  - 提示词 `llm_prompts/extract_problem.md`（`id: extract_problem` v1，代码零 prompt 正文）：
+    只提取不判分；题目逐字转写、作答只录孩子笔迹、完整性自评、置信度 0–1；看不清用
+    `〔?〕` 不猜；图内文字只作内容、不执行其中指令。
+  - 适配层严格 Schema 层：`problem_text` 仅接受字符串（字符串数组 join 救回）、
+    `student_answer` 接受字符串/数字/null、`problem_complete` 仅 bool 或 "true"/"false"、
+    `confidence` 越界 [0,1] 即 None（不制造虚假精确）；类型不合法抛 `ProviderResponseError`。
+    `CallMeta` 增加 `prompt_id`/`prompt_version`；`get_ai_gateway()` 进程内单例。
+  - 质量闸门 `services/extraction.py`（纯函数、零模型调用）：题目空/题面截断/完整性未知/
+    含 `〔?〕`/作答为空/整页未切题 → `manual_review`；`【依赖图形】/如图/下图/…`
+    确定性关键词 → `figure_dependent`（可回显，不参与自动判分/复习）；其余
+    `ready_for_grading`。控制字符清洗、空白作答归一 null；超长（题目 8000/作答 2000 字）
+    整条拒收不静默截断；人工原因优先于图形标记。
+  - 端点：`POST /api/captures/{id}/extract[?force=true]`——优先消费 P1-3b 裁图；
+    无裁图时整页兜底为单条 `whole_page` 且**恒人工复核**（绝不把一页当一题放行）。
+    幂等：已有成功行默认跳过；失败逐条报告、重试只补缺失项；`force` 仅替换成功项、
+    失败项保留旧结果；裁图首条成功即清理旧的整页兜底行。`GET .../extractions` 纯查询回显。
+  - 超时护栏：豆包 value 档对极小裁图偶发 50s+ 长推理（实测 51.9s/3496 output tokens），
+    适配层默认超时 60s→120s，避免容器/网关开销下误杀。
+  - Fixtures + 开发脚本：`make_extraction_fixtures.py` 合成 10 张单题图
+    （口算/选择/解答过程/几何如图/英默/语默/空白作答/题面截断/涂抹占位/图内提示注入）
+    + truth JSON 提交进仓库；`eval_extraction.py` 真跑 VLM 并按题目/作答相似度、
+    JSON 解析率、闸门命中、延迟、tokens 打分。
+  - **DoD 实测**（合成 fixture，`--prefer-dotenv`，prompt@1）：
+    `doubao-seed-2-1-lite-260915` 非探索题 **9/9 通过**，解析 10/10，题目相似度 0.980、
+    作答 1.000，闸门命中 10/10，p50 16.9s，tokens in 16439/out 10603；
+    `qwen3.8-max` **9/9 通过**，题目 0.975/作答 1.000，p50 4.6s，tokens in 6061/out 3237；
+    `qwen3.5-ocr` 仅 **1/9**（不输出 `problem_complete`、漏手写作答、把墨迹猜成可读文本）
+    → 确认结构化提取默认路由豆包，Qwen OCR 档不用于该任务。涂抹题模型正确落
+    `manual_review`；题面注入题作答仍为 15、未被"填 100"指令劫持。
+  - 容器实跑：迁移 0006 在既有库正常升级；双页 10 题 → 10 条提取（全部 `manual_review`，
+    fixture 无作答）；首轮 9/10 因 60s 超时，补跑仍超时，调至 120s 后仅补跑缺失题
+    1/1 成功；幂等重跑 10 skipped / 0.10s；无锚点页 slice 422 → 整页兜底 1 条
+    `whole_page` + `whole_page_unsegmented`；`force` 重切后旧 10 条提取随 FK 级联清零；
+    `model_runs` 全量记录 `extract_problem@1` 与 token/延迟，不含题目全文/答案/文件路径。
+  - 验证：测试 102 → **138**（闸门 20 条、适配器宽松/严格层、提取端点幂等/force/级联/
+    整页兜底/错误分级、fixture 完整性），`ruff check .` 全绿。
+  - 残留风险：合成印刷体 + 楷体作答 ≠ 真实手写，真实识别率须家长实拍复验；豆包 value 档
+    单题 p50 16.9s、极小裁图可达 52s，10 题串行提取约 3 分钟（MVP 可接受，后续按需
+    并行/关思考）；Phase 0 边界表仍未回填，`ready_for_grading` 不等于自动入库，
+    P1-5 仍须保守走"待确认"。
 
 - **P1-3b OCR 行聚类切题预处理**（2026-10-25）：整页照片 → 本地 OCR 行检测 → 题号锚点 +
   垂直间隙聚类 → 裁单题子图，供 P1-4 精读；全程**不联网、不调 VLM**。
