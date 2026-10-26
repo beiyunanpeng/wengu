@@ -21,7 +21,7 @@ wengu-api/
 │  ├─ prompts/loader.py          # 从 ../llm_prompts/ 加载真源
 │  └─ seed/                      # 装载 knowledge_seed + prerequisite_edges
 ├─ migrations/                   # Alembic
-├─ scripts/                      # import_seed / export_openapi / run_evals
+├─ scripts/                      # import_seed / make_* / eval_* / smoke_providers
 ├─ tests/                        # unit / integration / e2e / memory
 ├─ requirements.txt
 ├─ .env.example                  # 密钥走 env；运行时可改参数走 config/app-config.json
@@ -47,29 +47,49 @@ make downgrade D=base               # 回退到空库（保留空的 alembic_ver
 > 数据库文件：默认 `wengu-api/data/wengu.db`（`WENGU_DB_PATH` 可改），首次运行自动建目录。
 > 健康检查返回：`{"status":"ok","service":"wengu-api","version":"0.0.0","database":"ok"}`。
 
-## 当前状态（P1-5）
+## 当前状态（P1-8）
 
 - 已完成：配置热加载、事件溯源 + 确定性重算、seed 装载、四家 provider 适配与成本护栏、
-  采集/导入/切题、结构化提取与质量闸门、**批改分级闸**。
+  采集/导入/切题、结构化提取与质量闸门、批改分级闸、保守入本与两级标签、
+  **三段式讲解引擎**。
 - P1-5 批改约定：
   - 客观题：**零模型调用**，由代码规范化比对（`app/judge/normalize.py`）。
   - 过程题：`grade.md` 保守初判 + 可选 1–3 次采样；不一致或模型不确定 → `uncertain`。
-  - 开放题：只返回 `{"route": "explanation"}`，不建批改单、不进错题流。
+  - 开放题：只返回 `{"route": "explanation"}`，不建批改单、不进错题流，随后可调讲解端点。
   - 标准答案取 `problem_bank` 引用或请求显式 `answer`；缺失 → 人工，不调模型。
   - **Phase 0 边界表未回填：所有新单 `pending`，确认/申诉只追加版本，不自动建错题。**
+- P1-8 讲解约定：
+  - `POST /api/explanations`：`source_kind` = `mistake` / `problem_extraction` /
+    `ingestion_draft`，`mode` = `auto` / `guide` / `full`。默认按错因选模式；
+    引导 `hint_level` 1–3，完整讲解忽略层级。
+  - **不硬拦看答案**：默认引导的错题直接请求 `full` 时返回内容，但 `soft_gate=true`
+    并写事件；孩子先 `POST /api/explanations/attempts` 动手留痕后再看，`soft_gate=false`。
+  - 质量/泄漏闸门：完整讲解 ≥2 步 + 非空 answer；引导丢弃 answer 字段并遮蔽标准答案
+    与"答案是…"短语；`leak_flags` 只记代码，不回传讲解正文到审计。
+  - 讲解端点无 GET；事件 payload 只含模式/层级/策略/prompt 版本/provider 等元数据，
+    **不落题目、作答、标准答案或讲解正文**。
 - 主要端点：
   - `POST /api/problem-bank/import` / `GET /api/problem-bank/items/{id}`
   - `POST /api/gradings` / `GET /api/gradings/{id}`
   - `POST /api/gradings/{id}/confirm` / `POST /api/gradings/{id}/appeal`（`base_version` 乐观锁）
+  - `POST /api/explanations` / `POST /api/explanations/attempts`
+  - `GET /api/mistakes` / `GET /api/mistakes/{id}` / `POST /api/mistakes/{id}/labels`
 
-## 批改评测（真实模型，不进 CI）
+## 模型评测（真实模型，不进 CI）
 
 ```bash
-# 4 道合成过程题 × 3 采样；只输出 JSON 合规/延迟/tokens/结论匹配，不打印题目全文
+# 过程题初判：4 道合成过程题 × 3 采样；只输出 JSON 合规/延迟/tokens/结论匹配
 venv/Scripts/python scripts/eval_grading.py --prefer-dotenv
+
+# 三段式讲解：4 个合成案例 × 引导 1/3 级 + 完整讲解；只输出结构/泄漏/步数/答案命中/延迟/tokens
+venv/Scripts/python scripts/eval_explanation.py --prefer-dotenv
 ```
 
-最近一次（2026-10-25，`grade@1`，`doubao-seed-2-1-lite-260915`）：
+最近一次（2026-10-26，`explain_guide@1` + `explain_full@1`，
+`doubao-seed-2-1-lite-260915`）：结构合规 12/12、引导零泄漏 8/8、
+完整讲解 ≥2 步 4/4、答案命中 4/4、p50 33.0s、tokens in 10633 / out 27005。
+
+过程题最近一次（2026-10-25，`grade@1`，同模型）：
 JSON 合规 12/12、有效结论 4/4、p50 8.3s、tokens in 5616 / out 8590。
 合成题只验证链路与提示词稳定性，不代表真实手写识别率。
 

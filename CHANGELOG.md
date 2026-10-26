@@ -7,11 +7,51 @@
 
 ## [Unreleased]
 
-下一步按 `TICKETS.md` 顺序推进：**P1-8 三段式讲解引擎**。
+下一步按 `TICKETS.md` 顺序推进：**P1-9 最小 Web UI**。
 **P1-7 复习调度仍受 Phase 0 闸门阻塞**（边界表未回填前不自动排复习）；
 P1-6 的"入本"也仍以孩子/家长确认 `wrong` 为前提，不得静默自动建错题。
 
 ### Added
+
+- **P1-8 三段式讲解引擎**（2026-10-26）：定位 →（引导/讲解）→ 巩固；一引擎同时服务
+  错题订正与拍照答疑。默认 `auto` 按已确认错因预选：前置缺失/概念不清 → 完整讲解，
+  方法不会/计算/粗心/表达 → 引导，记忆科 → 语境+复述；答疑入口默认完整讲解。
+  引导层级 1–3，只推进一步、不揭晓最终答案；"看完整讲解"**不硬拦**，未动手时软闸门
+  放行但写 `explanation_shown(soft_gate=true, attempted=false)` 供趋势复盘；孩子动手后经
+  `POST /api/explanations/attempts` 留痕，后续请求 `soft_gate=false`。
+  - 提示词真源 `llm_prompts/explain_guide.md` / `explain_full.md`（均 v1）：严格 JSON
+    `focus/steps/consolidation/answer`；引导 `answer=null`，完整讲解 ≥2 步且 answer 非空；
+    题目文字只作不可信内容，明确防提示注入、不执行代码/不打开链接/不输出 HTML、不游戏化。
+    代码零 prompt 正文；`Explanation` 增加 `focus`/`consolidation`，provider 宽松取字段。
+  - 质量/泄漏闸门 `services/explanation.py`（纯函数）：长度上限、`〔?〕`、控制字符、
+    HTML 标签拒收；完整讲解必须 ≥2 步 + answer；引导丢弃 answer 字段，并按标准答案
+    规范化比对与"答案/最终结果/正确结果"短语**整段替换**，返回 `leak_flags` 审计。
+  - API：`POST /api/explanations`（auto/guide/full；source=`mistake`/
+    `problem_extraction`/`ingestion_draft`）与 `POST /api/explanations/attempts`
+    （仅错题入口）；**无 GET**，避免纯查询页触发模型。上下文读取不调模型：错题取 active +
+    最新版 + 有效标签；提取结果放行"仅作答缺失"的 `manual_review`，拒题目残缺/整页/
+    图形依赖/占位；草稿允许空作答。错误映射 404/422/429/502/503；成功才写
+    `explanation_shown`。
+  - 事实源：只写 `learning_events`（`explanation_attempted` / `explanation_shown`），
+    payload 仅上下文 id/模式/层级/策略/prompt 版本/provider/model/cache_hit/leak_flags，
+    **不含题目、作答、标准答案或讲解正文**；幂等键 `explanation:attempt:{ctx}:{attempt_id}`
+    与 `explanation:shown:{ctx}:{request_id}`。无迁移，alembic 仍 `0008`。
+  - 测试：全量 **307 passed**，`ruff check .` 全绿；新增 32 条（20 条策略/闸门单测、
+    5 条上下文/事件集成、5 条 API 集成、2 条 provider/gateway 扩展），覆盖默认模式、
+    软闸门解锁、答案遮蔽、open 路由复用、错误映射与"失败不写 shown 事件"。
+  - **DoD 实跑**（2026-10-26，`scripts/eval_explanation.py --prefer-dotenv`，
+    `doubao-seed-2-1-lite-260915`，4 个合成案例 × 引导 1/3 级 + 完整讲解）：
+    结构合规 **12/12**、引导零泄漏 **8/8**（闸门拦截 0 次）、完整讲解 ≥2 步 **4/4**、
+    答案命中 **4/4**、p50 **33025ms**、tokens in 10633 / out 27005。
+  - **容器实跑**（既有卷，端口 8100）：合成题导入 → 客观题判错 → 确认入本 → 引导 2 级
+    （`leak_flags=[]`、answer=null）→ 记录动手 → 完整讲解（3 步、answer 非空、
+    `soft_gate=false`）→ 3 条事件 payload 无题目/答案/讲解正文 → alembic `0008`。
+    首次引导遇上游瞬时 `ConnectError`（502，audit 留痕），重试成功。
+  - 残留风险：真实模型 p50 约 33s（豆包 lite 长推理），前端 P1-9 需加载态/重试；
+    上游瞬时错误仍会 502；**单字符答案（如 `4`）若未出现在"答案是…"短语中，可能漏过
+    标准答案遮蔽**（靠提示词约束 + 人工抽查，不做侵入式全量遮蔽）；记忆科/英语讲解仅
+    1 个合成用例，样本不足以下结论；讲解质量仅合成文本评测，不代表真实手写学情；
+    暂无讲解 UI 与讲解历史检索页。
 
 - **P1-6 保守入本 + 两级标签 + 派生表**（2026-10-25）：Phase 0 边界表未回填，
   不实现"判错即自动入本"；错题只由孩子/家长确认或申诉 `wrong` 时创建/复活，

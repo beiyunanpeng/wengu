@@ -34,12 +34,19 @@ async def test_mock_provider_hint_levels_are_bounded() -> None:
 
     assert isinstance(explanation, Explanation)
     assert explanation.hint_level == 3
-    assert explanation.answer is None
+    assert explanation.answer == "[mock] answer"
+    assert explanation.focus
+    assert explanation.consolidation
     explanation0, _ = await provider.solve_explain("solve x", prompt="p", hint_level=-2)
     assert explanation0 == Explanation(
-        steps=("[mock] hint level 0 for: solve x",),
-        answer=None,
+        steps=(
+            "[mock] hint level 0 for: solve x",
+            "[mock] next step without revealing the final answer",
+        ),
+        answer="[mock] answer",
         hint_level=0,
+        focus="[mock] locate what the problem asks",
+        consolidation="[mock] redo the last step and check it yourself",
     )
 
 

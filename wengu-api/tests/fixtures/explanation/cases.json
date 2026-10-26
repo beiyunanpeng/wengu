@@ -1,0 +1,50 @@
+[
+  {
+    "id": "linear_equation_method",
+    "entry": "mistake",
+    "subject": "数学",
+    "category": "一元一次方程",
+    "concepts": ["等式性质", "移项"],
+    "error_cause": "method_missing",
+    "problem_text": "解方程 2x + 3 = 11，并写出过程。",
+    "student_answer": "2x = 8，x = 5",
+    "standard_answer": "x = 4",
+    "expected_answer": "x = 4"
+  },
+  {
+    "id": "fraction_calculation",
+    "entry": "mistake",
+    "subject": "数学",
+    "category": "分式运算",
+    "concepts": ["通分"],
+    "error_cause": "calculation",
+    "problem_text": "计算 1/2 + 1/3。",
+    "student_answer": "2/5",
+    "standard_answer": "5/6",
+    "expected_answer": "5/6"
+  },
+  {
+    "id": "isosceles_concept",
+    "entry": "mistake",
+    "subject": "数学",
+    "category": "等腰三角形",
+    "concepts": ["三角形内角和", "等腰三角形性质"],
+    "error_cause": "concept_unclear",
+    "problem_text": "一个等腰三角形的顶角是 40°，求它的一个底角的度数。",
+    "student_answer": "140°",
+    "standard_answer": "70°",
+    "expected_answer": "70°"
+  },
+  {
+    "id": "english_recall",
+    "entry": "mistake",
+    "subject": "英语",
+    "category": "短语与表达",
+    "concepts": ["take part in"],
+    "error_cause": "expression",
+    "problem_text": "用英语复述短语 take part in 的含义，并造一个句子。",
+    "student_answer": "参加，I take part in the game.",
+    "standard_answer": "参加（某项活动）；例句：I take part in the school sports meeting.",
+    "expected_answer": "参加"
+  }
+]

@@ -30,8 +30,8 @@ PROMPTS = {
     "grade.md": (
         "---\nid: grade\nversion: 2\n---\n判题：{{PROBLEM_TEXT}} 学生答：{{STUDENT_ANSWER}}"
     ),
-    "solve_explain.md": (
-        "---\nid: solve_explain\nversion: 1\n---\n讲解 {{PROBLEM_TEXT}}（档位 {{HINT_LEVEL}}）"
+    "explain_guide.md": (
+        "---\nid: explain_guide\nversion: 1\n---\n讲解 {{PROBLEM_TEXT}}（档位 {{HINT_LEVEL}}）"
     ),
     "label_suggest.md": (
         "---\nid: label_suggest\nversion: 1\n---\n给错题建议标签：{{PROBLEM_TEXT}}"
@@ -135,8 +135,19 @@ async def test_grade_and_solve_explain_render_prompt_tokens(gateway) -> None:
 
     async with factory() as session:
         runs = (await session.scalars(select(ModelRun))).all()
-    assert {r.prompt_id for r in runs} == {"grade", "solve_explain"}
+    assert {r.prompt_id for r in runs} == {"grade", "explain_guide"}
     assert all(r.prompt_version for r in runs)
+
+
+@pytest.mark.integration
+async def test_solve_explain_extra_values_invalidate_cache(gateway) -> None:
+    gw, factory, _ = gateway
+    await gw.solve_explain("题A", extra_values={"STRATEGY": "method_hint"})
+    await gw.solve_explain("题A", extra_values={"STRATEGY": "calculation_check"})
+    _, repeat = await gw.solve_explain("题A", extra_values={"STRATEGY": "method_hint"})
+
+    assert repeat.raw["cache_hit"] is True
+    assert await _run_count(factory) == 2
 
 
 @pytest.mark.integration

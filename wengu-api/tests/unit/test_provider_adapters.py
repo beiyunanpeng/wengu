@@ -204,7 +204,37 @@ async def test_solve_explain_falls_back_to_raw_text_when_no_steps() -> None:
     provider = OpenAIVisionProvider(api_key="k", model="m", client=_client(handler))
     result, _ = await provider.solve_explain("题", prompt="p", hint_level=9)
     assert result.steps == ("整体讲解文字",)
+    assert result.focus == ""
+    assert result.consolidation == ""
     assert result.hint_level == 3  # 档位由 adapter 夹紧，不信任模型回传
+
+
+@pytest.mark.unit
+async def test_solve_explain_parses_focus_and_consolidation() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": (
+                                '{"focus": "先看问什么", "steps": ["第一步", "第二步"], '
+                                '"consolidation": "自己复述一遍", "answer": "42"}'
+                            )
+                        }
+                    }
+                ]
+            },
+        )
+
+    provider = OpenAIVisionProvider(api_key="k", model="m", client=_client(handler))
+    result, _ = await provider.solve_explain("题", prompt="p", hint_level=1)
+    assert result.focus == "先看问什么"
+    assert result.steps == ("第一步", "第二步")
+    assert result.consolidation == "自己复述一遍"
+    assert result.answer == "42"
+    assert result.hint_level == 1
 
 
 @pytest.mark.unit

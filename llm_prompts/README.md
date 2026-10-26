@@ -48,8 +48,15 @@ applies_to: [doubao-seed-2-1, qwen3.8-max]
 - 切题转写：`venv/Scripts/python scripts/eval_slicing.py --prefer-dotenv [--degrade]`
 - 过程题初判：`venv/Scripts/python scripts/eval_grading.py --prefer-dotenv`
   （4 道合成过程题 × 3 采样；只记 JSON 合规/延迟/tokens/结论匹配，不打印题目全文）
+- 三段式讲解：`venv/Scripts/python scripts/eval_explanation.py --prefer-dotenv`
+  （4 个合成案例 × 引导 1/3 级 + 完整讲解；只记结构/泄漏/步数/答案命中/延迟/tokens，
+  不打印题目或讲解全文）
 
 最新实跑（2026-10-25，`grade@1`，`doubao-seed-2-1-lite-260915`）：
 JSON 合规 12/12、有效结论 4/4、p50 8.3s、tokens in 5616 / out 8590。
+
+最新实跑（2026-10-26，`explain_guide@1` + `explain_full@1`，`doubao-seed-2-1-lite-260915`）：
+结构合规 12/12、引导零泄漏 8/8、完整讲解 ≥2 步 4/4、答案命中 4/4、
+p50 33.0s、tokens in 10633 / out 27005。
 
 未跑评测的 prompt 不升版本、不进默认路由。

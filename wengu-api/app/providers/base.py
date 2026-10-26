@@ -37,6 +37,8 @@ class Explanation:
     steps: tuple[str, ...]
     answer: str | None = None
     hint_level: int = 0
+    focus: str = ""
+    consolidation: str = ""
 
 
 @dataclass(frozen=True)

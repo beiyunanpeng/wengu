@@ -163,13 +163,15 @@ class AiGateway:
         self,
         problem_text: str,
         *,
-        prompt_id: str = "solve_explain",
+        prompt_id: str = "explain_guide",
         hint_level: int = 0,
+        extra_values: dict[str, str] | None = None,
     ) -> tuple[Explanation, CallMeta]:
         level = max(0, min(int(hint_level), 3))
-        prompt, rendered = self.render_prompt(
-            prompt_id, PROBLEM_TEXT=problem_text, HINT_LEVEL=str(level)
-        )
+        values = dict(extra_values or {})
+        values["PROBLEM_TEXT"] = problem_text
+        values["HINT_LEVEL"] = str(level)
+        prompt, rendered = self.render_prompt(prompt_id, **values)
         provider_name = resolve_task_provider("solve_explain", self._runtime)
         provider = self._vision(provider_name)
         key = make_cache_key(
@@ -178,7 +180,11 @@ class AiGateway:
             model=provider.model,
             prompt_id=prompt.id,
             prompt_version=prompt.version,
-            payload={"problem_text": problem_text, "hint_level": level},
+            payload={
+                "problem_text": problem_text,
+                "hint_level": level,
+                "extra_values": sorted((extra_values or {}).items()),
+            },
         )
 
         async def call() -> tuple[Explanation, CallMeta]:
@@ -192,6 +198,8 @@ class AiGateway:
             steps=tuple(data["steps"]),
             answer=data.get("answer"),
             hint_level=int(data.get("hint_level", level)),
+            focus=str(data.get("focus") or ""),
+            consolidation=str(data.get("consolidation") or ""),
         )
         return result, self._meta(provider, envelope, cache_hit, prompt)
 

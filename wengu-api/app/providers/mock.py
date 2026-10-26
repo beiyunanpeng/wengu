@@ -33,9 +33,14 @@ class MockVisionProvider(VisionProvider):
         level = max(0, min(int(hint_level), 3))
         return (
             Explanation(
-                steps=(f"[mock] hint level {level} for: {problem_text}",),
-                answer=None,
+                steps=(
+                    f"[mock] hint level {level} for: {problem_text}",
+                    "[mock] next step without revealing the final answer",
+                ),
+                answer="[mock] answer",
                 hint_level=level,
+                focus="[mock] locate what the problem asks",
+                consolidation="[mock] redo the last step and check it yourself",
             ),
             CallMeta(provider=self.name, model="mock-vision", latency_ms=0),
         )

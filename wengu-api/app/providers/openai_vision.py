@@ -196,6 +196,8 @@ class OpenAIVisionProvider(VisionProvider):
             steps=steps,
             answer=_coerce_optional_str(data.get("answer")),
             hint_level=level,
+            focus=_coerce_optional_str(data.get("focus")) or "",
+            consolidation=_coerce_optional_str(data.get("consolidation")) or "",
         )
         return explanation, self._meta(resp)
 
