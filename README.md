@@ -80,8 +80,12 @@ Windows 上若 `make` 不在 PATH，重开终端或安装 [GNU Make](https://win
 - ✅ **P1-4 结构化提取 + 质量闸门**：VLM 提取题目/作答/完整性/置信度，确定性闸门拦 `〔?〕`/残题/空作答；整页兜底恒人工复核。
 - ✅ **P1-5 批改分级闸**：客观题零模型归一化判分、过程题保守初判、开放题讲解；建议/确认分离、申诉只追加版本、`verify` AST 沙箱入库核验。
 - ✅ **P1-6 保守入本 + 两级标签 + 派生表**（2026-10-25）：只有孩子/家长确认或申诉 `wrong` 才建错题；`category` + `concept` 受控生长；`practice_records` 隔离；复习策略纯函数（不落库、不排期）。
+- ✅ **P1-7a 复习排期（用户触发）**（2026-10-26）：确认错题自动排首次复习、完成排下一次、连续答对毕业；状态从事件重放推导，幂等键防重复；`GET /api/reviews/due` + `POST /api/reviews/{mistake_id}/complete`。
 - ✅ **P1-8 三段式讲解引擎**（2026-10-26）：定位 → 引导/讲解 → 巩固；按错因预选模式，引导 1–3 级不揭晓答案；"看完整讲解"不硬拦但留痕，答疑入口复用同一引擎；质量/答案泄漏闸门 + 元数据事件。
-- ⏳ 下一张工单：**P1-9 最小 Web UI**；**P1-7 复习调度受 Phase 0 闸门阻塞**（边界表回填前不自动排复习）。
+- ✅ **P1-9 最小 Web UI**（2026-10-26）：采集 / 批改回显确认 / 错题本 / 复习 / 讲解五页；孩子可独立走通"拍 → 确认入本 → 复习 → 卡住看讲解"；确认答错强制选分类，数学 KaTeX 渲染。
+- ⏳ 下一张工单：**P0-1 样本扩容 + P0-2 黄金评测集**；随后 P1-7b 前置回溯诊断；**P1-7c 自动排复习仍受 Phase 0 闸门阻塞**。
+
+> 完整的工单状态、实测数字、阻塞项与下一步建议见 [`docs/STATUS.md`](./docs/STATUS.md)。
 
 ## 📖 文档地图
 
@@ -89,6 +93,7 @@ Windows 上若 `make` 不在 PATH，重开终端或安装 [GNU Make](https://win
 |---|---|
 | [`AGENTS.md`](./AGENTS.md) | 给 AI 编码 agent 的**施工规约与缰绳**（硬约束/已砍清单/不可动设计决定/DoD） |
 | [`TICKETS.md`](./TICKETS.md) | 分 Phase 工单（P0-1 到 P5-5），每条含 目标·依赖·交付·DoD·禁止事项 |
+| [`docs/STATUS.md`](./docs/STATUS.md) | 开发计划与完成情况快照（工单状态、实测数字、阻塞与下一步） |
 | [`docs/specs/architecture/StudyDesk-设计说明文档-v2.md`](./docs/specs/architecture/StudyDesk-设计说明文档-v2.md) | **唯一事实来源**（v2.4）——16 轮拷问敲定的完整设计树 |
 | [`docs/methodology/phase0.md`](./docs/methodology/phase0.md) | Phase 0 实测方法论（手写识别 & 分题型判分） |
 | [`docs/methodology/evals.md`](./docs/methodology/evals.md) | evals 黄金集与持续回归方法论 |

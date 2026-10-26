@@ -7,11 +7,88 @@
 
 ## [Unreleased]
 
-下一步按 `TICKETS.md` 顺序推进：**P1-9 最小 Web UI**。
-**P1-7 复习调度仍受 Phase 0 闸门阻塞**（边界表未回填前不自动排复习）；
-P1-6 的"入本"也仍以孩子/家长确认 `wrong` 为前提，不得静默自动建错题。
+P1-9 已完成，Phase 1 只剩 P1-7b（前置回溯诊断）与受闸门阻塞的 P1-7c。
+下一步按风险排序：**P0-1 样本扩容 + P0-2 黄金评测集**，再补 P1-7b。
+**P1-7c 自动排复习仍受 Phase 0 闸门阻塞**（边界表未回填前不自动排复习）；
+复习排期只由**用户确认错题**触发；P1-6 的"入本"也仍以孩子/家长确认 `wrong`
+为前提，不得静默自动建错题。
 
 ### Added
+
+- **P1-9 最小 Web UI**（2026-10-26）：React + Vite + TypeScript + Mantine + KaTeX
+  五页最小闭环——采集 / 批改回显确认 / 错题本（含详情）/ 复习 / 讲解；孩子可独立走通
+  "拍 → 看批改并确认 → 入本 → 复习 → 卡住看讲解"。仅新增 `react-router-dom@7.18.4`
+  （精确锁版本），未引入其他运行时依赖。
+  - `CapturePage`：拍照/选图（前端预检 20MB 与 MIME）→ 上传 → 本地切题 → 提取；
+    分阶段进度与已等待秒数；提取失败可单点重试；按提取闸门展示"可批改/需人工复核/
+    依赖图形"；可直接选题型 + 填标准答案提交批改，开放题跳讲解。
+  - `GradingPage`：回显题目/作答/标准答案/建议值/版本历史；确认/申诉 `correct`/`wrong`；
+    答错必须先选知识点分类（`CategoryPicker` 搜索 seed 节点）才可提交；409 自动刷新
+    并提示重试。
+  - `MistakesPage` / `MistakeDetailPage`：按状态/分类/错因/概念过滤与分页；详情可补错因、
+    创建或选择 concept、保存部分标签（不覆盖未提交字段）；入口跳讲解。
+  - `ReviewPage`：到期队列（题目/到期日/等级/基础间隔），逐题"答对/答错"完成并展示
+    下一次到期或毕业；空态提示；"卡住了，看讲解"直达。
+  - `ExplainPage`：auto/guide/full + 提示 1–3 级；重试复用稳定 `request_id`；记录动手后
+    软闸门解除；**软闸门未解除时前端不展示答案**——即使 API 为"不硬拦"返回 `answer`，
+    页面仍显示"完整答案暂未展示"，记录动手后才展示（P1-8 API 契约不变）。
+  - 后端：`confirm`/`appeal` 增加可选 `category_id`（≤64）；只在**新建**错题时写入
+    `confirmed_category_id/confirmed_by`，已有错题不覆盖确认标签；分类不存在 → 422，
+    学科无法确定/未配置 → 422 整体回滚（复用 P1-7a 闸门）；新增 6 条集成测试覆盖
+    确认/申诉带分类、非法分类回滚、已有错题不覆盖。
+  - 工程：Vite dev `/api` 代理（`WENGU_API_PROXY`，默认 `http://127.0.0.1:8000`）；
+    nginx 生产同源代理 `/api` 与 `/health`、`client_max_body_size 25m`、300s 超时；
+    API 客户端分级超时（上传 60s、切题 120s、提取 300s、批改/讲解 180s）；
+    查询页 GET 零模型调用。
+  - 测试：全量 **323 passed**（本机 2026-10-26，61.07s），`ruff check .` 全绿，
+    前端 `tsc + build` 通过。
+  - **浏览器实跑**（真实豆包）：拍照上传 → 切题/提取 → 回显确认（选分类）→ 错题入本 +
+    首次排期 → 复习页完成（答对，下一次 10 天后）→ 讲解引导 → 完整讲解软闸门 →
+    记录动手后显示答案；错题列表/详情/概念新建/错因保存均通过。
+  - **容器实跑**（宿主机 8100/5000）：重建 api/web 均 healthy；nginx 反代 `/api` 与
+    SPA fallback 生效；2MB 图片经 nginx 上传返回 201（无 413）；seed 664 节点加载正常。
+  - 残留风险：豆包 JSON 导入仍只有 API、无 UI；切片序号 0-based 导致"第 0 题"文案
+    （整页提取为 1-based，历史遗留，未在 P1-9 修）；讲解仍可能遇上游 502，需手动重试；
+    仍无鉴权/local PIN，仅限本机/可信内网（P2-4/P5-3）。
+
+- **P1-7a 复习排期服务（用户触发）**（2026-10-26）：确认/申诉 `wrong` 建错题时自动建首次排期，
+  复习完成后排下一次，答对累计满足毕业条件即毕业；排期状态一律从 `learning_events` 重放推导，
+  表里不存 mastery/毕业等易变字段，不实现"模型判错即排复习"（那是 P1-7c）。
+  - 迁移 `0009`：`review_schedules` 表 0002 已建，本次只补幂等约束——
+    `source_event_id` 唯一 + "每题仅一条未完成排期"部分唯一索引（`completed_at IS NULL`）；
+    up/down 幂等（先 inspect 再建/删），含备份/回退说明，不回填任何历史数据。
+  - `services/review.py`：
+    - `schedule_initial()`：只在 `services/mistakes.py` **新建错题**分支调用（复活不动既有排期）；
+      首次排期用 `initial_state()` + `review_interval()` 直接算，**不走 `decide(correct=False)`**，
+      避免首错被计两次；幂等键 `review:schedule:{mistake_id}:init`，payload 仅含
+      mistake_id/kind/subject/ladder/mastery/rung/times_wrong/trailing_correct/
+      base_interval_days/interval_days/due_on/trigger 等元数据，**不含题目、作答、答案**。
+    - `complete_attempt()`：必须带 `schedule_id`（重试幂等）；幂等键 `review:attempt:{schedule_id}`，
+      重复调用返回同一结果；完成前校验排期 rung 与事件重放一致（不一致 409，防篡改/陈旧行）；
+      `review_policy.decide()` 产出下一状态与到期日，毕业则不生成新排期；
+      同时写 `attempts(kind="review", answer_text=NULL)`，不存复习作答内容。
+    - `due_queue()`：active 错题 + 最新版 + 排期未完成 + `due_date <= today`，
+      按到期日、ID 排序，支持 limit。
+    - 掌握度取 `recompute.mastery()`：该错题所有**已确认** concept 的最小值；无 concept 挂载 = 0.0。
+  - 学科闸门：优先取题库 `problem_bank.subject`，否则取已确认 category 的 seed 学科；
+    找不到 → 422 `无法确定学科`，找到但未配置阶梯（非数学/物理/化学/语文/英语/历史/道法/
+    生物/地理）→ 422 `未配置复习阶梯`。两种情况都**整体回滚确认事务**（不建错题、不排期、
+    不写事件、不改批改版本），不偷偷落回数学阶梯。
+  - API：`GET /api/reviews/due?today=&limit=`、`POST /api/reviews/{mistake_id}/complete`
+    （body 含 `schedule_id`、`correct`、`actor`）；错误映射 404/409/422。
+  - 测试：全量 **317 passed**，`ruff check .` 全绿；新增 10 条（9 条 review API 集成 +
+    1 条迁移索引测试），覆盖确认→首排期→到期→完成→下一次→毕业全链路、答错折半、
+    到期队列过滤（未来/已完成/已作废）、重复确认与重复完成幂等、rung 不一致 409、
+    mastery 取最小、记忆科阶梯、未知/未配置学科整体回滚。
+  - **容器实跑**（既有卷，端口 8100）：alembic 升至 `0009`（两个唯一索引就位）；
+    导入→判错→确认→错题 3、首排期 id 1（rung 0、间隔 1 天、due 2026-10-27）；
+    按时完成 → attempt 1、下一次排期 id 2（rung 1、间隔 10 天、due 2026-11-06）；
+    重复完成返回同一 attempt/排期，无重复事件；到期队列清空；复习事件 payload 无题目/答案；
+    `attempts.answer_text` 为 NULL。
+  - 残留风险：**现有事件无 `concept_id`，真实数据 mastery 恒 0.0**（间隔取基础档，需后续
+    工单补 concept 归因）；学科无法确定/未配置时整个确认 422 回滚（题目需先挂题库或分类，
+    属产品流程缺口）；已毕业错题再次复活不会自动开启新复习周期（P1-7a 只处理新建错题）；
+    `complete` 仅支持孩子/家长，无自动补排；P1-7c 自动排复习仍被闸门阻塞。
 
 - **P1-8 三段式讲解引擎**（2026-10-26）：定位 →（引导/讲解）→ 巩固；一引擎同时服务
   错题订正与拍照答疑。默认 `auto` 按已确认错因预选：前置缺失/概念不清 → 完整讲解，

@@ -26,6 +26,7 @@ from app.models import (
     PracticeRecord,
     ProblemBankItem,
     ProblemExtraction,
+    ReviewSchedule,
 )
 from app.providers.base import CallMeta, GradeResult
 from app.services.ai_gateway import get_ai_gateway
@@ -311,16 +312,24 @@ async def test_zero_input_wrong_creates_mistake_once_and_correct_voids(tmp_path)
     assert reactivated.json()["mistake_id"] == mistake_id
     assert reactivated.json()["mistake_status"] == "active"
     assert await _count(factory, Mistake) == 1
+    assert await _count(factory, ReviewSchedule) == 1  # 复活不重复排期
 
     async with factory() as session:
         events = (await session.scalars(select(LearningEvent).order_by(LearningEvent.id))).all()
     assert [event.type for event in events] == [
+        "review_scheduled",
         "attempt_wrong",
         "attempt_wrong",
         "attempt_correct",
         "attempt_wrong",
     ]
-    assert [event.mistake_id for event in events] == [mistake_id, mistake_id, None, mistake_id]
+    assert [event.mistake_id for event in events] == [
+        mistake_id,
+        mistake_id,
+        mistake_id,
+        None,
+        mistake_id,
+    ]
 
 
 @pytest.mark.integration
@@ -350,6 +359,7 @@ async def test_ai_suggestion_alone_never_enters_mistake_book(tmp_path) -> None:
     assert mistakes.json()["total"] == 0
     assert await _count(factory, Mistake) == 0
     assert await _count(factory, MistakeVersion) == 0
+    assert await _count(factory, ReviewSchedule) == 0
     assert len(gateway.calls) == 1
 
 

@@ -12,6 +12,7 @@ import json
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Literal
 
 from sqlalchemy import and_, func, select
 from sqlalchemy.exc import IntegrityError
@@ -34,6 +35,7 @@ from app.services.concepts import (
 )
 from app.services.events import append_mistake_version, record_event
 from app.services.labels import suggest_labels
+from app.services.review import schedule_initial
 
 MAX_CONCEPTS = 10
 MAX_ERROR_CAUSE_LENGTH = 32
@@ -131,18 +133,22 @@ async def sync_mistake_for_verdict(
     grading: GradingResult,
     *,
     verdict: str,
+    actor: Literal["student", "parent"] = "student",
+    category_id: str | None = None,
     now: datetime | None = None,
 ) -> Mistake | None:
     """把用户确认/申诉的 verdict 同步到错题生命周期。
 
     wrong  → 建根 + 首版快照（含零模型确定性标签建议），已存在则复活；
     correct → 已存在则作废，不删除任何版本。
+    category_id 是用户确认值，只在新建错题时落库；已有错题不覆盖标签。
     返回 wrong 时的错题根；correct 或无错题时返回 None。
     """
 
     if verdict not in ("correct", "wrong"):
         raise MistakeConflict("只有 correct/wrong 能触发错题本同步")
     moment = now or datetime.now(UTC)
+    cleaned_category = (category_id or "").strip() or None
 
     existing = (
         await session.execute(
@@ -163,6 +169,12 @@ async def sync_mistake_for_verdict(
             existing.updated_at = moment
             await session.flush()
         return existing
+
+    if (
+        cleaned_category is not None
+        and await session.get(KnowledgeSeed, cleaned_category) is None
+    ):
+        raise CategoryNotFound("知识点 category 不存在")
 
     root = Mistake(
         source_grading_id=grading.id,
@@ -198,6 +210,15 @@ async def sync_mistake_for_verdict(
         status="confirmed",
         suggested_category_id=suggestions.category_id,
         suggested_concept_ids=suggestions.concept_ids,
+        confirmed_category_id=cleaned_category,
+        confirmed_by=actor if cleaned_category is not None else None,
+    )
+    await schedule_initial(
+        session,
+        root.id,
+        completed_on=moment.date(),
+        actor=actor,
+        now=moment,
     )
     return root
 

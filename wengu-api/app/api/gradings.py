@@ -21,6 +21,7 @@ from app.models import GradingResult, GradingVersion, Mistake
 from app.prompts.loader import PromptError
 from app.providers.registry import ProviderConfigError
 from app.services.ai_gateway import AiGateway, get_ai_gateway
+from app.services.concepts import CategoryNotFound
 from app.services.grading import (
     ReferenceNotFound,
     SourceNotFound,
@@ -34,6 +35,7 @@ from app.services.grading import (
     read_source,
     resolve_reference,
 )
+from app.services.review import ReviewError, ReviewSubjectError
 
 router = APIRouter(tags=["gradings"])
 
@@ -94,12 +96,14 @@ class GradingCreateResponse(BaseModel):
 class ConfirmRequest(BaseModel):
     base_version: int = Field(ge=1)
     verdict: Literal["correct", "wrong"] | None = None
+    category_id: str | None = Field(default=None, max_length=64)
     actor: Literal["student", "parent"] = "student"
 
 
 class AppealRequest(BaseModel):
     base_version: int = Field(ge=1)
     verdict: Literal["correct", "wrong"]
+    category_id: str | None = Field(default=None, max_length=64)
     actor: Literal["student", "parent"] = "student"
     reason: str | None = Field(default=None, max_length=200)
 
@@ -292,7 +296,14 @@ async def confirm_grading(
                 verdict=verdict,  # type: ignore[arg-type]
                 actor=payload.actor,
                 reason="user_confirmed",
+                category_id=payload.category_id,
             )
+        except CategoryNotFound as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from None
+        except ReviewSubjectError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from None
+        except ReviewError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from None
         except IntegrityError:
             raise HTTPException(status_code=409, detail="版本冲突，请刷新后重试") from None
         return await _detail(session, grading)
@@ -322,7 +333,14 @@ async def appeal_grading(
                 verdict=payload.verdict,
                 actor=payload.actor,
                 reason=(payload.reason or "user_appeal")[:200],
+                category_id=payload.category_id,
             )
+        except CategoryNotFound as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from None
+        except ReviewSubjectError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from None
+        except ReviewError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from None
         except IntegrityError:
             raise HTTPException(status_code=409, detail="版本冲突，请刷新后重试") from None
         return await _detail(session, grading)

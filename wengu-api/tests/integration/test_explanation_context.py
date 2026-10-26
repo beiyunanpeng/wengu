@@ -23,6 +23,7 @@ from app.models import (
     LearningEvent,
     Mistake,
     PhotoCapture,
+    ProblemBankItem,
     ProblemExtraction,
 )
 from app.providers.base import CallMeta
@@ -193,6 +194,31 @@ async def _seed_draft(
         return row.id
 
 
+async def _seed_bank(
+    factory: async_sessionmaker,
+    *,
+    problem_text: str = "解方程 2x=4",
+    answer: str = "x=2",
+) -> int:
+    async with factory() as session, session.begin():
+        row = ProblemBankItem(
+            external_id=uuid4().hex,
+            subject="数学",
+            problem_text=problem_text,
+            answer=answer,
+            acceptable_answers_json="[]",
+            unordered=False,
+            verify="2",
+            verify_vars_json="{}",
+            verify_status="verified",
+            source="test",
+            created_at=datetime.now(UTC),
+        )
+        session.add(row)
+        await session.flush()
+        return row.id
+
+
 async def _create_mistake(
     client: AsyncClient,
     factory: async_sessionmaker,
@@ -203,13 +229,14 @@ async def _create_mistake(
     extraction_id = await _seed_extraction(
         factory, problem_text=problem_text, student_answer=student_answer
     )
+    bank_id = await _seed_bank(factory, problem_text=problem_text)
     created = await client.post(
         "/api/gradings",
         json={
             "source_kind": "problem_extraction",
             "source_id": extraction_id,
             "question_type": "objective",
-            "answer": "x=2",
+            "problem_bank_id": bank_id,
         },
     )
     assert created.status_code == 200, created.text

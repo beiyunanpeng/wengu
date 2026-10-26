@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, ForeignKey, Index, Integer
+from sqlalchemy import Date, DateTime, ForeignKey, Index, Integer, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -33,4 +33,15 @@ class ReviewSchedule(Base):
     __table_args__ = (
         Index("ix_review_schedules_mistake_id", "mistake_id"),
         Index("ix_review_schedules_due_date", "due_date"),
+        Index(
+            "uq_review_schedules_source_event_id",
+            "source_event_id",
+            unique=True,
+        ),
+        Index(
+            "uq_review_schedules_open_mistake",
+            "mistake_id",
+            unique=True,
+            sqlite_where=text("completed_at IS NULL"),
+        ),
     )

@@ -384,6 +384,7 @@ async def append_user_decision(
     verdict: UserVerdict,
     actor: Literal["student", "parent"],
     reason: str,
+    category_id: str | None = None,
 ) -> GradingVersion:
     """追加确认/申诉版本并写事实事件；版本号即幂等边界。"""
 
@@ -407,7 +408,12 @@ async def append_user_decision(
     await session.flush()
 
     mistake = await sync_mistake_for_verdict(
-        session, grading, verdict=verdict, now=now
+        session,
+        grading,
+        verdict=verdict,
+        actor=actor,
+        category_id=category_id,
+        now=now,
     )
     event_mistake_id = mistake.id if verdict == "wrong" and mistake is not None else None
 

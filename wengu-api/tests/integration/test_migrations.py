@@ -175,3 +175,103 @@ def test_mistake_versions_append_only_guard(tmp_path) -> None:
                 connection.execute(text("DELETE FROM mistake_versions WHERE id = 1"))
     finally:
         engine.dispose()
+
+
+@pytest.mark.integration
+def test_review_schedules_idempotency_indexes(tmp_path) -> None:
+    """0009：同一事实事件最多一条排期；同一错题最多一条未完成排期。"""
+
+    db_path = tmp_path / "review-index.db"
+    config = _alembic_config(db_path)
+    command.upgrade(config, "head")
+
+    engine = create_engine(f"sqlite:///{db_path.as_posix()}")
+    try:
+        with engine.connect() as connection:
+            indexes = {
+                index["name"]: index
+                for index in inspect(connection).get_indexes("review_schedules")
+            }
+        assert indexes["uq_review_schedules_source_event_id"]["unique"]
+        assert indexes["uq_review_schedules_open_mistake"]["unique"]
+
+        with engine.begin() as connection:
+            for event_id in (1, 2):
+                connection.execute(
+                    text(
+                        "INSERT INTO learning_events"
+                        " (id, type, actor, idempotency_key)"
+                        f" VALUES ({event_id}, 'review_scheduled', 'student',"
+                        f" 'review-index-{event_id}')"
+                    )
+                )
+            connection.execute(
+                text(
+                    "INSERT INTO review_schedules"
+                    " (mistake_id, rung, base_interval_days, due_date, source_event_id)"
+                    " VALUES (1, 0, 1, '2026-10-27', 1)"
+                )
+            )
+            with pytest.raises(
+                sqlalchemy.exc.IntegrityError, match="review_schedules.source_event_id"
+            ):
+                connection.execute(
+                    text(
+                        "INSERT INTO review_schedules"
+                        " (mistake_id, rung, base_interval_days, due_date, source_event_id)"
+                        " VALUES (2, 0, 1, '2026-10-27', 1)"
+                    )
+                )
+            with pytest.raises(
+                sqlalchemy.exc.IntegrityError, match="review_schedules.mistake_id"
+            ):
+                connection.execute(
+                    text(
+                        "INSERT INTO review_schedules"
+                        " (mistake_id, rung, base_interval_days, due_date, source_event_id)"
+                        " VALUES (1, 0, 1, '2026-10-27', 2)"
+                    )
+                )
+            # 已完成排期不占"未完成"唯一位：同错题可继续拥有下一条 open 排期
+            connection.execute(
+                text(
+                    "UPDATE review_schedules SET completed_at = CURRENT_TIMESTAMP"
+                    " WHERE source_event_id = 1"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO review_schedules"
+                    " (mistake_id, rung, base_interval_days, due_date, source_event_id)"
+                    " VALUES (1, 1, 10, '2026-11-06', 2)"
+                )
+            )
+            count = connection.scalar(text("SELECT COUNT(*) FROM review_schedules"))
+        assert count == 2
+    finally:
+        engine.dispose()
+
+    command.downgrade(config, "0008_mistakes_practice")
+    engine = create_engine(f"sqlite:///{db_path.as_posix()}")
+    try:
+        with engine.connect() as connection:
+            names = {
+                index["name"]
+                for index in inspect(connection).get_indexes("review_schedules")
+            }
+        assert "uq_review_schedules_source_event_id" not in names
+        assert "uq_review_schedules_open_mistake" not in names
+    finally:
+        engine.dispose()
+
+    command.upgrade(config, "head")
+    engine = create_engine(f"sqlite:///{db_path.as_posix()}")
+    try:
+        with engine.connect() as connection:
+            names = {
+                index["name"]
+                for index in inspect(connection).get_indexes("review_schedules")
+            }
+        assert {"uq_review_schedules_source_event_id", "uq_review_schedules_open_mistake"} <= names
+    finally:
+        engine.dispose()

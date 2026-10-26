@@ -20,10 +20,13 @@ from app.models import (
     GradingVersion,
     ImportBatch,
     IngestionDraft,
+    KnowledgeSeed,
     LearningEvent,
+    Mistake,
     PhotoCapture,
     ProblemBankItem,
     ProblemExtraction,
+    ReviewSchedule,
 )
 from app.providers.base import CallMeta, GradeResult
 from app.providers.registry import ProviderConfigError
@@ -204,6 +207,26 @@ async def _seed_bank(
         session.add(row)
         await session.flush()
         return row.id
+
+
+async def _seed_category(
+    factory: async_sessionmaker,
+    category_id: str = "cnm_test_add",
+    *,
+    name: str = "测试加法",
+    subject: str = "数学",
+) -> str:
+    async with factory() as session, session.begin():
+        session.add(
+            KnowledgeSeed(
+                id=category_id,
+                subject=subject,
+                name=name,
+                unaudited=True,
+                blind_verified=False,
+            )
+        )
+    return category_id
 
 
 async def _count(factory: async_sessionmaker, model) -> int:
@@ -464,10 +487,14 @@ async def test_confirm_appends_version_and_event_once(tmp_path) -> None:
 async def test_appeal_supersedes_previous_verdict(tmp_path) -> None:
     factory = _migrated(tmp_path)
     gateway = FakeGradeGateway()
+    bank_id = await _seed_bank(factory, answer="2", acceptable=("2",))
     async with _client(factory, gateway) as client:
         extraction_id = await _seed_extraction(factory, student_answer="2")
         created = (
-            await client.post("/api/gradings", json=_request(extraction_id, answer="2"))
+            await client.post(
+                "/api/gradings",
+                json=_request(extraction_id, problem_bank_id=bank_id),
+            )
         ).json()["grading"]
         await client.post(
             f"/api/gradings/{created['id']}/confirm", json={"base_version": 1}
@@ -484,13 +511,21 @@ async def test_appeal_supersedes_previous_verdict(tmp_path) -> None:
     assert body["current_verdict"] == "wrong"
     assert body["versions"][2]["action"] == "appealed"
     assert body["versions"][2]["reason"] == "标准答案有误"
-    assert await _count(factory, LearningEvent) == 2
+    assert await _count(factory, LearningEvent) == 3
+    assert await _count(factory, ReviewSchedule) == 1
 
     async with factory() as session:
-        events = (await session.scalars(select(LearningEvent))).all()
-    assert [e.type for e in events] == ["attempt_correct", "attempt_wrong"]
+        events = (
+            await session.scalars(select(LearningEvent).order_by(LearningEvent.id))
+        ).all()
+    assert [e.type for e in events] == [
+        "attempt_correct",
+        "review_scheduled",
+        "attempt_wrong",
+    ]
     assert [e.idempotency_key for e in events] == [
         f"grading:{created['id']}:v2",
+        f"review:schedule:{body['mistake_id']}:init",
         f"grading:{created['id']}:v3",
     ]
 
@@ -552,3 +587,196 @@ async def test_unknown_sources_return_404(tmp_path) -> None:
     assert post.status_code == 404
     assert get.status_code == 404
     assert missing_bank.status_code == 404
+
+
+@pytest.mark.integration
+async def test_confirm_wrong_with_category_creates_mistake_and_schedule(tmp_path) -> None:
+    factory = _migrated(tmp_path)
+    gateway = FakeGradeGateway()
+    async with _client(factory, gateway) as client:
+        category_id = await _seed_category(factory)
+        extraction_id = await _seed_extraction(
+            factory, problem_text="3+4=?", student_answer="7"
+        )
+        created = (
+            await client.post("/api/gradings", json=_request(extraction_id, answer="8"))
+        ).json()["grading"]
+        assert created["current_verdict"] == "wrong"
+
+        confirmed = await client.post(
+            f"/api/gradings/{created['id']}/confirm",
+            json={
+                "base_version": 1,
+                "verdict": "wrong",
+                "category_id": category_id,
+            },
+        )
+        mistake_id = confirmed.json()["mistake_id"]
+        detail = await client.get(f"/api/mistakes/{mistake_id}")
+        async with factory() as session:
+            schedule = (await session.scalars(select(ReviewSchedule))).one()
+        due = await client.get(
+            "/api/reviews/due", params={"today": schedule.due_date.isoformat()}
+        )
+
+    assert confirmed.status_code == 200
+    assert detail.status_code == 200
+    labels = detail.json()["labels"]
+    assert labels["confirmed"] is True
+    assert labels["category_id"] == category_id
+    assert labels["confirmed_by"] == "student"
+    assert detail.json()["suggestion"]["category_id"] is None
+    assert due.json()["total"] == 1
+    assert due.json()["items"][0]["mistake_id"] == mistake_id
+    assert await _count(factory, Mistake) == 1
+    assert await _count(factory, ReviewSchedule) == 1
+
+    async with factory() as session:
+        events = (
+            await session.scalars(select(LearningEvent).order_by(LearningEvent.id))
+        ).all()
+    assert [event.type for event in events] == ["review_scheduled", "attempt_wrong"]
+
+
+@pytest.mark.integration
+async def test_confirm_wrong_with_unknown_category_rolls_back(tmp_path) -> None:
+    factory = _migrated(tmp_path)
+    gateway = FakeGradeGateway()
+    async with _client(factory, gateway) as client:
+        extraction_id = await _seed_extraction(
+            factory, problem_text="3+4=?", student_answer="7"
+        )
+        created = (
+            await client.post("/api/gradings", json=_request(extraction_id, answer="8"))
+        ).json()["grading"]
+        rejected = await client.post(
+            f"/api/gradings/{created['id']}/confirm",
+            json={
+                "base_version": 1,
+                "verdict": "wrong",
+                "category_id": "cnm_missing",
+            },
+        )
+        fetched = await client.get(f"/api/gradings/{created['id']}")
+
+    assert rejected.status_code == 422
+    assert fetched.json()["current_version"] == 1
+    assert fetched.json()["status"] == "pending"
+    assert fetched.json()["mistake_id"] is None
+    assert await _count(factory, Mistake) == 0
+    assert await _count(factory, ReviewSchedule) == 0
+    assert await _count(factory, LearningEvent) == 0
+
+
+@pytest.mark.integration
+async def test_confirm_wrong_without_category_and_subject_rolls_back(tmp_path) -> None:
+    factory = _migrated(tmp_path)
+    gateway = FakeGradeGateway()
+    async with _client(factory, gateway) as client:
+        extraction_id = await _seed_extraction(
+            factory, problem_text="3+4=?", student_answer="7"
+        )
+        created = (
+            await client.post("/api/gradings", json=_request(extraction_id, answer="8"))
+        ).json()["grading"]
+        rejected = await client.post(
+            f"/api/gradings/{created['id']}/confirm",
+            json={"base_version": 1, "verdict": "wrong"},
+        )
+
+    assert rejected.status_code == 422
+    assert await _count(factory, Mistake) == 0
+    assert await _count(factory, ReviewSchedule) == 0
+    assert await _count(factory, LearningEvent) == 0
+
+
+@pytest.mark.integration
+async def test_confirm_correct_ignores_category(tmp_path) -> None:
+    factory = _migrated(tmp_path)
+    gateway = FakeGradeGateway()
+    async with _client(factory, gateway) as client:
+        category_id = await _seed_category(factory)
+        extraction_id = await _seed_extraction(factory)
+        created = (
+            await client.post("/api/gradings", json=_request(extraction_id, answer="2"))
+        ).json()["grading"]
+        confirmed = await client.post(
+            f"/api/gradings/{created['id']}/confirm",
+            json={
+                "base_version": 1,
+                "verdict": "correct",
+                "category_id": category_id,
+            },
+        )
+
+    assert confirmed.status_code == 200
+    assert confirmed.json()["mistake_id"] is None
+    assert await _count(factory, Mistake) == 0
+    assert await _count(factory, ReviewSchedule) == 0
+
+
+@pytest.mark.integration
+async def test_appeal_wrong_with_category_creates_schedule(tmp_path) -> None:
+    factory = _migrated(tmp_path)
+    gateway = FakeGradeGateway()
+    async with _client(factory, gateway) as client:
+        category_id = await _seed_category(factory)
+        extraction_id = await _seed_extraction(factory)
+        created = (
+            await client.post("/api/gradings", json=_request(extraction_id, answer="2"))
+        ).json()["grading"]
+        appealed = await client.post(
+            f"/api/gradings/{created['id']}/appeal",
+            json={
+                "base_version": 1,
+                "verdict": "wrong",
+                "reason": "自判改判",
+                "category_id": category_id,
+            },
+        )
+        mistake_id = appealed.json()["mistake_id"]
+        detail = await client.get(f"/api/mistakes/{mistake_id}")
+
+    assert appealed.status_code == 200
+    assert detail.json()["labels"]["category_id"] == category_id
+    assert await _count(factory, ReviewSchedule) == 1
+
+
+@pytest.mark.integration
+async def test_existing_mistake_keeps_confirmed_category(tmp_path) -> None:
+    factory = _migrated(tmp_path)
+    gateway = FakeGradeGateway()
+    async with _client(factory, gateway) as client:
+        first_category = await _seed_category(factory)
+        second_category = await _seed_category(
+            factory, "cnm_test_other", name="测试减法"
+        )
+        extraction_id = await _seed_extraction(
+            factory, problem_text="3+4=?", student_answer="7"
+        )
+        created = (
+            await client.post("/api/gradings", json=_request(extraction_id, answer="8"))
+        ).json()["grading"]
+        confirmed = await client.post(
+            f"/api/gradings/{created['id']}/confirm",
+            json={
+                "base_version": 1,
+                "verdict": "wrong",
+                "category_id": first_category,
+            },
+        )
+        mistake_id = confirmed.json()["mistake_id"]
+        await client.post(
+            f"/api/gradings/{created['id']}/appeal",
+            json={
+                "base_version": 2,
+                "verdict": "wrong",
+                "reason": "再次申诉",
+                "category_id": second_category,
+            },
+        )
+        detail = await client.get(f"/api/mistakes/{mistake_id}")
+
+    assert detail.json()["labels"]["category_id"] == first_category
+    assert await _count(factory, Mistake) == 1
+    assert await _count(factory, ReviewSchedule) == 1

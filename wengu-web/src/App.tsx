@@ -1,21 +1,27 @@
-import { Container, Stack, Title } from "@mantine/core";
-import katex from "katex";
-import { useMemo } from "react";
+import { Navigate, Route, Routes } from "react-router-dom";
 
-const SAMPLE_FORMULA = "a^2 + b^2 = c^2";
+import AppLayout from "./components/AppLayout";
+import CapturePage from "./pages/CapturePage";
+import ExplainPage from "./pages/ExplainPage";
+import GradingPage from "./pages/GradingPage";
+import MistakeDetailPage from "./pages/MistakeDetailPage";
+import MistakesPage from "./pages/MistakesPage";
+import ReviewPage from "./pages/ReviewPage";
 
 export default function App() {
-  const formula = useMemo(
-    () => katex.renderToString(SAMPLE_FORMULA, { throwOnError: false, output: "html" }),
-    [],
-  );
-
   return (
-    <Container size="sm" py="xl">
-      <Stack align="center" gap="lg">
-        <Title order={1}>wengu · 温故</Title>
-        <div aria-label="KaTeX render check" dangerouslySetInnerHTML={{ __html: formula }} />
-      </Stack>
-    </Container>
+    <Routes>
+      <Route element={<AppLayout />}>
+        <Route index element={<Navigate to="/capture" replace />} />
+        <Route path="capture" element={<CapturePage />} />
+        <Route path="capture/:captureId" element={<CapturePage />} />
+        <Route path="grading/:gradingId" element={<GradingPage />} />
+        <Route path="mistakes" element={<MistakesPage />} />
+        <Route path="mistakes/:mistakeId" element={<MistakeDetailPage />} />
+        <Route path="review" element={<ReviewPage />} />
+        <Route path="explain" element={<ExplainPage />} />
+        <Route path="*" element={<Navigate to="/capture" replace />} />
+      </Route>
+    </Routes>
   );
 }

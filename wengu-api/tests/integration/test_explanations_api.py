@@ -18,6 +18,7 @@ from app.models import (
     KnowledgeSeed,
     LearningEvent,
     PhotoCapture,
+    ProblemBankItem,
     ProblemExtraction,
 )
 from app.prompts.loader import PromptError
@@ -194,6 +195,26 @@ async def _seed_draft(factory: async_sessionmaker) -> int:
         return row.id
 
 
+async def _seed_bank(factory: async_sessionmaker) -> int:
+    async with factory() as session, session.begin():
+        row = ProblemBankItem(
+            external_id=uuid4().hex,
+            subject="数学",
+            problem_text="解方程 2x=4",
+            answer="x=2",
+            acceptable_answers_json="[]",
+            unordered=False,
+            verify="2",
+            verify_vars_json="{}",
+            verify_status="verified",
+            source="test",
+            created_at=datetime.now(UTC),
+        )
+        session.add(row)
+        await session.flush()
+        return row.id
+
+
 async def _create_mistake(
     client: AsyncClient,
     factory: async_sessionmaker,
@@ -201,13 +222,14 @@ async def _create_mistake(
     error_cause: str = "method_missing",
 ) -> int:
     extraction_id = await _seed_extraction(factory)
+    bank_id = await _seed_bank(factory)
     created = await client.post(
         "/api/gradings",
         json={
             "source_kind": "problem_extraction",
             "source_id": extraction_id,
             "question_type": "objective",
-            "answer": "x=2",
+            "problem_bank_id": bank_id,
         },
     )
     assert created.status_code == 200, created.text
