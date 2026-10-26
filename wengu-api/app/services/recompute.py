@@ -79,10 +79,11 @@ def _dedupe_grading_versions(
 
 
 def mastery(events: Sequence[Event | Mapping[str, Any]], concept_id: str) -> float:
-    """知识点掌握度占位实现：该知识点下历史作答的对错比例，无信号 = 0.0。
+    """单个 concept 的掌握度 = 该知识点下历史作答的正确率，无信号 = 0.0。
 
-    P1-7 将替换为"固定阶梯 × (1+mastery×4) 自适应因子"的正式公式；
-    调用方只依赖"输入事件 → 输出数值"的契约，不依赖内部实现。
+    注：`(1 + mastery × 4)` 是 review_interval 用 mastery 算间隔的公式（见 review_policy），
+    不是 mastery 本身的定义。多 concept 错题排期时取【最小 mastery】（设计文档 §5.4）。
+    后续可升级为近期加权正确率；调用方只依赖"输入事件 → 输出 [0,1] 数值"的契约。
     """
 
     correct = wrong = 0
