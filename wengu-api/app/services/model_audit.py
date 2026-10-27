@@ -40,6 +40,9 @@ async def record_model_run(
     meta: CallMeta | None = None,
     error: str | None = None,
     ai_job_id: int | None = None,
+    attempt_group: str | None = None,
+    attempt_index: int | None = None,
+    error_kind: str | None = None,
 ) -> ModelRun:
     run = ModelRun(
         ai_job_id=ai_job_id,
@@ -52,6 +55,9 @@ async def record_model_run(
         usage_json=json.dumps(asdict(meta.usage), ensure_ascii=False) if meta else None,
         status=status,
         error=error[:200] if error else None,
+        attempt_group=attempt_group,
+        attempt_index=attempt_index,
+        error_kind=error_kind,
         created_at=_utcnow(),
     )
     session.add(run)
@@ -61,7 +67,12 @@ async def record_model_run(
 
 async def today_call_count(session: AsyncSession, *, now: datetime | None = None) -> int:
     start = _day_start(now or _utcnow())
-    total = await session.scalar(select(func.count(ModelRun.id)).where(ModelRun.created_at >= start))
+    total = await session.scalar(
+        select(func.count(ModelRun.id)).where(
+            ModelRun.created_at >= start,
+            ModelRun.status != "config_error",  # 配置缺失没有真实调用，不占每日次数
+        )
+    )
     return int(total or 0)
 
 

@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,6 +23,12 @@ from app.core.database import get_session
 from app.models import PhotoCapture, PhotoCaptureItem, ProblemExtraction
 from app.prompts.loader import PromptError
 from app.providers.base import CallMeta
+from app.providers.failover import (
+    CONFIG,
+    QUOTA,
+    AllProvidersFailed,
+    classify_provider_error,
+)
 from app.providers.registry import ProviderConfigError
 from app.services.ai_gateway import AiGateway, get_ai_gateway
 from app.services.extraction import (
@@ -33,14 +39,24 @@ from app.services.extraction import (
     GateDecision,
     apply_extraction_gate,
 )
+from app.services.model_audit import DailyLimitExceeded
 
 router = APIRouter(tags=["extractions"])
 WHOLE_PAGE_SEQ = 1
 
 
+class ExtractionAttemptInfo(BaseModel):
+    provider: str
+    status: str
+    error_kind: str | None
+    latency_ms: int
+
+
 class ExtractionErrorItem(BaseModel):
     seq: int
     reason: str
+    kind: str
+    attempts: list[ExtractionAttemptInfo] = Field(default_factory=list)
 
 
 class ExtractionInfo(BaseModel):
@@ -156,6 +172,32 @@ def _error_reason(exc: Exception) -> str:
     return text or type(exc).__name__
 
 
+def _error_info(
+    exc: Exception,
+) -> tuple[str, str, list[ExtractionAttemptInfo]]:
+    """(reason, kind, attempts)；错误分类只来自 provider/gateway 边界。"""
+
+    if isinstance(exc, AllProvidersFailed):
+        return (
+            _error_reason(exc),
+            exc.kind,
+            [
+                ExtractionAttemptInfo(
+                    provider=attempt.provider,
+                    status=attempt.status,
+                    error_kind=attempt.error_kind,
+                    latency_ms=attempt.latency_ms,
+                )
+                for attempt in exc.attempts
+            ],
+        )
+    if isinstance(exc, DailyLimitExceeded):
+        return _error_reason(exc), QUOTA, []
+    if isinstance(exc, PromptError):
+        return _error_reason(exc), CONFIG, []
+    return _error_reason(exc), classify_provider_error(exc), []
+
+
 @router.post("/api/captures/{capture_id}/extract", response_model=ExtractionBatch)
 async def extract_capture(
     capture_id: int,
@@ -205,6 +247,8 @@ async def extract_capture(
             failures.append((target.seq, exc))
             continue
         successes.append((target, decision, meta))
+
+    failure_infos = [(seq, *_error_info(exc)) for seq, exc in failures]
 
     if successes:
         now = datetime.now(UTC)
@@ -258,7 +302,9 @@ async def extract_capture(
         if all_missing and not existing:
             raise HTTPException(status_code=410, detail="图片文件缺失，无法提取")
         config_failure = bool(failures) and all(
-            isinstance(exc, ProviderConfigError | PromptError) for _, exc in failures
+            isinstance(exc, ProviderConfigError | PromptError)
+            or (isinstance(exc, AllProvidersFailed) and exc.config_only)
+            for _, exc in failures
         )
         if not existing and failures:
             raise HTTPException(
@@ -266,16 +312,26 @@ async def extract_capture(
                 detail={
                     "message": "提取失败，未产生任何结果",
                     "errors": [
-                        {"seq": seq, "reason": _error_reason(exc)}
-                        for seq, exc in failures
+                        {
+                            "seq": seq,
+                            "reason": reason,
+                            "kind": kind,
+                            "attempts": [attempt.model_dump() for attempt in attempts],
+                        }
+                        for seq, reason, kind, attempts in failure_infos
                     ],
                 },
             )
 
     rows = await _fetch_existing(session, capture_id, source_kind)
     errors = [
-        ExtractionErrorItem(seq=seq, reason=_error_reason(exc))
-        for seq, exc in failures
+        ExtractionErrorItem(
+            seq=seq,
+            reason=reason,
+            kind=kind,
+            attempts=attempts,
+        )
+        for seq, reason, kind, attempts in failure_infos
     ]
     return ExtractionBatch(
         capture_id=capture_id,

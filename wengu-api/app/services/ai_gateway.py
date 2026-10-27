@@ -10,12 +10,14 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+import time
+from collections.abc import Awaitable, Callable
 from dataclasses import asdict
 from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -24,12 +26,25 @@ from app.core.database import get_session_factory
 from app.prompts.loader import Prompt, PromptError, load_prompts
 from app.providers.base import CallMeta, Explanation, ExtractedProblem, GradeResult, TokenUsage
 from app.providers.cache import ContentHashCache, hash_file, make_cache_key
+from app.providers.failover import (
+    CONFIG,
+    AllProvidersFailed,
+    ProviderAttempt,
+    classify_provider_error,
+    is_transferable,
+)
 from app.providers.registry import (
+    ProviderConfigError,
     create_text_provider,
     create_vision_provider,
-    resolve_task_provider,
+    resolve_task_model,
+    resolve_task_providers,
 )
 from app.services import model_audit
+
+
+def _elapsed_ms(started: float) -> int:
+    return max(0, int((time.monotonic() - started) * 1000))
 
 
 class AiGateway:
@@ -45,14 +60,15 @@ class AiGateway:
     ) -> None:
         self._settings = settings or get_settings()
         self._runtime = runtime or get_runtime_config()
+        self._runtime_injected = runtime is not None
         self._prompts = (
             prompts if prompts is not None else load_prompts(self._settings.prompts_dir)
         )
         self._cache = cache or ContentHashCache(self._settings.data_dir / "ai-cache")
         self._session_factory = session_factory or get_session_factory()
         self._raw_dir = raw_dir or (self._settings.data_dir / "ai-raw")
-        self._vision_providers: dict[str, Any] = {}
-        self._text_providers: dict[str, Any] = {}
+        self._vision_providers: dict[tuple[str, str | None], Any] = {}
+        self._text_providers: dict[tuple[str, str | None], Any] = {}
 
     # ---- prompt 渲染 -----------------------------------------------------
 
@@ -66,17 +82,36 @@ class AiGateway:
 
     # ---- 供应商实例（按名缓存，避免重复构造） ----------------------------
 
-    def _vision(self, name: str) -> Any:
-        if name not in self._vision_providers:
-            self._vision_providers[name] = create_vision_provider(
-                name, settings=self._settings, runtime=self._runtime
-            )
-        return self._vision_providers[name]
+    def _current_runtime(self) -> RuntimeConfig:
+        """生产单例随 app-config 热刷新；测试注入的 runtime 保持稳定。"""
 
-    def _text(self, name: str) -> Any:
-        if name not in self._text_providers:
-            self._text_providers[name] = create_text_provider(name, settings=self._settings)
-        return self._text_providers[name]
+        if self._runtime_injected:
+            return self._runtime
+        runtime = get_runtime_config()
+        if (
+            runtime.model_tier_default != self._runtime.model_tier_default
+            or runtime.task_models != self._runtime.task_models
+        ):
+            self._vision_providers.clear()
+            self._text_providers.clear()
+        self._runtime = runtime
+        return runtime
+
+    def _vision(self, name: str, model: str | None = None) -> Any:
+        key = (name, model)
+        if key not in self._vision_providers:
+            self._vision_providers[key] = create_vision_provider(
+                name, settings=self._settings, runtime=self._runtime, model=model
+            )
+        return self._vision_providers[key]
+
+    def _text(self, name: str, model: str | None = None) -> Any:
+        key = (name, model)
+        if key not in self._text_providers:
+            self._text_providers[key] = create_text_provider(
+                name, settings=self._settings, model=model
+            )
+        return self._text_providers[key]
 
     # ---- 视觉三任务 --------------------------------------------------------
 
@@ -84,22 +119,24 @@ class AiGateway:
         self, image_path: str, *, prompt_id: str = "extract_problem"
     ) -> tuple[ExtractedProblem, CallMeta]:
         prompt, rendered = self.render_prompt(prompt_id)
-        provider_name = resolve_task_provider("extract_problem", self._runtime)
-        provider = self._vision(provider_name)
-        key = make_cache_key(
-            task="extract_problem",
-            provider=provider.name,
-            model=provider.model,
-            prompt_id=prompt.id,
-            prompt_version=prompt.version,
-            payload={"image_sha256": hash_file(image_path)},
-        )
+        image_hash = hash_file(image_path)
 
-        async def call() -> tuple[ExtractedProblem, CallMeta]:
+        async def call_for(provider: Any) -> tuple[ExtractedProblem, CallMeta]:
             return await provider.extract_problem(image_path, prompt=rendered)
 
-        envelope, cache_hit = await self._cached(
-            key, task="extract_problem", prompt=prompt, provider=provider, call=call
+        envelope, meta = await self._run_with_failover(
+            task="extract_problem",
+            prompt=prompt,
+            provider_for=self._vision,
+            cache_key=lambda provider: make_cache_key(
+                task="extract_problem",
+                provider=provider.name,
+                model=provider.model,
+                prompt_id=prompt.id,
+                prompt_version=prompt.version,
+                payload={"image_sha256": image_hash},
+            ),
+            call_for=call_for,
         )
         data = envelope["result"]
         result = ExtractedProblem(
@@ -110,7 +147,7 @@ class AiGateway:
             needs_human_review=bool(data.get("needs_human_review", True)),
             raw=data.get("raw") or {},
         )
-        return result, self._meta(provider, envelope, cache_hit, prompt)
+        return result, meta
 
     async def grade(
         self,
@@ -127,28 +164,29 @@ class AiGateway:
             STANDARD_ANSWER=standard_answer,
             STUDENT_ANSWER=student_answer,
         )
-        provider_name = resolve_task_provider("grade", self._runtime)
-        provider = self._vision(provider_name)
-        # sample_index 进缓存键：多次采样必须各自真实调用，不能被 L2 缓存折叠成一次
-        key = make_cache_key(
-            task="grade",
-            provider=provider.name,
-            model=provider.model,
-            prompt_id=prompt.id,
-            prompt_version=prompt.version,
-            payload={
-                "problem_text": problem_text,
-                "student_answer": student_answer,
-                "standard_answer": standard_answer,
-                "sample_index": sample_index,
-            },
-        )
 
-        async def call() -> tuple[GradeResult, CallMeta]:
+        async def call_for(provider: Any) -> tuple[GradeResult, CallMeta]:
             return await provider.grade(problem_text, student_answer, prompt=rendered)
 
-        envelope, cache_hit = await self._cached(
-            key, task="grade", prompt=prompt, provider=provider, call=call
+        envelope, meta = await self._run_with_failover(
+            task="grade",
+            prompt=prompt,
+            provider_for=self._vision,
+            cache_key=lambda provider: make_cache_key(
+                task="grade",
+                provider=provider.name,
+                model=provider.model,
+                prompt_id=prompt.id,
+                prompt_version=prompt.version,
+                # sample_index 进缓存键：多次采样必须各自真实调用
+                payload={
+                    "problem_text": problem_text,
+                    "student_answer": student_answer,
+                    "standard_answer": standard_answer,
+                    "sample_index": sample_index,
+                },
+            ),
+            call_for=call_for,
         )
         data = envelope["result"]
         result = GradeResult(
@@ -157,7 +195,7 @@ class AiGateway:
             source=data.get("source", "ai"),
             rationale=data.get("rationale"),
         )
-        return result, self._meta(provider, envelope, cache_hit, prompt)
+        return result, meta
 
     async def solve_explain(
         self,
@@ -172,26 +210,29 @@ class AiGateway:
         values["PROBLEM_TEXT"] = problem_text
         values["HINT_LEVEL"] = str(level)
         prompt, rendered = self.render_prompt(prompt_id, **values)
-        provider_name = resolve_task_provider("solve_explain", self._runtime)
-        provider = self._vision(provider_name)
-        key = make_cache_key(
+
+        async def call_for(provider: Any) -> tuple[Explanation, CallMeta]:
+            return await provider.solve_explain(
+                problem_text, prompt=rendered, hint_level=level
+            )
+
+        envelope, meta = await self._run_with_failover(
             task="solve_explain",
-            provider=provider.name,
-            model=provider.model,
-            prompt_id=prompt.id,
-            prompt_version=prompt.version,
-            payload={
-                "problem_text": problem_text,
-                "hint_level": level,
-                "extra_values": sorted((extra_values or {}).items()),
-            },
-        )
-
-        async def call() -> tuple[Explanation, CallMeta]:
-            return await provider.solve_explain(problem_text, prompt=rendered, hint_level=level)
-
-        envelope, cache_hit = await self._cached(
-            key, task="solve_explain", prompt=prompt, provider=provider, call=call
+            prompt=prompt,
+            provider_for=self._vision,
+            cache_key=lambda provider: make_cache_key(
+                task="solve_explain",
+                provider=provider.name,
+                model=provider.model,
+                prompt_id=prompt.id,
+                prompt_version=prompt.version,
+                payload={
+                    "problem_text": problem_text,
+                    "hint_level": level,
+                    "extra_values": sorted((extra_values or {}).items()),
+                },
+            ),
+            call_for=call_for,
         )
         data = envelope["result"]
         result = Explanation(
@@ -201,7 +242,7 @@ class AiGateway:
             focus=str(data.get("focus") or ""),
             consolidation=str(data.get("consolidation") or ""),
         )
-        return result, self._meta(provider, envelope, cache_hit, prompt)
+        return result, meta
 
     # ---- 文本侧 -------------------------------------------------------------
 
@@ -209,69 +250,160 @@ class AiGateway:
         self, *, prompt_id: str, extra_values: dict[str, str] | None = None
     ) -> tuple[str, CallMeta]:
         prompt, rendered = self.render_prompt(prompt_id, **(extra_values or {}))
-        provider_name = resolve_task_provider("text", self._runtime)
-        provider = self._text(provider_name)
-        key = make_cache_key(
-            task="text",
-            provider=provider.name,
-            model=provider.model,
-            prompt_id=prompt.id,
-            prompt_version=prompt.version,
-            payload={"prompt": rendered},
-        )
 
-        async def call() -> tuple[dict[str, Any], CallMeta]:
+        async def call_for(provider: Any) -> tuple[dict[str, Any], CallMeta]:
             text, meta = await provider.complete(rendered)
             return {"text": text}, meta
 
-        envelope, cache_hit = await self._cached(
-            key, task="text", prompt=prompt, provider=provider, call=call
+        envelope, meta = await self._run_with_failover(
+            task="text",
+            prompt=prompt,
+            provider_for=self._text,
+            cache_key=lambda provider: make_cache_key(
+                task="text",
+                provider=provider.name,
+                model=provider.model,
+                prompt_id=prompt.id,
+                prompt_version=prompt.version,
+                payload={"prompt": rendered},
+            ),
+            call_for=call_for,
         )
-        return envelope["result"]["text"], self._meta(provider, envelope, cache_hit, prompt)
+        return envelope["result"]["text"], meta
 
     # ---- 核心管线 -----------------------------------------------------------
 
-    async def _cached(
+    async def _run_with_failover(
         self,
-        key: str,
         *,
         task: str,
         prompt: Prompt,
-        provider: Any,
-        call: Callable[[], Any],
-    ) -> tuple[dict[str, Any], bool]:
-        """命中→(envelope, True)；未命中→护栏→调用→L3→L2→审计（独立提交）→(envelope, False)。"""
+        provider_for: Callable[[str, str | None], Any],
+        cache_key: Callable[[Any], str],
+        call_for: Callable[[Any], Awaitable[tuple[Any, CallMeta]]],
+    ) -> tuple[dict[str, Any], CallMeta]:
+        """按有序列表逐家尝试；每家最多 1 次，全部失败才聚合报错。"""
 
-        cached = self._cache.get(key)
-        if cached is not None:
-            return cached, True
+        runtime = self._current_runtime()
+        attempt_group = uuid4().hex
+        attempts: list[ProviderAttempt] = []
 
-        async with self._session_factory() as session, session.begin():
-            await model_audit.check_daily_guard(session, runtime=self._runtime)
-        try:
-            result, meta = await call()
-        except Exception as exc:
-            async with self._session_factory() as session, session.begin():
-                await model_audit.record_model_run(
-                    session, task_type=task, prompt=prompt, status="error", error=str(exc)
+        for index, name in enumerate(resolve_task_providers(task, runtime)):
+            started = time.monotonic()
+            model: str | None = None
+            try:
+                model = resolve_task_model(task, name, runtime, self._settings)
+                provider = provider_for(name, model)
+            except ProviderConfigError as exc:
+                latency = _elapsed_ms(started)
+                await self._record_attempt(
+                    task=task,
+                    prompt=prompt,
+                    attempt_group=attempt_group,
+                    attempt_index=index,
+                    provider=name,
+                    model=model or "unknown",
+                    status="config_error",
+                    error_kind=CONFIG,
+                    latency_ms=latency,
+                    error=str(exc),
                 )
-            raise
+                attempts.append(
+                    ProviderAttempt(name, "config_error", CONFIG, latency, index)
+                )
+                continue
 
-        envelope = self._cache.set(
-            key,
-            model=provider.model,
+            key = cache_key(provider)
+            cached = self._cache.get(key)
+            if cached is not None:
+                return cached, self._meta(provider, cached, True, prompt)
+
+            async with self._session_factory() as session, session.begin():
+                await model_audit.check_daily_guard(session, runtime=runtime)
+
+            started = time.monotonic()
+            try:
+                result, meta = await call_for(provider)
+            except Exception as exc:
+                latency = _elapsed_ms(started)
+                kind = classify_provider_error(exc)
+                await self._record_attempt(
+                    task=task,
+                    prompt=prompt,
+                    attempt_group=attempt_group,
+                    attempt_index=index,
+                    provider=provider.name,
+                    model=provider.model,
+                    status="error",
+                    error_kind=kind,
+                    latency_ms=latency,
+                    error=str(exc),
+                )
+                attempts.append(
+                    ProviderAttempt(provider.name, "error", kind, latency, index)
+                )
+                if not is_transferable(kind):
+                    raise
+                continue
+
+            envelope = self._cache.set(
+                key,
+                model=provider.model,
+                prompt_version=prompt.version,
+                result=result,
+                usage=asdict(meta.usage),
+            )
+            envelope["latency_ms"] = meta.latency_ms
+            if meta.raw:
+                self._write_raw(key, envelope, meta)
+            await self._record_attempt(
+                task=task,
+                prompt=prompt,
+                attempt_group=attempt_group,
+                attempt_index=index,
+                provider=provider.name,
+                model=provider.model,
+                status="ok",
+                meta=meta,
+            )
+            return envelope, self._meta(provider, envelope, False, prompt)
+
+        raise AllProvidersFailed(task, attempts=attempts, attempt_group=attempt_group)
+
+    async def _record_attempt(
+        self,
+        *,
+        task: str,
+        prompt: Prompt,
+        attempt_group: str,
+        attempt_index: int,
+        provider: str,
+        model: str,
+        status: str,
+        latency_ms: int = 0,
+        meta: CallMeta | None = None,
+        error: str | None = None,
+        error_kind: str | None = None,
+    ) -> None:
+        audit_meta = meta or CallMeta(
+            provider=provider,
+            model=model,
+            latency_ms=latency_ms,
+            prompt_id=prompt.id,
             prompt_version=prompt.version,
-            result=result,
-            usage=asdict(meta.usage),
         )
-        envelope["latency_ms"] = meta.latency_ms
-        if meta.raw:
-            self._write_raw(key, envelope, meta)
         async with self._session_factory() as session, session.begin():
             await model_audit.record_model_run(
-                session, task_type=task, prompt=prompt, status="ok", meta=meta
+                session,
+                task_type=task,
+                prompt=prompt,
+                status=status,
+                meta=audit_meta,
+                error=error,
+                attempt_group=attempt_group,
+                attempt_index=attempt_index,
+                error_kind=error_kind,
             )
-        return envelope, False
 
     def _write_raw(self, key: str, envelope: dict[str, Any], meta: CallMeta) -> None:
         day = datetime.now(UTC).strftime("%Y-%m-%d")

@@ -16,6 +16,8 @@ _WENGU_KEYS = (
     "WENGU_UPLOADS_DIR",
     "WENGU_PROMPTS_DIR",
     "WENGU_APP_CONFIG_PATH",
+    "WENGU_PROVIDER_ROUTING",
+    "WENGU_TASK_MODELS",
 )
 
 
@@ -74,3 +76,66 @@ def test_runtime_config_hot_reload(tmp_path, monkeypatch) -> None:
 
     missing = get_runtime_config(tmp_path / "missing.json")
     assert missing.model_tier_default == "value"
+
+
+def test_provider_routing_env_and_app_config_precedence(tmp_path, monkeypatch) -> None:
+    _clear_env(monkeypatch)
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        'WENGU_PROVIDER_ROUTING={"extract_problem":["qwen_vl","doubao"],"grade":"qwen_vl"}\n',
+        encoding="utf-8",
+    )
+    settings = Settings(_env_file=env_file)
+    assert settings.provider_routing == {
+        "extract_problem": ["qwen_vl", "doubao"],
+        "grade": "qwen_vl",
+    }
+
+    monkeypatch.setattr(config_module, "get_settings", lambda: settings)
+    path = tmp_path / "app-config.json"
+    path.write_text(
+        json.dumps(
+            {
+                "provider_routing": {
+                    "extract_problem": ["doubao"],
+                    "text": ["mock"],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    runtime = get_runtime_config(path)
+    assert runtime.provider_routing["extract_problem"] == ["doubao"]  # app-config 整条覆盖
+    assert runtime.provider_routing["grade"] == "qwen_vl"  # 未覆盖的沿用 .env
+    assert runtime.provider_routing["text"] == ["mock"]
+
+
+def test_task_models_env_and_app_config_precedence(tmp_path, monkeypatch) -> None:
+    _clear_env(monkeypatch)
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        'WENGU_TASK_MODELS={"extract_problem":{"qwen_vl":"qwen3.8-max"},'
+        '"dictation_extract":{"qwen_vl":"qwen3.5-ocr"}}\n',
+        encoding="utf-8",
+    )
+    settings = Settings(_env_file=env_file)
+    assert settings.task_models == {
+        "extract_problem": {"qwen_vl": "qwen3.8-max"},
+        "dictation_extract": {"qwen_vl": "qwen3.5-ocr"},
+    }
+
+    monkeypatch.setattr(config_module, "get_settings", lambda: settings)
+    path = tmp_path / "app-config.json"
+    path.write_text(
+        json.dumps(
+            {"task_models": {"extract_problem": {"qwen_vl": "qwen3.8-max-2026"}}}
+        ),
+        encoding="utf-8",
+    )
+    runtime = get_runtime_config(path)
+    # app-config 按 task 整条覆盖；未覆盖的 task 沿用 .env
+    assert runtime.task_models["extract_problem"] == {"qwen_vl": "qwen3.8-max-2026"}
+    assert runtime.task_models["dictation_extract"] == {"qwen_vl": "qwen3.5-ocr"}
+
+    missing = get_runtime_config(tmp_path / "missing.json")
+    assert missing.task_models == settings.task_models

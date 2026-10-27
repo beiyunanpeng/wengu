@@ -17,6 +17,7 @@ from app.core.database import create_sqlite_engine, get_session
 from app.main import create_app
 from app.models import PhotoCapture, PhotoCaptureItem, ProblemExtraction
 from app.providers.base import CallMeta, ExtractedProblem
+from app.providers.failover import AllProvidersFailed, ProviderAttempt
 from app.providers.registry import ProviderConfigError
 from app.services.ai_gateway import get_ai_gateway
 from httpx import ASGITransport, AsyncClient
@@ -233,7 +234,9 @@ async def test_force_partial_failure_keeps_previous_result(
 
     assert forced["extracted_count"] == 2
     assert forced["failed_count"] == 1
-    assert forced["errors"] == [{"seq": 1, "reason": "boom"}]
+    assert forced["errors"] == [
+        {"seq": 1, "reason": "boom", "kind": "unknown", "attempts": []}
+    ]
     by_seq = {row["seq"]: row for row in forced["results"]}
     assert "第2次" in by_seq[0]["problem_text"]
     assert "第1次" in by_seq[1]["problem_text"]  # 失败项保留旧结果
@@ -296,7 +299,9 @@ async def test_missing_crop_files_are_reported_without_model_calls(
 
     assert partial["extracted_count"] == 2
     assert partial["failed_count"] == 1
-    assert partial["errors"] == [{"seq": 1, "reason": "image_missing"}]
+    assert partial["errors"] == [
+        {"seq": 1, "reason": "image_missing", "kind": "unknown", "attempts": []}
+    ]
     assert len(gateway.calls) == 2
 
 
@@ -335,6 +340,68 @@ async def test_provider_and_config_failures_use_distinct_status_codes(
     assert first.status_code == 502
     assert second.status_code == 503
     assert await _row_count(factory) == 0
+
+
+@pytest.mark.integration
+async def test_all_providers_failed_surfaces_kind_and_attempts(
+    tmp_path, monkeypatch
+) -> None:
+    factory = _migrated(tmp_path)
+    gateway = FakeGateway()
+    gateway.default_error = AllProvidersFailed(
+        "extract_problem",
+        attempts=[
+            ProviderAttempt("doubao", "error", "account", 12, 0),
+            ProviderAttempt("qwen_vl", "error", "network", 34, 1),
+        ],
+        attempt_group="group-1",
+    )
+    async with _make_client(factory, tmp_path, monkeypatch, gateway)[0] as client:
+        capture_id = await _seed_capture(factory, tmp_path / "uploads", item_count=2)
+        response = await client.post(f"/api/captures/{capture_id}/extract")
+
+    assert response.status_code == 502
+    item = response.json()["detail"]["errors"][0]
+    assert item["kind"] == "account"
+    assert item["attempts"] == [
+        {
+            "provider": "doubao",
+            "status": "error",
+            "error_kind": "account",
+            "latency_ms": 12,
+        },
+        {
+            "provider": "qwen_vl",
+            "status": "error",
+            "error_kind": "network",
+            "latency_ms": 34,
+        },
+    ]
+
+
+@pytest.mark.integration
+async def test_all_config_errors_keep_503(tmp_path, monkeypatch) -> None:
+    factory = _migrated(tmp_path)
+    gateway = FakeGateway()
+    gateway.default_error = AllProvidersFailed(
+        "extract_problem",
+        attempts=[
+            ProviderAttempt("doubao", "config_error", "config", 0, 0),
+            ProviderAttempt("qwen_vl", "config_error", "config", 0, 1),
+        ],
+        attempt_group="group-2",
+    )
+    async with _make_client(factory, tmp_path, monkeypatch, gateway)[0] as client:
+        capture_id = await _seed_capture(factory, tmp_path / "uploads", item_count=1)
+        response = await client.post(f"/api/captures/{capture_id}/extract")
+
+    assert response.status_code == 503
+    item = response.json()["detail"]["errors"][0]
+    assert item["kind"] == "config"
+    assert [attempt["status"] for attempt in item["attempts"]] == [
+        "config_error",
+        "config_error",
+    ]
 
 
 @pytest.mark.integration

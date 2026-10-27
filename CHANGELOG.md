@@ -7,13 +7,72 @@
 
 ## [Unreleased]
 
-P1-9 已完成，Phase 1 只剩 P1-7b（前置回溯诊断）与受闸门阻塞的 P1-7c。
+P1-9、P1-2b 与 P1-2c 已完成，Phase 1 只剩 P1-7b（前置回溯诊断）与受闸门阻塞的 P1-7c。
 下一步按风险排序：**P0-1 样本扩容 + P0-2 黄金评测集**，再补 P1-7b。
 **P1-7c 自动排复习仍受 Phase 0 闸门阻塞**（边界表未回填前不自动排复习）；
 复习排期只由**用户确认错题**触发；P1-6 的"入本"也仍以孩子/家长确认 `wrong`
 为前提，不得静默自动建错题。
 
 ### Added
+
+- **P1-2c 按 task 配模型**（2026-10-27）：此前同一 provider 的所有任务共用一个模型，
+  导致提取/批改/讲解（需 VLM）与默写提取（需 OCR）被迫折中。实测 `qwen3.5-ocr`
+  结构化提取只有 **1/9**，`qwen3.8-max` 为 **9/9**——同一家供应商的"档位"并不等于
+  "能力对号"。
+  - 新增独立 `task_models` 映射 `{task: {provider: model}}`，与 `provider_routing`
+    解耦：路由决定"找谁"，`task_models` 决定"用它的哪个模型"。配置来源
+    `WENGU_TASK_MODELS`（`.env`）或 `config/app-config.json` 的 `task_models`
+    （按 task 整条覆盖 .env，UI 改后免重启），全部配置驱动、业务层无模型名分支。
+  - 内置任务默认表只编码已知的模型类型坑：`extract_problem/grade/solve_explain`
+    的 `qwen_vl` → `flagship`（VLM），`dictation_extract` 的 `qwen_vl` → `value`
+    （OCR）；其余 provider/task 沿用 `model_tier_default`。显式覆盖优先级最高。
+  - 解析顺序：`task_models` 显式值 → 内置默认档 → 档位默认；**显式给了空模型或
+    默认档缺失模型名会 fail-fast 为 `config_error`**，不再静默退回另一个模型
+    （避免把 OCR 模型塞给 VLM 任务）。
+  - provider 实例缓存键从 `provider 名` 改为 `(provider 名, model)`；
+    `model_tier_default` 或 `task_models` 变化时整体失效重建。
+  - `model_runs` 记录的是**实际使用的模型**（尝试链 `attempt_index` 已由 P1-2b
+    落地），无需新迁移；API 契约、前端契约均不变。
+  - 测试：全量 **343 passed**（本机 2026-10-27，68.30s），`ruff check .` 全绿。
+    新增单测覆盖默认 VLM/OCR 分档、显式覆盖优先、空模型 fail-fast、显式模型传入
+    视觉/文本工厂、同 provider 不同 task 取不同模型、配置优先级（env vs app-config）。
+  - **真实模型实跑**：豆包密钥置为无效 → `extract_problem` 转 `qwen_vl` 并用
+    `qwen3.8-max`（非默认 lite/OCR）返回非空 `problem_text`；
+    `dictation_extract` 解析为 `qwen3.5-ocr`。
+  - 残留风险：`dictation_extract` 目前只在工厂/路由解析层验证（无独立 gateway
+    入口，待默写功能落地再接线）；OCR 1/9 的结论来自单轮小样本，等 P0-2 黄金集
+    扩样后复测；未做前端模型选择 UI。
+
+- **P1-2b 供应商自动故障转移**（2026-10-27）：真实试用中豆包账户欠费（403
+  `AccountOverdueError`）导致提取整条失败；本票把 §3 的"至少两家互备"真正落地。
+  - routing 从 `task → 单个 provider` 改为**有序 provider 列表**：默认
+    `extract_problem/grade/solve_explain = ["doubao","qwen_vl"]`、
+    `dictation_extract = ["qwen_vl","doubao"]`、`text = ["deepseek"]`；按题型覆盖
+    由 `WENGU_PROVIDER_ROUTING` 或 `config/app-config.json` 的 `provider_routing`
+    配置（单字符串仍兼容，去重保序；空路由启动即报错），不硬编码分支。
+  - gateway 故障转移：按列表顺序逐个尝试，**每家最多 1 次**，总尝试数 = 去重后
+    列表长度，不引入熔断器/重试框架；缓存键按 provider 区分，命中不写审计；
+    每次真实调用前仍过每日调用闸。
+  - 错误分类集中在 `providers/failover.py`：`account`（401/403）、`quota`（402）、
+    `rate_limit`（429）、`config`（404/配置缺失）、`network`（超时/408/425/5xx/
+    连接失败）可转移；`quality`（模型返回但内容不合格）与 `unknown` **不转移**。
+    全部失败抛 `AllProvidersFailed`，聚合分类优先级
+    account > quota > config > rate_limit > network > unknown > quality。
+  - `model_runs` 记录完整尝试链：`attempt_group` + `attempt_index` + `error_kind`
+    （迁移 `0010`，可重入、含备份/回退说明，附索引）；`config_error` 不计入
+    每日调用次数（未发生真实调用）。
+  - API 契约**只增不改**：提取错误项新增 `kind` 与 `attempts[]`；全部为配置错误
+    仍返回 503，账户/网络/混合失败返回 502；批改/讲解同样按此映射。
+  - 测试：全量 **335 passed**（本机 2026-10-27，61.22s），`ruff check .` 全绿，
+    `make migration-test` 7 passed。新增单测覆盖主备切换、全失败聚合与分类、
+    质量差不转移、尝试次数上限、配置缺失转备用、尝试链可查询。
+  - **真实模型实跑**：豆包密钥置为无效 → `extract_problem` 自动转
+    `qwen_vl/qwen3.5-ocr` 成功（attempt 0 doubao=account，attempt 1 qwen=ok）；
+    两家密钥均无效 → 聚合 `kind=account`、两条尝试记录，`model_runs` 可按
+    `attempt_group` 查回整链。
+  - 残留风险：真实验证用 401 无效密钥复现"账户类"路径（403 欠费同分类），
+    未实跑 403 原文；质量差不转移是设计选择，需等 P0-2 黄金集量化后再评估；
+    P1-9b 前端尚未展示 `kind/attempts`。
 
 - **P1-9 最小 Web UI**（2026-10-26）：React + Vite + TypeScript + Mantine + KaTeX
   五页最小闭环——采集 / 批改回显确认 / 错题本（含详情）/ 复习 / 讲解；孩子可独立走通

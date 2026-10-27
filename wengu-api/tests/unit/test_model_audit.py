@@ -117,3 +117,43 @@ async def test_count_only_today(session) -> None:
 
     assert await today_call_count(session) == 0  # 历史记录不计入今日
     await check_daily_guard(session, runtime=runtime)
+
+
+@pytest.mark.unit
+async def test_attempt_chain_fields_and_config_error_not_counted(session) -> None:
+    runtime = _runtime(daily_call_limit=1)
+    run = await record_model_run(
+        session,
+        task_type="extract_problem",
+        prompt=_prompt(),
+        status="config_error",
+        error="缺少 WENGU_DOUBAO_API_KEY",
+        attempt_group="group-1",
+        attempt_index=0,
+        error_kind="config",
+    )
+    await session.commit()
+
+    assert (run.attempt_group, run.attempt_index, run.error_kind) == (
+        "group-1",
+        0,
+        "config",
+    )
+    assert await today_call_count(session) == 0  # 配置缺失没有真实调用
+    await check_daily_guard(session, runtime=runtime)
+
+    await record_model_run(
+        session,
+        task_type="extract_problem",
+        prompt=_prompt(),
+        status="error",
+        meta=_meta(),
+        error="status=403 AccountOverdueError",
+        attempt_group="group-1",
+        attempt_index=1,
+        error_kind="account",
+    )
+    await session.commit()
+    assert await today_call_count(session) == 1  # 真实失败照常计数
+    with pytest.raises(DailyLimitExceeded, match="上限"):
+        await check_daily_guard(session, runtime=runtime)

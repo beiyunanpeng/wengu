@@ -52,6 +52,12 @@ class Settings(BaseSettings):
     )
     daily_call_limit: int = Field(default=200, ge=1, validation_alias="WENGU_DAILY_CALL_LIMIT")
     variant_on_demand: bool = Field(default=True, validation_alias="WENGU_VARIANT_ON_DEMAND")
+    provider_routing: dict[str, str | list[str]] | None = Field(
+        default=None, validation_alias="WENGU_PROVIDER_ROUTING"
+    )
+    task_models: dict[str, dict[str, str]] | None = Field(
+        default=None, validation_alias="WENGU_TASK_MODELS"
+    )
     # Provider keys/models：模型名绝不猜——缺了在注册时 fail-fast（ProviderConfigError）。
     # 密钥别名同时接受 wengu 前缀与上游标准名（ARK_*/DASHSCOPE_*），方便复用本机已有配置。
     doubao_api_key: str | None = Field(
@@ -119,7 +125,8 @@ class AppConfigFile(BaseModel):
     daily_call_budget_cny: float | None = Field(default=None, ge=0)
     daily_call_limit: int | None = Field(default=None, ge=1)
     variant_on_demand: bool | None = None
-    provider_routing: dict[str, str] | None = None
+    provider_routing: dict[str, str | list[str]] | None = None
+    task_models: dict[str, dict[str, str]] | None = None
     model_prices: dict[str, dict[str, float]] | None = None
 
 
@@ -128,7 +135,8 @@ class RuntimeConfig(BaseModel):
     daily_call_budget_cny: float
     daily_call_limit: int
     variant_on_demand: bool
-    provider_routing: dict[str, str]
+    provider_routing: dict[str, str | list[str]]
+    task_models: dict[str, dict[str, str]] = Field(default_factory=dict)
     model_prices: dict[str, dict[str, float]]
 
 
@@ -175,6 +183,13 @@ def get_runtime_config(path: Path | None = None) -> RuntimeConfig:
             if overrides.variant_on_demand is not None
             else settings.variant_on_demand
         ),
-        provider_routing=overrides.provider_routing or {},
+        provider_routing={
+            **(settings.provider_routing or {}),
+            **(overrides.provider_routing or {}),
+        },
+        task_models={
+            **(settings.task_models or {}),
+            **(overrides.task_models or {}),
+        },
         model_prices=overrides.model_prices or {},
     )

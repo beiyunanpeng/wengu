@@ -40,6 +40,12 @@ class ModelRun(Base):
     usage_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(Text, nullable=False)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    attempt_group: Mapped[str | None] = mapped_column(Text, nullable=True)
+    attempt_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    error_kind: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
-    __table_args__ = (Index("ix_model_runs_ai_job_id", "ai_job_id"),)
+    __table_args__ = (
+        Index("ix_model_runs_ai_job_id", "ai_job_id"),
+        Index("ix_model_runs_attempt_group", "attempt_group"),
+    )

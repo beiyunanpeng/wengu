@@ -14,8 +14,10 @@ from app.providers.openai_vision import OpenAIVisionProvider
 from app.providers.qwen_vl import QwenVLProvider
 from app.providers.registry import (
     ProviderConfigError,
+    create_text_provider,
     create_vision_provider,
-    resolve_task_provider,
+    resolve_task_model,
+    resolve_task_providers,
 )
 from app.providers.tencent import TencentVisionProvider
 
@@ -44,6 +46,8 @@ def _settings(**env: str | None):
         qwen_api_key=env.get("qwen_api_key"),
         qwen_model_value=env.get("qwen_model_value"),
         qwen_model_flagship=env.get("qwen_model_flagship"),
+        deepseek_api_key=env.get("deepseek_api_key"),
+        deepseek_model=env.get("deepseek_model", "deepseek-chat"),
     )
 
 
@@ -258,14 +262,97 @@ async def test_tencent_stub_raises_not_implemented() -> None:
 
 @pytest.mark.unit
 def test_routing_defaults_and_hot_override() -> None:
-    assert resolve_task_provider("extract_problem", _runtime()) == "doubao"
-    assert resolve_task_provider("dictation_extract", _runtime()) == "qwen_vl"
-    runtime = _runtime(provider_routing={"grade": "qwen_vl", "text": "mock"})
-    assert resolve_task_provider("grade", runtime) == "qwen_vl"
-    assert resolve_task_provider("text", runtime) == "mock"
+    assert resolve_task_providers("extract_problem", _runtime()) == ("doubao", "qwen_vl")
+    assert resolve_task_providers("dictation_extract", _runtime()) == ("qwen_vl", "doubao")
+    runtime = _runtime(
+        provider_routing={"grade": "qwen_vl", "text": ["mock", "mock_text"]}
+    )
+    assert resolve_task_providers("grade", runtime) == ("qwen_vl",)
+    assert resolve_task_providers("text", runtime) == ("mock", "mock_text")
 
     with pytest.raises(ProviderConfigError):
-        resolve_task_provider("no_such_task", _runtime())
+        resolve_task_providers("no_such_task", _runtime())
+
+
+@pytest.mark.unit
+def test_routing_dedupes_and_rejects_empty() -> None:
+    runtime = _runtime(
+        provider_routing={
+            "extract_problem": ["doubao", " qwen_vl ", "doubao"],
+            "grade": [],
+        }
+    )
+    assert resolve_task_providers("extract_problem", runtime) == ("doubao", "qwen_vl")
+    with pytest.raises(ProviderConfigError, match="路由为空"):
+        resolve_task_providers("grade", runtime)
+
+
+@pytest.mark.unit
+def test_task_model_defaults_are_vlm_for_extract_and_ocr_for_dictation() -> None:
+    settings = _settings(
+        qwen_api_key="k",
+        qwen_model_value="qwen3.5-ocr",
+        qwen_model_flagship="qwen3.8-max",
+    )
+    assert resolve_task_model("extract_problem", "qwen_vl", _runtime(), settings) == "qwen3.8-max"
+    assert resolve_task_model("grade", "qwen_vl", _runtime(), settings) == "qwen3.8-max"
+    assert (
+        resolve_task_model("solve_explain", "qwen_vl", _runtime(), settings) == "qwen3.8-max"
+    )
+    assert (
+        resolve_task_model("dictation_extract", "qwen_vl", _runtime(), settings) == "qwen3.5-ocr"
+    )
+    # 未列入默认表的 provider/task 沿用档位默认
+    assert resolve_task_model("extract_problem", "doubao", _runtime(), settings) is None
+    assert resolve_task_model("text", "deepseek", _runtime(), settings) is None
+
+
+@pytest.mark.unit
+def test_task_model_explicit_override_wins_and_empty_fails_fast() -> None:
+    settings = _settings(
+        qwen_api_key="k",
+        qwen_model_value="qwen3.5-ocr",
+        qwen_model_flagship="qwen3.8-max",
+    )
+    runtime = _runtime(task_models={"extract_problem": {"qwen_vl": "qwen3.8-max-2026"}})
+    assert (
+        resolve_task_model("extract_problem", "qwen_vl", runtime, settings) == "qwen3.8-max-2026"
+    )
+    # 覆盖只作用于指定 task
+    assert (
+        resolve_task_model("dictation_extract", "qwen_vl", runtime, settings) == "qwen3.5-ocr"
+    )
+
+    empty = _runtime(task_models={"extract_problem": {"qwen_vl": "  "}})
+    with pytest.raises(ProviderConfigError, match="task_models.extract_problem.qwen_vl"):
+        resolve_task_model("extract_problem", "qwen_vl", empty, settings)
+
+
+@pytest.mark.unit
+def test_task_model_missing_default_slot_fails_fast() -> None:
+    settings = _settings(qwen_api_key="k", qwen_model_value="qwen3.5-ocr")
+    with pytest.raises(ProviderConfigError, match="WENGU_QWEN_MODEL_FLAGSHIP"):
+        resolve_task_model("extract_problem", "qwen_vl", _runtime(), settings)
+
+
+@pytest.mark.unit
+def test_explicit_model_passed_to_vision_and_text_factories() -> None:
+    settings = _settings(
+        qwen_api_key="k",
+        qwen_model_value="qwen3.5-ocr",
+        qwen_model_flagship="qwen3.8-max",
+        deepseek_api_key="k",
+    )
+    provider = create_vision_provider(
+        "qwen_vl", settings=settings, runtime=_runtime(), model="qwen3.8-max-2026"
+    )
+    assert provider.model == "qwen3.8-max-2026"
+    with pytest.raises(ProviderConfigError, match="task_models 指定的模型"):
+        create_vision_provider("qwen_vl", settings=settings, runtime=_runtime(), model=" ")
+
+    text = create_text_provider("deepseek", settings=settings, model="deepseek-reasoner")
+    assert text.model == "deepseek-reasoner"
+    assert create_text_provider("deepseek", settings=settings).model == "deepseek-chat"
 
 
 @pytest.mark.unit

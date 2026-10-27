@@ -178,6 +178,60 @@ def test_mistake_versions_append_only_guard(tmp_path) -> None:
 
 
 @pytest.mark.integration
+def test_model_runs_attempt_chain_columns(tmp_path) -> None:
+    """0010：尝试链三列 + 索引，可重复上下迁移。"""
+
+    db_path = tmp_path / "attempts.db"
+    config = _alembic_config(db_path)
+    command.upgrade(config, "head")
+
+    engine = create_engine(f"sqlite:///{db_path.as_posix()}")
+    try:
+        with engine.connect() as connection:
+            columns = {
+                column["name"]
+                for column in inspect(connection).get_columns("model_runs")
+            }
+            indexes = {
+                index["name"]
+                for index in inspect(connection).get_indexes("model_runs")
+            }
+        assert {"attempt_group", "attempt_index", "error_kind"} <= columns
+        assert "ix_model_runs_attempt_group" in indexes
+    finally:
+        engine.dispose()
+
+    command.downgrade(config, "0009_review_schedules")
+    engine = create_engine(f"sqlite:///{db_path.as_posix()}")
+    try:
+        with engine.connect() as connection:
+            columns = {
+                column["name"]
+                for column in inspect(connection).get_columns("model_runs")
+            }
+            indexes = {
+                index["name"]
+                for index in inspect(connection).get_indexes("model_runs")
+            }
+        assert {"attempt_group", "attempt_index", "error_kind"}.isdisjoint(columns)
+        assert "ix_model_runs_attempt_group" not in indexes
+    finally:
+        engine.dispose()
+
+    command.upgrade(config, "head")
+    engine = create_engine(f"sqlite:///{db_path.as_posix()}")
+    try:
+        with engine.connect() as connection:
+            columns = {
+                column["name"]
+                for column in inspect(connection).get_columns("model_runs")
+            }
+        assert {"attempt_group", "attempt_index", "error_kind"} <= columns
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.integration
 def test_review_schedules_idempotency_indexes(tmp_path) -> None:
     """0009：同一事实事件最多一条排期；同一错题最多一条未完成排期。"""
 

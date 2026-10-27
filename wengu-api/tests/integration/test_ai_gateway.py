@@ -15,7 +15,10 @@ from app.core.config import RuntimeConfig, Settings
 from app.core.database import create_sqlite_engine
 from app.models import ModelRun
 from app.prompts.loader import load_prompts
+from app.providers.base import CallMeta, ExtractedProblem
 from app.providers.cache import ContentHashCache
+from app.providers.failover import AllProvidersFailed
+from app.providers.http import ProviderHttpError, ProviderResponseError
 from app.services.ai_gateway import AiGateway
 from app.services.model_audit import DailyLimitExceeded
 from sqlalchemy import func, select
@@ -39,13 +42,18 @@ PROMPTS = {
 }
 
 
-def _runtime(daily_call_limit: int = 50, routing: dict[str, str] | None = None) -> RuntimeConfig:
+def _runtime(
+    daily_call_limit: int = 50,
+    routing: dict[str, str | list[str]] | None = None,
+    task_models: dict[str, dict[str, str]] | None = None,
+) -> RuntimeConfig:
     return RuntimeConfig(
         model_tier_default="value",
         daily_call_budget_cny=10.0,
         daily_call_limit=daily_call_limit,
         variant_on_demand=True,
         provider_routing=routing or {},
+        task_models=task_models or {},
         model_prices={},
     )
 
@@ -68,6 +76,8 @@ async def gateway(tmp_path):
     settings = Settings(
         _env_file=None,  # type: ignore[call-arg]
         data_dir=tmp_path / "data",
+        qwen_model_value="qwen3.5-ocr",
+        qwen_model_flagship="qwen3.8-max",
     )
     gw = AiGateway(
         settings=settings,
@@ -89,6 +99,79 @@ async def gateway(tmp_path):
 async def _run_count(factory) -> int:
     async with factory() as session:
         return int(await session.scalar(select(func.count(ModelRun.id))))
+
+
+async def _runs(factory) -> list[ModelRun]:
+    async with factory() as session:
+        return list(
+            (await session.scalars(select(ModelRun).order_by(ModelRun.attempt_index))).all()
+        )
+
+
+class _StubVisionProvider:
+    def __init__(
+        self,
+        name: str,
+        *,
+        exc: Exception | None = None,
+        result: ExtractedProblem | None = None,
+    ) -> None:
+        self.name = name
+        self.model = f"{name}-model"
+        self.exc = exc
+        self.result = result
+        self.calls = 0
+
+    async def extract_problem(
+        self, image_path: str, *, prompt: str
+    ) -> tuple[ExtractedProblem, CallMeta]:
+        self.calls += 1
+        if self.exc is not None:
+            raise self.exc
+        return (
+            self.result
+            or ExtractedProblem(
+                problem_text=f"[{self.name}]题",
+                student_answer="1",
+                problem_complete=True,
+            ),
+            CallMeta(
+                provider=self.name,
+                model=self.model,
+                latency_ms=3,
+                prompt_id="extract_problem",
+                prompt_version=1,
+            ),
+        )
+
+
+@pytest.fixture
+def stubs(gateway, monkeypatch):
+    gw, factory, tmp_path = gateway
+    providers: dict[str, _StubVisionProvider] = {}
+
+    def fake_create(name: str, *, settings, runtime, model=None):
+        provider = providers[name]
+        provider.requested_model = model
+        provider.model = model or f"{name}-model"
+        return provider
+
+    monkeypatch.setattr(
+        "app.services.ai_gateway.create_vision_provider", fake_create
+    )
+    yield gw, factory, tmp_path, providers
+
+
+def _use_routing(
+    gw,
+    route: str | list[str],
+    *,
+    task_models: dict[str, dict[str, str]] | None = None,
+) -> None:
+    gw._runtime = _runtime(
+        routing={"extract_problem": route}, task_models=task_models
+    )
+    gw._vision_providers.clear()
 
 
 @pytest.mark.integration
@@ -178,6 +261,42 @@ async def test_complete_text_routes_to_text_provider(gateway) -> None:
 
 
 @pytest.mark.integration
+async def test_complete_text_uses_task_model(gateway, monkeypatch) -> None:
+    gw, _, _ = gateway
+    captured: dict[str, str | None] = {}
+
+    class _StubTextProvider:
+        name = "stub_text"
+        model = "default-text"
+
+        async def complete(self, prompt: str, *, temperature: float | None = None):
+            return "ok", CallMeta(provider=self.name, model=self.model, latency_ms=1)
+
+    def fake_create_text(name: str, *, settings, model=None):
+        captured["model"] = model
+        provider = _StubTextProvider()
+        provider.model = model or "default-text"
+        return provider
+
+    monkeypatch.setattr(
+        "app.services.ai_gateway.create_text_provider", fake_create_text
+    )
+    gw._runtime = _runtime(
+        routing={"text": "stub_text"},
+        task_models={"text": {"stub_text": "deepseek-reasoner"}},
+    )
+    gw._text_providers.clear()
+
+    text, meta = await gw.complete_text(
+        prompt_id="label_suggest", extra_values={"PROBLEM_TEXT": "某错题"}
+    )
+
+    assert text == "ok"
+    assert captured["model"] == "deepseek-reasoner"
+    assert meta.model == "deepseek-reasoner"
+
+
+@pytest.mark.integration
 async def test_error_path_records_audit_and_raises(gateway) -> None:
     gw, factory, tmp_path = gateway
     image = tmp_path / "real.png"
@@ -231,3 +350,192 @@ async def test_prompt_version_bump_invalidates_cache(gateway) -> None:
 
     await gw.extract_problem(str(image))  # prompt_version 变了 → 缓存 miss → 真实调用
     assert await _run_count(factory) == 2
+
+
+@pytest.mark.integration
+async def test_failover_primary_403_uses_backup(stubs) -> None:
+    gw, factory, tmp_path, providers = stubs
+    primary = _StubVisionProvider(
+        "fake_primary",
+        exc=ProviderHttpError("fake_primary", 403, "AccountOverdueError"),
+    )
+    backup = _StubVisionProvider("fake_backup")
+    providers.update(fake_primary=primary, fake_backup=backup)
+    _use_routing(gw, ["fake_primary", "fake_backup"])
+    image = tmp_path / "failover.png"
+    image.write_bytes(b"bytes")
+
+    result, meta = await gw.extract_problem(str(image))
+
+    assert result.problem_text == "[fake_backup]题"
+    assert meta.provider == "fake_backup"
+    assert (primary.calls, backup.calls) == (1, 1)
+    runs = await _runs(factory)
+    assert [(r.provider, r.status, r.error_kind, r.attempt_index) for r in runs] == [
+        ("fake_primary", "error", "account", 0),
+        ("fake_backup", "ok", None, 1),
+    ]
+    assert runs[0].attempt_group
+    assert runs[0].attempt_group == runs[1].attempt_group
+
+
+@pytest.mark.integration
+async def test_failover_all_fail_aggregates_kind_and_chain(stubs) -> None:
+    gw, factory, tmp_path, providers = stubs
+    primary = _StubVisionProvider(
+        "fake_primary", exc=ProviderHttpError("fake_primary", 403, "AccountOverdueError")
+    )
+    backup = _StubVisionProvider(
+        "fake_backup", exc=ProviderHttpError("fake_backup", None, "ConnectTimeout")
+    )
+    providers.update(fake_primary=primary, fake_backup=backup)
+    _use_routing(gw, ["fake_primary", "fake_backup"])
+    image = tmp_path / "all-fail.png"
+    image.write_bytes(b"bytes")
+
+    with pytest.raises(AllProvidersFailed, match="全部 provider 失败") as excinfo:
+        await gw.extract_problem(str(image))
+
+    error = excinfo.value
+    assert error.kind == "account"
+    assert error.config_only is False
+    assert error.attempt_group
+    assert [(a.provider, a.error_kind, a.attempt_index) for a in error.attempts] == [
+        ("fake_primary", "account", 0),
+        ("fake_backup", "network", 1),
+    ]
+    runs = await _runs(factory)
+    assert [r.status for r in runs] == ["error", "error"]
+    assert [r.error_kind for r in runs] == ["account", "network"]
+    assert {r.attempt_group for r in runs} == {error.attempt_group}
+
+
+@pytest.mark.integration
+async def test_quality_failure_does_not_failover(stubs) -> None:
+    gw, factory, tmp_path, providers = stubs
+    primary = _StubVisionProvider(
+        "fake_primary", exc=ProviderResponseError("模型输出 JSON 解析失败")
+    )
+    backup = _StubVisionProvider("fake_backup")
+    providers.update(fake_primary=primary, fake_backup=backup)
+    _use_routing(gw, ["fake_primary", "fake_backup"])
+    image = tmp_path / "quality.png"
+    image.write_bytes(b"bytes")
+
+    with pytest.raises(ProviderResponseError, match="JSON"):
+        await gw.extract_problem(str(image))
+
+    assert primary.calls == 1
+    assert backup.calls == 0  # 质量错误不切备，不浪费第二次调用
+    runs = await _runs(factory)
+    assert len(runs) == 1
+    assert runs[0].error_kind == "quality"
+
+
+@pytest.mark.integration
+async def test_poor_extraction_content_passes_without_failover(stubs) -> None:
+    gw, factory, tmp_path, providers = stubs
+    primary = _StubVisionProvider(
+        "fake_primary",
+        result=ExtractedProblem(
+            problem_text="2. 已知〔?〕，求 x",
+            student_answer=None,
+            problem_complete=False,
+        ),
+    )
+    backup = _StubVisionProvider("fake_backup")
+    providers.update(fake_primary=primary, fake_backup=backup)
+    _use_routing(gw, ["fake_primary", "fake_backup"])
+    image = tmp_path / "poor.png"
+    image.write_bytes(b"bytes")
+
+    result, meta = await gw.extract_problem(str(image))
+
+    assert result.problem_complete is False  # 质量交给提取闸门，不在 gateway 切备
+    assert meta.provider == "fake_primary"
+    assert backup.calls == 0
+
+
+@pytest.mark.integration
+async def test_failover_attempts_capped_by_deduped_list(stubs) -> None:
+    gw, factory, tmp_path, providers = stubs
+    for name in ("fake_a", "fake_b", "fake_c"):
+        providers[name] = _StubVisionProvider(
+            name, exc=ProviderHttpError(name, 503, "ServiceUnavailable")
+        )
+    _use_routing(gw, ["fake_a", "fake_a", "fake_b", "fake_c"])
+    image = tmp_path / "capped.png"
+    image.write_bytes(b"bytes")
+
+    with pytest.raises(AllProvidersFailed) as excinfo:
+        await gw.extract_problem(str(image))
+
+    assert [providers[name].calls for name in ("fake_a", "fake_b", "fake_c")] == [1, 1, 1]
+    assert len(excinfo.value.attempts) == 3
+
+
+@pytest.mark.integration
+async def test_missing_primary_config_falls_back_to_backup(gateway) -> None:
+    gw, factory, tmp_path = gateway
+    gw._runtime = _runtime(routing={"extract_problem": ["doubao", "mock"]})
+    gw._vision_providers.clear()
+    image = tmp_path / "config-fallback.png"
+    image.write_bytes(b"bytes")
+
+    result, meta = await gw.extract_problem(str(image))
+
+    assert meta.provider == "mock"
+    assert result.problem_text.startswith("[mock]")
+    runs = await _runs(factory)
+    assert [(r.provider, r.status, r.error_kind, r.attempt_index) for r in runs] == [
+        ("doubao", "config_error", "config", 0),
+        ("mock", "ok", None, 1),
+    ]
+
+
+@pytest.mark.integration
+async def test_failover_uses_task_default_vlm_model(stubs) -> None:
+    gw, factory, tmp_path, providers = stubs
+    primary = _StubVisionProvider(
+        "doubao", exc=ProviderHttpError("doubao", 403, "AccountOverdueError")
+    )
+    backup = _StubVisionProvider("qwen_vl")
+    providers.update(doubao=primary, qwen_vl=backup)
+    _use_routing(gw, ["doubao", "qwen_vl"])
+    image = tmp_path / "vlm.png"
+    image.write_bytes(b"bytes")
+
+    result, meta = await gw.extract_problem(str(image))
+
+    assert result.problem_text == "[qwen_vl]题"
+    assert meta.provider == "qwen_vl"
+    # 备用 qwen 必须拿 VLM 档，而不是 dictation 用的 OCR 档
+    assert backup.requested_model == "qwen3.8-max"
+    assert meta.model == "qwen3.8-max"
+    runs = await _runs(factory)
+    assert [(r.provider, r.status, r.model) for r in runs] == [
+        ("doubao", "error", "doubao-model"),
+        ("qwen_vl", "ok", "qwen3.8-max"),
+    ]
+
+
+@pytest.mark.integration
+async def test_task_models_override_backup_model(stubs) -> None:
+    gw, factory, tmp_path, providers = stubs
+    primary = _StubVisionProvider(
+        "doubao", exc=ProviderHttpError("doubao", 403, "AccountOverdueError")
+    )
+    backup = _StubVisionProvider("qwen_vl")
+    providers.update(doubao=primary, qwen_vl=backup)
+    _use_routing(
+        gw,
+        ["doubao", "qwen_vl"],
+        task_models={"extract_problem": {"qwen_vl": "qwen3.8-max-2026"}},
+    )
+    image = tmp_path / "override.png"
+    image.write_bytes(b"bytes")
+
+    _, meta = await gw.extract_problem(str(image))
+
+    assert backup.requested_model == "qwen3.8-max-2026"
+    assert meta.model == "qwen3.8-max-2026"

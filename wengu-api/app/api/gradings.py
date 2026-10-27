@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_session
 from app.models import GradingResult, GradingVersion, Mistake
 from app.prompts.loader import PromptError
+from app.providers.failover import AllProvidersFailed
 from app.providers.registry import ProviderConfigError
 from app.services.ai_gateway import AiGateway, get_ai_gateway
 from app.services.concepts import CategoryNotFound
@@ -236,6 +237,15 @@ async def create_grading(
         except (ProviderConfigError, PromptError) as exc:
             raise HTTPException(
                 status_code=503, detail=f"批改模型未配置：{type(exc).__name__}"
+            ) from None
+        except AllProvidersFailed as exc:
+            raise HTTPException(
+                status_code=503 if exc.config_only else 502,
+                detail=(
+                    f"批改模型未配置：{exc.kind}"
+                    if exc.config_only
+                    else f"批改模型调用失败（{exc.kind}），请稍后重试"
+                ),
             ) from None
         except Exception:
             raise HTTPException(
