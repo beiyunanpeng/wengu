@@ -254,6 +254,33 @@ def test_vendor_defaults_and_constructor_validation() -> None:
 
 
 @pytest.mark.unit
+async def test_qwen_provider_disables_thinking(tmp_path) -> None:
+    image = tmp_path / "x.png"
+    image.write_bytes(b"\x89PNGfake")
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.update(json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": '{"problem_text": "1+1=", "student_answer": "2"}'
+                        }
+                    }
+                ]
+            },
+        )
+
+    provider = QwenVLProvider(api_key="k", model="m", client=_client(handler))
+    await provider.extract_problem(str(image), prompt="p")
+
+    assert seen["enable_thinking"] is False
+
+
+@pytest.mark.unit
 async def test_tencent_stub_raises_not_implemented() -> None:
     provider = TencentVisionProvider()
     with pytest.raises(NotImplementedError, match="stub"):

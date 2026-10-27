@@ -459,6 +459,22 @@ P1-9、P1-2b 与 P1-2c 已完成，Phase 1 只剩 P1-7b（前置回溯诊断）�
   - API/web Dockerfile + compose 健康检查与 `--wait` 支持；GitHub Actions（ruff + pytest + compose config + tsc + build）。
   - 测试：12 项（配置热加载、PIN、SQLite pragma/CRUD、health、迁移、mock provider、prompt loader）。
 
+### Fixed
+
+- **Qwen VLM 思考模式导致提取超时**（2026-10-27，P1-2c 真机复验暴露）：
+  `qwen3.8-max` 默认开启思考，整页提取单张实测 176s，超过 provider 120s 超时 →
+  全部 `ReadTimeout`，前端表现为"未识别到题目 / 作答为空"。`QwenVLProvider` 现显式
+  传 `enable_thinking: false`（同图 12–16s）；共享 HTTP 客户端增加 `extra_payload`
+  透传，业务层无感知。
+- **宽松 JSON 解析层不兼容 LaTeX 单反斜杠**（同日）：模型输出 `"$\sqrt{2}$"` 时
+  `json.loads` 因非法转义 `\s` 失败，整条提取被判不可解析。`extract_json_object`
+  现只在字符串内修复非法转义（LaTeX 命令、残缺 `\u`），保留合法转义，再以
+  `strict=False` 重试；严格 Schema 校验仍由上层负责。
+- 验证：全量 **346 passed**（本机 2026-10-27，64.50s）、`ruff check .` 全绿；
+  强制重跑真实截图 → 两题均由 `qwen_vl/qwen3.8-max` 返回非空题目与作答
+  （11.5s / 13.3s），豆包仍 403 欠费并自动转移；因页面含图形，闸门仍标
+  `figure_dependent` 需人工复核（预期行为）。
+
 ### Changed
 
 - Makefile 支持 Windows `cmd.exe` 与 `PYTHON`/`PORT`/`M`/`D` 变量；`install-web` 改用 `npm ci`；新增 `downgrade`；`up` 使用 `--wait`。

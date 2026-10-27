@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -45,10 +46,13 @@ async def chat_completions(
     client: httpx.AsyncClient | None = None,
     temperature: float | None = None,
     timeout: float = 60.0,
+    extra_payload: dict[str, Any] | None = None,
 ) -> ChatResponse:
     payload: dict[str, Any] = {"model": model, "messages": messages}
     if temperature is not None:
         payload["temperature"] = temperature
+    if extra_payload:
+        payload.update(extra_payload)
 
     owns_client = client is None
     client = client or httpx.AsyncClient(timeout=timeout)
@@ -111,13 +115,58 @@ def extract_json_object(text: str, *, provider: str = "provider", task: str = ""
     end = text.rfind("}")
     if start == -1 or end <= start:
         raise ProviderResponseError(f"{where}: 模型输出中没有 JSON 对象")
+    snippet = text[start : end + 1]
     try:
-        value = json.loads(text[start : end + 1])
-    except ValueError as exc:
-        raise ProviderResponseError(f"{where}: 模型输出 JSON 解析失败: {type(exc).__name__}") from exc
+        value = json.loads(snippet)
+    except ValueError:
+        try:
+            value = json.loads(_repair_json_backslashes(snippet), strict=False)
+        except ValueError as exc:
+            raise ProviderResponseError(
+                f"{where}: 模型输出 JSON 解析失败: {type(exc).__name__}"
+            ) from exc
     if not isinstance(value, dict):
         raise ProviderResponseError("模型输出 JSON 不是对象")
     return value
+
+
+_HEX4 = re.compile(r"[0-9a-fA-F]{4}")
+
+
+def _repair_json_backslashes(text: str) -> str:
+    """修复字符串内的非法转义：LaTeX `\\sqrt` 与残缺 `\\u`。"""
+
+    out: list[str] = []
+    in_string = False
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        if not in_string:
+            in_string = ch == '"'
+            out.append(ch)
+            i += 1
+            continue
+        if ch == '"':
+            in_string = False
+            out.append(ch)
+            i += 1
+            continue
+        if ch == "\\":
+            nxt = text[i + 1] if i + 1 < len(text) else ""
+            if nxt in '"\\/bfnrt':
+                out.append(text[i : i + 2])
+                i += 2
+                continue
+            if nxt == "u" and _HEX4.match(text, i + 2):
+                out.append(text[i : i + 6])
+                i += 6
+                continue
+            out.append("\\\\")
+            i += 1
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
 
 
 def image_to_data_url(image_path: str, *, default_mime: str = "image/png") -> str:

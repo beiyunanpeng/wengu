@@ -82,6 +82,30 @@ async def test_chat_completions_error_status_carries_no_request_echo() -> None:
 
 
 @pytest.mark.unit
+async def test_chat_completions_merges_extra_payload() -> None:
+    sent: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent.update(json.loads(request.content))
+        return httpx.Response(
+            200, json={"choices": [{"message": {"content": "ok"}}]}
+        )
+
+    async with httpx.AsyncClient(transport=_transport(handler)) as client:
+        await chat_completions(
+            provider="qwen_vl",
+            base_url="https://example.com/v1",
+            api_key="sk-test",
+            model="m1",
+            messages=[{"role": "user", "content": "hi"}],
+            client=client,
+            extra_payload={"enable_thinking": False},
+        )
+    assert sent["model"] == "m1"
+    assert sent["enable_thinking"] is False
+
+
+@pytest.mark.unit
 async def test_chat_completions_broken_200_is_response_error() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"unexpected": True})
@@ -108,6 +132,17 @@ def test_extract_json_object_salvages_from_prose() -> None:
 
     with pytest.raises(ProviderResponseError):
         extract_json_object("{broken", provider="doubao", task="grade")
+
+
+@pytest.mark.unit
+def test_extract_json_object_repairs_latex_backslashes() -> None:
+    raw = '{"problem_text": "$\\sqrt{2}$", "note": "a\\nb"}'
+    assert extract_json_object(raw) == {
+        "problem_text": "$\\sqrt{2}$",
+        "note": "a\nb",
+    }
+
+    assert extract_json_object('{"x": "\\u12"}') == {"x": "\\u12"}
 
 
 @pytest.mark.unit
