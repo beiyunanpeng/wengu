@@ -43,6 +43,24 @@
 - 交付：`VisionProvider`（`extract_problem/grade/solve_explain`）+ 豆包/Qwen-VL/（候选）腾讯 + OpenAI-compat 文本 + **mock provider**；`llm_prompts/*.md` **版本化真源**加载器（frontmatter + `{{TOKEN}}` + fail-fast）；`model_runs` 写入；**每日批量调用上限 + 内容哈希缓存 + `ai-raw/` 落盘**；性价比/旗舰分档。
 - DoD：换 provider/加一家不改业务；每次运行记 provider/model/prompt_version/usage；密钥仅 env、日志无 PII/题目全文。
 - 禁止：SDK 渗业务；无上限调用；把 prompt 写死在代码。
+### P1-2b 供应商自动故障转移（互备落地，v2.4 补 §3 未做完的部分）
+- 背景：§3 设计"至少两家、互备"，但当前 registry 是 `task → 单 provider`；实测中豆包 403 `AccountOverdueError` 直接让整条提取瘫掉，**没有自动切到 Qwen-VL**。这张把"互备"真正落地。
+- 依赖：P1-2。
+- 交付：
+  - registry 支持 `task → 有序 provider 列表`（如 `extract_problem: [doubao, qwen_vl]`），**保留按题型路由**（题型可覆盖默认顺序，如字形默写 `[qwen_vl, doubao]`）。
+  - `ai_gateway` 加**故障转移循环**：按序尝试，命中可用即返回；每次尝试都写 `model_runs`（记录尝试链：哪几家、各自结果、耗时）。
+  - **错误分类**（决定要不要切备）：
+    - **可转移**：403 账户/权限、402 欠费、429 限流、5xx、网络/超时 → 切下一个 provider；
+    - **不可转移**：模型返回了内容但质量差 / 触发提取闸门 → **不切**（这是质量问题不是可用性问题，切了也没用、还费钱）。
+  - 全部 provider 都失败才最终报错，且错误信息**区分"账户/额度/网络类"与"识别质量类"**（供 P1-9b 前端呈现）。
+- DoD：把豆包设成不可用（欠费/错 key）时，提取**自动走 Qwen-VL 成功**；`model_runs` 能看到尝试链；两家都挂时报错信息能明确是"账户问题"而非"识别失败"；单测覆盖"主失败→切备成功""全失败→聚合错误""质量差不切备"。
+- 禁止：引入熔断器/重试框架/agent 编排（就是有序列表 + 逐个 try）；无限重试（每家最多试 1 次、总尝试数有上限）；对内容质量做 failover；failover 逻辑渗进业务层（只在 gateway/registry）。
+### P1-2c 按 task 配模型（VLM 与 OCR 分工，v2.4 试用暴露）
+- 背景：现在每个 provider 只有一个 model（value/flagship 档），所有 task 共用。但 `extract_problem/grade/solve_explain` 需要**多模态 VLM**（结构化理解题目+作答），`dictation_extract`（字形默写）才是 **OCR** 的活。实测：`qwen3.5-ocr` 提取 **1/9**（不输出 problem_complete、漏手写作答）、`qwen3.8-max` **9/9**——模型类型用错就整链返回空。
+- 依赖：P1-2b。
+- 交付：把路由从 `task → [provider]` 扩到 **`task → [(provider, model)]`**（或 provider 默认 model + 按 task 覆盖），至少区分三类：**VLM 任务**（extract/grade/solve_explain）、**OCR 任务**（dictation_extract）、**纯文本任务**（text）。默认 extract/grade/solve_explain 走各 provider 的 VLM 档、dictation_extract 允许走 OCR 档。**全部配置驱动**（`app-config.json`/`.env`），不硬编码 if 分支。
+- DoD：extract_problem 走 VLM 能返回非空 `problem_text`；dictation_extract 可走 OCR；换某 task 的模型只改配置不改代码；单测覆盖"同一 provider、不同 task 用不同 model"。
+- 禁止：为每个 task 造复杂 DSL / 模型注册中心 / 框架；把 model 选择写死进业务层；给 VLM 任务配 OCR 模型（就是这次的坑）。
 ### P1-3 采集双通道
 - 依赖：P1-0。
 - 交付：**主**——手机拍照→HTTP 接收端→本地存储→`photo_capture`→触发；**兜底**——豆包 JSON 导入→确定性校验/归一→`import_batches`(sha256 去重)+`ingestion_drafts`（导入不调模型）。两条共用草稿结构。
@@ -101,6 +119,17 @@
 - 依赖：P1-3~P1-8。
 - 交付：采集 / 批改结果+回显确认 / 错题本 / 复习 / 讲解 五页最小可用（React+Mantine+KaTeX，数学渲染）。
 - DoD：孩子能"拍→看批改并确认→入本→复习→卡住看讲解"走通一遍。禁止：追求美观或提前做看板/规划。
+### P1-9b 前端错误呈现（区分"账户/网络"与"识别质量"，v2.4 试用暴露）
+- 背景：试用时豆包欠费，前端只显示笼统的"提取失败，未产生任何结果"，把后端已返回的 `errors[].reason`（`AccountOverdueError`）藏了，逼用户开 DevTools 才知道是账单问题、误判成"识别能力不行"。
+- 依赖：P1-9、P1-2b（错误分类）。
+- 交付：
+  - 提取/批改失败时，前端**直接显示后端 `errors[].reason`**，并按 P1-2b 的错误分类给**不同文案 + 不同处置提示**：
+    - **账户/额度/鉴权类**（402/403/无 key）→ "供应商账户异常（欠费/密钥），请检查额度或配置" + 引导去设置页；
+    - **限流/网络/超时类**（429/5xx/timeout）→ "供应商暂时不可用，已尝试备用；可稍后重试"；
+    - **识别质量类**（含 `〔?〕`/残缺/整页未切分）→ "这张没识别清楚，请重拍或改用人工/豆包导入"（对应回显闸门的措辞）。
+  - 失败项**不静默**：每张失败图显示 seq + 原因，提供"重试提取"（只补缺失，不重复计费，复用 P1-4 幂等）。
+- DoD：模拟豆包欠费 → UI 直接显示"账户异常"而非"未产生任何结果"；三家全挂 → 显示尝试链摘要；质量类失败 → 走"重拍/人工"提示而非"账户"提示。
+- 禁止：把内部异常栈原样吐给用户（要分类成人话）；对质量类失败提示"去充值"（误导）。
 
 ---
 
@@ -144,5 +173,5 @@
 
 ## 依赖总览
 P0-1 →（P1-5 档位来源；P1-7c 自动排复习的解锁条件）；P0-1 样本 → P0-2 黄金集 →（P1-2/P1-5/P3-2 的回归门）
-P1-0 → 全部 P1；P1-1(+P1-1b) → P1-2/P1-3 → **P1-3b（OCR 切题预处理）** → P1-4 → P1-5 → P1-6 → **P1-7a（用户触发排期）→ P1-7b（前置回溯诊断）** / P1-8 → P1-9 → Phase2 → Phase3 → Phase5（Phase4 任意时点，孩子用起来后；**P1-7c 自动排复习阻塞至 P0-1 边界表回填后**）
+P1-0 → 全部 P1；P1-1(+P1-1b) → P1-2 → **P1-2b（供应商自动故障转移）→ P1-2c（按 task 配 VLM/OCR 模型）** → P1-3 → **P1-3b（OCR 切题预处理）** → P1-4 → P1-5 → P1-6 → **P1-7a（用户触发排期）→ P1-7b（前置回溯诊断）** / P1-8 → P1-9 → **P1-9b（前端错误呈现，依赖 P1-2b 错误分类）** → Phase2 → Phase3 → Phase5（Phase4 任意时点，孩子用起来后；**P1-7c 自动排复习阻塞至 P0-1 边界表回填后**）
 P3-1 → P3-2 →（回补 P1-7a 变式题源）
