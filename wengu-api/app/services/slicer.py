@@ -2,7 +2,8 @@
 
 信号（对齐 TICKETS P1-3b）：
 1. 题号锚点：`12.` `3、` `12．` `第5题` 等正则命中；分隔符后紧跟数字视为
-   小数/千分位（1.5、1,234）排除。
+   小数/千分位（1.5、1,234）排除。**题号单调递增的锚点即新题边界**（密排试卷
+   没有垂直间隙也切得开）；回退/重复题号视作作答行伪锚点（如手写"1.S"）。
 2. 垂直间隙：行距 > GAP_FACTOR×行高中位数 → 无锚点题也切得开。
 3. 双页平铺：中部横向带检出空白竖缝（书缝）→ 按栏各自聚类再拼序号。
 
@@ -52,12 +53,31 @@ _ANCHOR_LABEL_MAX = 20
 _MAX_ANCHOR_NUMBER = 100
 
 
-def anchor_label(text: str) -> str | None:
+def _anchor_match(text: str) -> tuple[int, str] | None:
     for pattern in _ANCHOR_PATTERNS:
         m = pattern.match(text)
         if m and int(m.group(1)) <= _MAX_ANCHOR_NUMBER:
-            return m.group(0).strip()[:_ANCHOR_LABEL_MAX]
+            return int(m.group(1)), m.group(0).strip()[:_ANCHOR_LABEL_MAX]
     return None
+
+
+def anchor_label(text: str) -> str | None:
+    match = _anchor_match(text)
+    return match[1] if match else None
+
+
+def _anchor_boundaries(column: list[TextLine]) -> list[int]:
+    """题号单调递增才认作新题首行：过滤作答行等伪锚点（如手写"1.S"）。"""
+
+    boundaries: list[int] = []
+    last_number = -1
+    for index, line in enumerate(column):
+        match = _anchor_match(line.text)
+        if match is None or match[0] <= last_number:
+            continue
+        boundaries.append(index)
+        last_number = match[0]
+    return boundaries
 
 
 def _sort_key(line: TextLine) -> tuple[int, int]:
@@ -96,16 +116,21 @@ def _detect_gutter(lines: list[TextLine], width: int) -> int | None:
 def _cluster_column(
     column: list[TextLine], image_size: tuple[int, int], start_seq: int
 ) -> tuple[list[Slice], int]:
-    anchors = [i for i, line in enumerate(column) if anchor_label(line.text)]
-    if not anchors:
+    boundaries = _anchor_boundaries(column)
+    if not boundaries:
         raise SliceError("未检测到题号锚点，拒绝切分（无锚点情况下不瞎切）")
     width, height = image_size
     median_h = statistics.median([line.height for line in column]) or 1
 
+    boundary_set = set(boundaries)
     groups: list[list[TextLine]] = []
     current: list[TextLine] = []
-    for line in column[anchors[0] :]:
-        if current and line.box[1] - current[-1].box[3] > GAP_FACTOR * median_h:
+    for index in range(boundaries[0], len(column)):
+        line = column[index]
+        if current and (
+            index in boundary_set
+            or line.box[1] - current[-1].box[3] > GAP_FACTOR * median_h
+        ):
             groups.append(current)
             current = []
         current.append(line)
@@ -129,7 +154,7 @@ def _cluster_column(
                 anchor_label=anchor_label(group[0].text),
             )
         )
-    return slices, anchors[0]
+    return slices, boundaries[0]
 
 
 def plan_slices(lines: list[TextLine], image_size: tuple[int, int]) -> SlicePlan:

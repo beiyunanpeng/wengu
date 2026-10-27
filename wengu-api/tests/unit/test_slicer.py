@@ -33,6 +33,32 @@ def test_anchor_label_rejects_decimals_and_plain_text() -> None:
     assert anchor_label("(1) 括号项") is None
 
 
+def test_dense_page_splits_at_anchors_without_gaps() -> None:
+    lines = [
+        line(10, 100, 600, 130, "1. 第一题"),
+        line(10, 130, 600, 160, "2. 第二题"),
+        line(10, 160, 600, 190, "3. 第三题"),
+    ]
+    plan = plan_slices(lines, (800, 600))
+    assert plan.column_split_x is None
+    assert [s.anchor_label for s in plan.slices] == ["1.", "2.", "3."]
+    # 密排无间隙也要一题一块：每块只覆盖本题一行
+    assert [s.bbox[1] for s in plan.slices] == [92, 122, 152]
+
+
+def test_non_increasing_anchor_is_not_a_boundary() -> None:
+    lines = [
+        line(10, 100, 600, 130, "1. 第一题"),
+        line(10, 130, 600, 160, "2. 第二题"),
+        line(600, 160, 640, 190, "1.S"),  # 手写作答行误命中题号正则
+        line(10, 190, 600, 220, "3. 第三题"),
+    ]
+    plan = plan_slices(lines, (800, 600))
+    assert [s.anchor_label for s in plan.slices] == ["1.", "2.", "3."]
+    # 伪锚点行留在上一题组内，不单独成块
+    assert plan.slices[1].bbox[3] >= 190
+
+
 def test_single_column_clusters_with_header_and_gap() -> None:
     lines = [
         line(10, 0, 300, 30, "页眉：练习卷"),
