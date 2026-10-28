@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -39,7 +39,15 @@ class Attempt(Base):
     learning_event_id: Mapped[int] = mapped_column(
         ForeignKey("learning_events.id", ondelete="RESTRICT"), nullable=False
     )
+    problem_bank_id: Mapped[int | None] = mapped_column(
+        ForeignKey("problem_bank.id", ondelete="SET NULL"), nullable=True
+    )
     kind: Mapped[str] = mapped_column(Text, nullable=False)
+    source: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'manual'")
+    )
     answer_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_correct: Mapped[bool] = mapped_column(Boolean, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+    __table_args__ = (Index("ix_attempts_problem_bank_id", "problem_bank_id"),)

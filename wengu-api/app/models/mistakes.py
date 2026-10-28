@@ -37,12 +37,16 @@ class Mistake(Base):
     )
     status: Mapped[str] = mapped_column(Text, nullable=False, default=MISTAKE_ACTIVE)
     current_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    primary_topic_id: Mapped[str | None] = mapped_column(
+        ForeignKey("knowledge_seed.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
     __table_args__ = (
         CheckConstraint("status IN ('active', 'voided')", name="ck_mistakes_status"),
         CheckConstraint("current_version >= 1", name="ck_mistakes_current_version"),
+        Index("ix_mistakes_primary_topic_id", "primary_topic_id"),
     )
 
 

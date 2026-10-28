@@ -9,3 +9,6 @@
 
 备份：升级前复制 `wengu-api/data/wengu.db` 到仓库外（`make upgrade` 不自动备份）。
 回退：`cd wengu-api && venv/Scripts/alembic downgrade -1`（或 `base`），恢复备份文件。
+- `0011_v25_intake_and_quiz`（v2.5 导入与考核）：只增 `attempts.source` /
+  `attempts.problem_bank_id` / `mistakes.primary_topic_id` 三列与两个索引，回退
+  `downgrade -1` 只删这些列与索引，不清业务数据。
