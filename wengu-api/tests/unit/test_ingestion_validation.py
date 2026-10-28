@@ -49,6 +49,10 @@ def test_normalize_happy_path_full_fields() -> None:
                 "subject": "数学",
                 "problem_text": "计算 1+1",
                 "student_answer": "3",
+                "standard_answer": "2",
+                "verify": "1+1 == 2",
+                "error_cause_suggestion": "计算粗心",
+                "suggested_topic_id": "cnm_042",
                 "source_ref": "校本练习 P5",
                 "captured_at": "2026-10-24",
                 "unknown_extra": "丢弃并计数",
@@ -60,15 +64,53 @@ def test_normalize_happy_path_full_fields() -> None:
     draft = result.drafts[0]
     assert draft["seq"] == 0
     assert draft["normalized"]["subject"] == "数学"
+    assert draft["normalized"]["standard_answer"] == "2"
+    assert draft["normalized"]["verify"] == "1+1 == 2"
+    assert draft["normalized"]["error_cause_suggestion"] == "计算粗心"
+    assert draft["normalized"]["suggested_topic_id"] == "cnm_042"
     assert not draft["has_placeholder"]
     assert not draft["is_incomplete"]
+
+
+def test_normalize_missing_standard_answer_is_incomplete() -> None:
+    """v2.5：缺 standard_answer（卷面订正正答）或缺 student_answer 都判残题。"""
+    result = validate_and_normalize(
+        [
+            {"problem_text": "求解 x", "student_answer": "42"},
+            {"problem_text": "求解 x", "standard_answer": "42"},
+        ]
+    )
+    assert not result.errors
+    both, neither = result.drafts
+    assert both["is_incomplete"]  # 缺 standard_answer
+    assert neither["is_incomplete"]  # 缺 student_answer
+
+
+def test_envelope_accepts_agent_transcribe_v1_and_legacy_doubao() -> None:
+    channel, _ = validate_envelope(
+        {"channel": "agent_transcribe_v1", "items": [{"problem_text": "x"}]}
+    )
+    assert channel == "agent_transcribe_v1"
+    channel, _ = validate_envelope(
+        {"channel": "doubao_json", "items": [{"problem_text": "x"}]}
+    )
+    assert channel == "doubao_json"
+
+
+def test_normalize_placeholder_scan_all_fields() -> None:
+    result = validate_and_normalize(
+        [{"problem_text": "求解 x", "student_answer": "42", "standard_answer": "〔?〕"}]
+    )
+    assert not result.errors
+    assert result.drafts[0]["has_placeholder"]
+    assert not result.drafts[0]["is_incomplete"]
 
 
 def test_normalize_placeholder_and_incomplete_flags() -> None:
     result = validate_and_normalize(
         [
-            {"problem_text": "求解 〔?〕", "student_answer": "42"},
-            {"problem_text": "默写单词 apple", "student_answer": ""},
+            {"problem_text": "求解 〔?〕", "student_answer": "42", "standard_answer": "42"},
+            {"problem_text": "默写单词 apple", "student_answer": "", "standard_answer": "apple"},
         ]
     )
     assert not result.errors

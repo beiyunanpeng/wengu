@@ -20,11 +20,18 @@ FIELD_LIMITS: dict[str, int] = {
     "subject": 20,
     "problem_text": 2000,
     "student_answer": 500,
+    "standard_answer": 500,
+    "verify": 200,
+    "error_cause_suggestion": 50,
+    "suggested_topic_id": 40,
     "source_ref": 200,
     "captured_at": 30,
 }
 STRING_FIELDS = tuple(FIELD_LIMITS)
 PLACEHOLDER_MARK = "〔?〕"
+
+# v2.5 外部 agent 转录；doubao_json 为旧通道名，兼容保留
+SUPPORTED_CHANNELS = ("agent_transcribe_v1", "doubao_json")
 
 _CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 
@@ -55,8 +62,10 @@ def validate_envelope(payload: Any) -> tuple[str, list[Any]]:
     if not isinstance(payload, dict):
         raise ValueError("body 必须是 JSON 对象：{channel, items}")
     channel = payload.get("channel")
-    if channel != "doubao_json":
-        raise ValueError(f"不支持的 channel: {channel!r}（仅支持 doubao_json）")
+    if channel not in SUPPORTED_CHANNELS:
+        raise ValueError(
+            f"不支持的 channel: {channel!r}（仅支持 {' / '.join(SUPPORTED_CHANNELS)}）"
+        )
     items = payload.get("items")
     if not isinstance(items, list):
         raise ValueError("items 必须是数组")
@@ -102,13 +111,14 @@ def validate_and_normalize(items: list[Any]) -> NormalizationResult:
         result.dropped_unknown_fields += sum(
             1 for key in item if key not in FIELD_LIMITS
         )
+        all_text = "".join(normalized.values())
         result.drafts.append(
             {
                 "seq": index,
                 "normalized": normalized,
-                "has_placeholder": PLACEHOLDER_MARK
-                in (normalized["problem_text"] + normalized["student_answer"]),
-                "is_incomplete": not normalized["student_answer"],
+                "has_placeholder": PLACEHOLDER_MARK in all_text,
+                "is_incomplete": not normalized["student_answer"]
+                or not normalized["standard_answer"],
             }
         )
     return result

@@ -329,3 +329,128 @@ def test_review_schedules_idempotency_indexes(tmp_path) -> None:
         assert {"uq_review_schedules_source_event_id", "uq_review_schedules_open_mistake"} <= names
     finally:
         engine.dispose()
+
+
+@pytest.mark.integration
+def test_v25_intake_and_quiz_columns(tmp_path) -> None:
+    """0011：attempts.source/problem_bank_id + mistakes.primary_topic_id；旧行回填 manual。"""
+
+    db_path = tmp_path / "v25-intake.db"
+    config = _alembic_config(db_path)
+
+    # 先在 0010 停住，造一条旧 attempts 行，验证升级后回填 manual
+    command.upgrade(config, "0010_model_run_attempts")
+    engine = create_engine(f"sqlite:///{db_path.as_posix()}")
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO learning_events (type, actor, idempotency_key)"
+                    " VALUES ('attempt_wrong', 'student', 'v25-e1')"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO attempts (mistake_id, learning_event_id, kind,"
+                    " is_correct, created_at)"
+                    " VALUES (1, 1, 'redo', 0, CURRENT_TIMESTAMP)"
+                )
+            )
+    finally:
+        engine.dispose()
+
+    command.upgrade(config, "head")
+    engine = create_engine(f"sqlite:///{db_path.as_posix()}")
+    try:
+        with engine.connect() as connection:
+            attempt_cols = {
+                column["name"] for column in inspect(connection).get_columns("attempts")
+            }
+            attempt_idx = {
+                index["name"] for index in inspect(connection).get_indexes("attempts")
+            }
+            mistake_cols = {
+                column["name"] for column in inspect(connection).get_columns("mistakes")
+            }
+            mistake_idx = {
+                index["name"] for index in inspect(connection).get_indexes("mistakes")
+            }
+        assert {"source", "problem_bank_id"} <= attempt_cols
+        assert "ix_attempts_problem_bank_id" in attempt_idx
+        assert "primary_topic_id" in mistake_cols
+        assert "ix_mistakes_primary_topic_id" in mistake_idx
+
+        with engine.begin() as connection:
+            # 旧行回填 manual
+            assert (
+                connection.scalar(text("SELECT source FROM attempts WHERE id = 1"))
+                == "manual"
+            )
+            # 考核溯源：seed / 题库 / 批改单 / 错题 / 作答 全链路插入读回
+            connection.execute(
+                text(
+                    "INSERT INTO knowledge_seed (id, subject, name, unaudited,"
+                    " blind_verified)"
+                    " VALUES ('cnm_042', '数学', '一元二次方程', 1, 0)"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO problem_bank (external_id, subject, problem_text,"
+                    " answer, verify, created_at)"
+                    " VALUES ('pb-1', '数学', '1+1=?', '2', '1+1 == 2',"
+                    " CURRENT_TIMESTAMP)"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO grading_results (source_kind, source_id,"
+                    " question_type, problem_text, created_at, updated_at)"
+                    " VALUES ('problem_extraction', 1, 'objective', '1+1=?',"
+                    " CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO mistakes (source_grading_id, primary_topic_id)"
+                    " VALUES (1, 'cnm_042')"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO attempts (mistake_id, learning_event_id,"
+                    " problem_bank_id, kind, source, is_correct, created_at)"
+                    " VALUES (1, 1, 1, 'quiz', 'system_quiz', 1, CURRENT_TIMESTAMP)"
+                )
+            )
+            row = connection.execute(
+                text("SELECT source, problem_bank_id FROM attempts WHERE id = 2")
+            ).one()
+            assert row == ("system_quiz", 1)
+            assert (
+                connection.scalar(
+                    text("SELECT primary_topic_id FROM mistakes WHERE id = 1")
+                )
+                == "cnm_042"
+            )
+    finally:
+        engine.dispose()
+
+    # 回退干净、再升级可重复
+    command.downgrade(config, "0010_model_run_attempts")
+    engine = create_engine(f"sqlite:///{db_path.as_posix()}")
+    try:
+        with engine.connect() as connection:
+            attempt_cols = {
+                column["name"] for column in inspect(connection).get_columns("attempts")
+            }
+            mistake_cols = {
+                column["name"] for column in inspect(connection).get_columns("mistakes")
+            }
+        assert "source" not in attempt_cols
+        assert "problem_bank_id" not in attempt_cols
+        assert "primary_topic_id" not in mistake_cols
+    finally:
+        engine.dispose()
+
+    command.upgrade(config, "head")
