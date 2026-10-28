@@ -63,7 +63,7 @@ max_items_per_batch: 500
       "student_answer": "〔被划掉的错答〕",
       "standard_answer": "〔卷面订正后的正答，没有则〔?〕〕",
       "error_cause_suggestion": "计算失误",
-      "suggested_topic_id": "cnm_p042",
+      "suggested_topic_id": "cnm_042",
       "source_ref": "期中卷 第3题",
       "captured_at": "2026-10-28"
     }
