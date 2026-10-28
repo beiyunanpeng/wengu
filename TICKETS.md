@@ -33,7 +33,7 @@
 ### P1-1 数据模型 + 事件溯源/幂等骨架
 - 依赖：P1-0。
 - 交付：Alembic 迁移建表——`knowledge_seed(category) / concepts + concept_aliases / mistake_versions / import_batches + ingestion_drafts / attempts / review_schedules / learning_events(append-only,UNIQUE) / ai_jobs / user_role`。掌握度/毕业/统计的**确定性重算函数** + **幂等写入**骨架。
-  - **v2.5 数据契约补充**：`ingestion_drafts` 新增列 `standard_answer`（必填）、`verify`（可选）、`error_cause_suggestion`、`suggested_topic_id`；`mistake↔concept` 建为**多对多**并带 `primary_concept_id`（每错题一个主考点）；`learning_events` 增加 `source ∈ {student_self, system_quiz}` 标签列；新增 `quiz_attempts`（同类题考核作答，**不进 mistake 表**、计入掌握度、可整表清空）+ `practice_records`（主动加练变式，不影响掌握度）。
+  - **v2.5 数据契约补充**：外部转录字段（`standard_answer`(必填)/`verify`(可选)/`error_cause_suggestion`/`suggested_topic_id`）走 `services/ingestion.py` 归一化契约、存进 `ingestion_drafts.normalized_json`（**不加逐列**）；`mistakes` 加 `primary_topic_id`（可空、外键 `knowledge_seed.id`，是检索同类题的主考点，未确认前不排考核）；**闭环同类题考核复用 `attempts` 表**——给 `attempts` 加 `source ∈ {student_self, system_quiz, manual}` 与 `problem_bank_id`（外键），**不另建 `quiz_attempts`**（否则 `recompute` 双读两张表、破坏"唯一事实源 + 确定性重算"）；`practice_records` 保留、只承接主动加练的变式。
 - DoD：迁移可 up/down + 备份说明 + **迁移测试**；重复导入/重试/重启不产生重复错题·事件·计数。
 - 禁止：把易变状态存成字段（应由事实推导）。
 
@@ -82,25 +82,25 @@
 
 ### P1-6 错题本入库（v2.5 改：入本=核对页确认的外部转录错题）
 - 依赖：P1-3d、P1-4b、P1-5。
-- 交付：核对页确认外部转录错题 → **唯一写入路径**建错题（记 `standard_answer / 错答 / 错因(确认值) / 多 concept 挂载 + `primary_concept_id``）；**`〔?〕`/残缺/缺 `standard_answer` → 不得自动转正**；错因 AI 建议值 + 孩子确认值分离、来源标记（`ai / student / parent`）；知识点粗 seed 挂载 + 细粒度受控生长（优先复用、不覆盖确认值、归并需人工确认、alias）。主动加练变式 → `practice_records`；闭环同类题考核 → `quiz_attempts`（都不进错题本）。
-- DoD：一条转录错题确认 ≤1 点击入本；缺主考点/未确认 topicId → 不排考核、只走原题重做；`quiz_attempts`/`practice_records` 有独立可回看查询页。禁止：AI 自由生成标签泛滥；把变式/考核写入错题本；无确认静默入库。
+- 交付：核对页确认外部转录错题 → **唯一写入路径**建错题（记 `standard_answer / 错答 / 错因(确认值) / 多 concept 挂载 + `primary_topic_id``）；**`〔?〕`/残缺/缺 `standard_answer` → 不得自动转正**；错因 AI 建议值 + 孩子确认值分离、来源标记（`ai / student / parent`）；知识点粗 seed 挂载 + 细粒度受控生长（优先复用、不覆盖确认值、归并需人工确认、alias）。主动加练变式 → `practice_records`；闭环同类题考核 → 记 `attempts`（`source=system_quiz`）（都不进错题本）。
+- DoD：一条转录错题确认 ≤1 点击入本；缺主考点/未确认 topicId → 不排考核、只走原题重做；`attempts`（按 `source=system_quiz` 过滤）/`practice_records` 有可回看查询页。禁止：AI 自由生成标签泛滥；把变式/考核写入错题本；无确认静默入库。
 
 ### P1-7a 复习排期服务（用户触发，v2.5 补：考核优先/重做兜底 + 双来源）
 - 依赖：P1-6、P1-10、`review_policy.py`（已交付）。
 - 交付：`0009_review_schedules` 迁移 + `services/review.py`（`schedule_initial / complete_attempt / due_queue`）+ `api/reviews.py`。
-  - **到期行为（v2.5）**：`due_queue()` 对每道到期错题，**先按 `primary_concept_id` 检索同类题（P1-10）→ 命中则推"同类题考核"、未命中则退回"原题重做（自评）"并标 `bank_gap`**。
+  - **到期行为（v2.5）**：`due_queue()` 对每道到期错题，**先按 `primary_topic_id` 检索同类题（P1-10）→ 命中则推"同类题考核"、未命中则退回"原题重做（自评）"并标 `bank_gap`**。
   - **掌握度双来源**：`recompute.mastery()` 计入 `source ∈ {student_self, system_quiz}` 两类事件、MVP 各计 1 次仅打标签（暂不加权）；一道错题挂多 concept 取**最小 mastery**（不变）；无 concept → 0.0。
 - DoD：确认错题→首次排期→到期→按"考核优先/重做兜底"出任务→完成写下一次→毕业；`recompute` 整体重放结果一致。
 - 禁止：MVP 强上 FSRS；LLM 现编题；`judgeAnswer` 之外任意 eval；未经确认建错题/排复习。
 
 ### P1-10 题库检索引擎（v2.5 新增，"同类题"地基，Phase 3 提前）
 - 依赖：P1-1b。
-- 交付：把 `cn-math-taxonomy` `questions.json` 初中段（数学 1407 / 英语 1028 / 物理 368）**载入内存索引（不进 SQLite，守 §14 数据形态）**；建 `topic_id → [question]` 倒排；`services/bank.py`：`find_same_type(primary_concept_id, seed)` **同 topicId + mulberry32 固定种子可 `replay()`**；覆盖不足（含语文/化学=0、物理薄）→ 返回空 + `bank_gap=true`。bank 每题 `verify` **入库核验过 AST 沙箱**（复用 P1-5）。
+- 交付：把 `cn-math-taxonomy` `questions.json` 初中段（数学 1407 / 英语 1028 / 物理 368）**载入内存索引（不进 SQLite，守 §14 数据形态）**；建 `topic_id → [question]` 倒排；`services/bank.py`：`find_same_type(primary_topic_id, seed)` **同 topicId + mulberry32 固定种子可 `replay()`**；覆盖不足（含语文/化学=0、物理薄）→ 返回空 + `bank_gap=true`。bank 每题 `verify` **入库核验过 AST 沙箱**（复用 P1-5）。
 - DoD：给定一个 `cnm_*` 知识点 + 固定种子 → 稳定返回同 topicId 题目、可重放；给无题知识点 → 明确"无同类题 + 缺口标记"；内联 SVG 过 HTML 净化。禁止：LLM 编题；把题库塞进 SQLite。
 ### P1-11 同类题考核闭环（v2.5 新增）
 - 依赖：P1-7a、P1-10、P1-5、P1-6。
-- 交付：考核页取一道同类题 → **客观/短答题系统内作答、`judgeAnswer` 比对 bank 标准答案判分**（`source=system_quiz` 写 `quiz_attempts`，**不新建错题**）；**数学解答大题**（bank `type` 非客观 或 `figure` 依赖图）→ 降级"纸上做 → 拍已批改 → 自评"（`source=student_self`）。**触发两者都要**：复习到点自动推（P1-7a）+ 家长手动组卷入口（选知识点→出 1..N 题）。考核结果计入该知识点掌握度、可整表清空。
-- DoD：一道数学错题到期 → 推同 topicId 客观题 → 系统判对/错 → 掌握度变化可重放；大题 → 降级自评路径生效；家长手动组卷可用；`quiz_attempts` 不进错题本。禁止：让模型判考核题；把考核结果建成错题。
+- 交付：考核页取一道同类题 → **客观/短答题系统内作答、`judgeAnswer` 比对 bank 标准答案判分**（记 `attempts`：`source=system_quiz`，**不新建错题**）；**数学解答大题**（bank `type` 非客观 或 `figure` 依赖图）→ 降级"纸上做 → 拍已批改 → 自评"（`source=student_self`）。**触发两者都要**：复习到点自动推（P1-7a）+ 家长手动组卷入口（选知识点→出 1..N 题）。考核结果计入该知识点掌握度、可整表清空。
+- DoD：一道数学错题到期 → 推同 topicId 客观题 → 系统判对/错 → 掌握度变化可重放；大题 → 降级自评路径生效；家长手动组卷可用；`source=system_quiz` 的 attempts 不新建错题。禁止：让模型判考核题；把考核结果建成错题。
 ### P1-7b 前置知识回溯诊断（不阻塞）
 - 依赖：P1-1b、**P1-10（需题库诊断题）**、P1-7a。
 - 交付：`services/diagnose.py`（Python 重写 `engine.js` ~200 行：每知识点≤2 题；第 1 对=mastered、第 1 错补第 2、第 2 错=weak→未判定先修 hard 先 soft 后 DFS 压栈回溯、第 2 对=shaky 不回溯；停止 16 题(筛查 40)或栈空；根因=weak 且其先修无 weak；mulberry32 固定种子可 `replay`）+ `api/diagnose.py` + 单测。联动：诊断根因若已有错题→排期优先级↑，若无→作"待补前置"进日队列（P2-1），**不自动建错题**。
@@ -159,7 +159,7 @@
 
 ## Phase 5 —— 开源分发与打包
 - **P5-1 首次运行向导 + 热配置**：孩子/年级→勾选学科→选教材 seed；**v2.5 内核零模型、通常无需 API Key**（仅当家长选装 P4-3 本地模型时才配）；产出配置不逼手改 .env。**运行时参数走 `config/app-config.json` 热加载、优先 .env、UI 内改免重启**；密钥仍只 .env。
-- **P5-2 一键备份/恢复（UI 内 + 可选云备份）**：本地导出 SQLite + 图片目录 + `data/inbox` zip / 导入恢复；可选云备份（KuroTutor 模式）AESGCM+scrypt 逐文件加密 → 每日独立 git commit 推家长私有仓库 → `git checkout` 回滚；清空级联清理原文/派生/证据/`quiz_attempts`/`practice_records`。
+- **P5-2 一键备份/恢复（UI 内 + 可选云备份）**：本地导出 SQLite + 图片目录 + `data/inbox` zip / 导入恢复；可选云备份（KuroTutor 模式）AESGCM+scrypt 逐文件加密 → 每日独立 git commit 推家长私有仓库 → `git checkout` 回滚；清空级联清理原文/派生/证据/`practice_records`（`attempts` 里 `source=system_quiz` 的行随错题级联）。
 - **P5-3 可选密码 session 鉴权开关**（默认关）；README/首页醒目警告公网须先加鉴权与隔离或走 Tailscale。禁：做用户体系/多租户。
 - **P5-4 教材 seed 包机制**：多教材 JSON/YAML 可安装可切换。
 - **P5-5 开源基线**：LICENSE + 中英 README（一行安装）+ 隐私声明（数据不出户、云转录仅送题目图）+ CHANGELOG + `.env.example`；合规点名《个人信息保护法》《未成年人网络保护条例》；**第三方数据 License 署名 + NC 声明**强制。
