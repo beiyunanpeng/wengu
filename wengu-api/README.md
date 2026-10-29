@@ -45,6 +45,9 @@ make downgrade D=base               # 回退到空库（保留空的 alembic_ver
 
 > 端口：默认 8000。若被系统保留（Windows Hyper-V 常见），`make dev-api PORT=8100`。
 > 数据库文件：默认 `wengu-api/data/wengu.db`（`WENGU_DB_PATH` 可改），首次运行自动建目录。
+> 监听目录：默认 `wengu-api/data/inbox`（`WENGU_INBOX_DIR` 可改）——外部 agent 把转录 JSON
+> 放进该目录即被后台扫描校验入库为**草稿**（不自动转正、不判分、不建错题），
+> 处理完归档到 `.processed/`（非法报文为 `.invalid.json`），停机期间文件不丢、重启补扫。
 > 健康检查返回：`{"status":"ok","service":"wengu-api","version":"0.0.0","database":"ok"}`。
 
 ## 当前状态（P1-8）
