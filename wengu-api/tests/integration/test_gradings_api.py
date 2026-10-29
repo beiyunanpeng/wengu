@@ -1,6 +1,6 @@
-"""P1-5 批改 API 集成测试：闸门、客观确定性判、过程采样、确认/申诉、幂等。
+"""P1-5 判分 API 集成测试：闸门、客观确定性判、过程转人工、确认/申诉、幂等。
 
-模型一律 FakeGateway（零网络、零密钥）；真实 VLM 质量由 scripts/eval_grading.py 负责。
+v2.5：过程题不在系统内判、不调模型；FakeGateway 仅保留作"绝不被调用"的探针。
 """
 
 from __future__ import annotations
@@ -29,7 +29,6 @@ from app.models import (
     ReviewSchedule,
 )
 from app.providers.base import CallMeta, GradeResult
-from app.providers.registry import ProviderConfigError
 from app.services.ai_gateway import get_ai_gateway
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import func, select
@@ -366,7 +365,9 @@ async def test_placeholder_and_empty_answer_never_enter_grading(tmp_path) -> Non
 
 
 @pytest.mark.integration
-async def test_process_sampling_is_consistent_and_pending(tmp_path) -> None:
+async def test_process_question_is_manual_and_never_calls_model(tmp_path) -> None:
+    """v2.5：过程题真实作业在卷面外部批改；系统内只落 uncertain 待确认。"""
+
     factory = _migrated(tmp_path)
     gateway = FakeGradeGateway()
     async with _client(factory, gateway) as client:
@@ -375,61 +376,22 @@ async def test_process_sampling_is_consistent_and_pending(tmp_path) -> None:
         )
         response = await client.post(
             "/api/gradings",
-            json=_request(
-                extraction_id,
-                question_type="process",
-                answer="x=2",
-                samples=3,
-            ),
+            json=_request(extraction_id, question_type="process", answer="x=2"),
         )
         grading_id = response.json()["grading"]["id"]
-        calls_after_post = len(gateway.calls)
         fetched = await client.get(f"/api/gradings/{grading_id}")
 
     assert response.status_code == 200
     grading = response.json()["grading"]
-    assert grading["current_verdict"] == "correct"
-    assert grading["status"] == "pending"  # 过程题即使模型说对也必须孩子确认
+    assert grading["current_verdict"] == "uncertain"
+    assert grading["status"] == "pending"
     version = grading["versions"][0]
-    assert version["source"] == "ai"
-    assert version["reason"] == "ai_consistent"
-    assert version["sample_verdicts"] == ["correct", "correct", "correct"]
-    assert version["provider"] == "fake"
-    assert version["prompt_id"] == "grade"
-    assert len(gateway.calls) == 3
-    assert [call["sample_index"] for call in gateway.calls] == [0, 1, 2]
-    assert all(call["standard_answer"] == "x=2" for call in gateway.calls)
-    assert len(gateway.calls) == calls_after_post  # GET 零模型调用
+    assert version["source"] == "code"
+    assert version["reason"] == "real_homework_external"
+    assert version["sample_verdicts"] == []
+    assert version["provider"] is None
+    assert gateway.calls == []  # 过程题零模型调用
     assert fetched.json() == grading
-
-
-@pytest.mark.integration
-async def test_process_sampling_disagreement_is_uncertain(tmp_path) -> None:
-    factory = _migrated(tmp_path)
-    gateway = FakeGradeGateway()
-    gateway.outcomes = {
-        0: GradeResult(verdict="correct", confidence=0.9, source="ai"),
-        1: GradeResult(verdict="wrong", confidence=0.8, source="ai"),
-    }
-    async with _client(factory, gateway) as client:
-        extraction_id = await _seed_extraction(
-            factory, problem_text="解方程 2x=4", student_answer="x=2"
-        )
-        response = await client.post(
-            "/api/gradings",
-            json=_request(
-                extraction_id,
-                question_type="process",
-                answer="x=2",
-                samples=2,
-            ),
-        )
-
-    version = response.json()["grading"]["versions"][0]
-    assert version["verdict"] == "uncertain"
-    assert version["reason"] == "sampling_disagreement"
-    assert version["sample_verdicts"] == ["correct", "wrong"]
-    assert version["confidence"] == 0.8
 
 
 @pytest.mark.integration
@@ -548,30 +510,6 @@ async def test_create_is_idempotent_per_source(tmp_path) -> None:
     assert await _count(factory, GradingResult) == 1
     assert await _count(factory, GradingVersion) == 1
     assert gateway.calls == []
-
-
-@pytest.mark.integration
-async def test_process_model_failures_map_to_502_and_503(tmp_path) -> None:
-    factory = _migrated(tmp_path)
-    gateway = FakeGradeGateway()
-    gateway.error = RuntimeError("upstream down")
-    async with _client(factory, gateway) as client:
-        first_id = await _seed_extraction(factory, problem_text="题一", student_answer="答")
-        first = await client.post(
-            "/api/gradings",
-            json=_request(first_id, question_type="process", answer="答"),
-        )
-
-        gateway.error = ProviderConfigError("缺少 WENGU_DOUBAO_API_KEY")
-        second_id = await _seed_extraction(factory, problem_text="题二", student_answer="答")
-        second = await client.post(
-            "/api/gradings",
-            json=_request(second_id, question_type="process", answer="答"),
-        )
-
-    assert first.status_code == 502
-    assert second.status_code == 503
-    assert await _count(factory, GradingResult) == 0
 
 
 @pytest.mark.integration

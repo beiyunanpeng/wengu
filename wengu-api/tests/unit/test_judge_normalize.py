@@ -178,6 +178,65 @@ def test_empty_reference_is_manual(standard) -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(
+    ("student", "standard"),
+    [
+        ("１２３", "123"),
+        ("１／２", "0.5"),
+        ("５０％", "1/2"),
+        ("（１，２）", "(1,2)"),
+        ("Ａ", "a"),
+        ("ｘ＝２", "x=2"),
+        ("３．５", "7/2"),
+    ],
+)
+def test_nfkc_fullwidth_is_normalized(student: str, standard: str) -> None:
+    _correct(student, standard)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("student", "standard", "unordered"),
+    [
+        ("2、3", "3;2", True),
+        ("2；3", "2,3", False),
+        ("3或者2", "2和3", True),
+        ("A或B", "B,A", True),
+        ("x=1或者x=2", "x=2和x=1", True),
+        ("x = 1", "x=1", False),
+    ],
+)
+def test_all_multi_answer_separators(
+    student: str, standard: str, unordered: bool
+) -> None:
+    _correct(student, standard, unordered=unordered)
+
+
+@pytest.mark.unit
+def test_answer_is_never_evaluated_as_python() -> None:
+    """运行时不 eval：表达式只当作文本，不参与求值。"""
+
+    assert judge_answer("2", "1+1").verdict == "wrong"
+    assert judge_answer("1+1", "1+1").reason == "text_equal"
+    assert (
+        judge_answer("2", "1+1", acceptable=["2"]).reason == "accepted_alias"
+    )
+
+
+@pytest.mark.unit
+def test_judge_does_not_call_builtin_eval(monkeypatch) -> None:
+    import builtins
+
+    def _boom(*args, **kwargs):
+        raise AssertionError("judgeAnswer 不得调用 eval")
+
+    monkeypatch.setattr(builtins, "eval", _boom)
+    monkeypatch.setattr(builtins, "exec", _boom)
+    _correct("1/2", "0.5")
+    _wrong("2", "__import__('os').system('rm -rf /')")
+
+
+@pytest.mark.unit
 def test_trailing_punctuation_is_ignored() -> None:
     _correct("3。", "3")
     _correct("A.", "a")

@@ -34,6 +34,7 @@ from app.models import (
     ReviewSchedule,
 )
 from app.models.mistakes import MISTAKE_ACTIVE
+from app.services.bank import BankPick, Coverage, find_same_type
 from app.services.events import record_event
 from app.services.recompute import (
     ATTEMPT_CORRECT,
@@ -55,6 +56,9 @@ from app.services.review_policy import (
 REVIEW_SCHEDULED = "review_scheduled"
 REVIEW_EVENT_KIND = "review"
 REVIEW_ATTEMPT_KIND = "review"
+
+AttemptSource = Literal["student_self", "system_quiz"]
+DueTask = Literal["quiz", "redo"]
 
 
 class ReviewError(Exception):
@@ -109,6 +113,7 @@ class CompleteResult:
     interval_days: int | None
     due_on: date | None
     next_schedule: ReviewSchedule | None
+    source: str = "student_self"
 
 
 @dataclass(frozen=True)
@@ -116,6 +121,13 @@ class DueReview:
     schedule: ReviewSchedule
     mistake: Mistake
     problem_text: str | None
+    primary_topic_id: str | None
+    task: DueTask
+    coverage: Coverage
+    bank_gap: bool
+    seed: int
+    quiz: BankPick | None
+    coverage_hint: str | None
 
 
 async def _get_mistake(session: AsyncSession, mistake_id: int) -> Mistake:
@@ -580,6 +592,7 @@ async def _completed_result(
         interval_days=interval_days,
         due_on=_date_from_payload(payload.get("due_on")),
         next_schedule=next_schedule,
+        source=attempt.source,
     )
 
 
@@ -591,12 +604,19 @@ async def complete_attempt(
     correct: bool,
     completed_on: date,
     actor: Literal["student", "parent"] = "student",
+    source: AttemptSource = "student_self",
     now: datetime | None = None,
 ) -> CompleteResult:
-    """完成一次复习：写 attempt 事件 + attempts 行 + 下一次排期（毕业则不写）。"""
+    """完成一次复习：写 attempt 事件 + attempts 行 + 下一次排期（毕业则不写）。
+
+    `source` 只打标签（student_self 原题重做自评 / system_quiz 系统判考核），
+    MVP 两者在掌握度里各计 1 次，暂不加权。
+    """
 
     if actor not in ("student", "parent"):
         raise ReviewConflict("只有 student/parent 可以完成复习")
+    if source not in ("student_self", "system_quiz"):
+        raise ReviewConflict("source 只能是 student_self 或 system_quiz")
     mistake = await _get_mistake(session, mistake_id)
     if mistake.status != MISTAKE_ACTIVE:
         raise ReviewConflict("已作废错题不能完成复习")
@@ -623,9 +643,8 @@ async def complete_attempt(
     if history.state.rung != schedule.rung:
         raise ReviewStateError("排期档位与事件重放不一致")
     version = await _latest_version(session, mistake_id)
-    mastery_value = await _mastery_for(
-        session, _confirmed_concepts(version)
-    )
+    concept_ids = _confirmed_concepts(version)
+    mastery_value = await _mastery_for(session, concept_ids)
     try:
         decision = decide(
             history.state,
@@ -651,6 +670,8 @@ async def complete_attempt(
             "correct": correct,
             "completed_on": completed_on.isoformat(),
             "mastery": mastery_value,
+            "source": source,
+            "concept_ids": list(concept_ids),
             "rung_before": history.state.rung,
             "times_wrong_before": history.state.times_wrong,
             "trailing_correct_before": history.state.trailing_correct,
@@ -679,6 +700,7 @@ async def complete_attempt(
         mistake_id=mistake_id,
         learning_event_id=event.id,
         kind=REVIEW_ATTEMPT_KIND,
+        source=source,
         answer_text=None,
         is_correct=correct,
         created_at=moment,
@@ -714,13 +736,25 @@ async def complete_attempt(
         interval_days=decision.interval_days,
         due_on=decision.due_on,
         next_schedule=next_schedule,
+        source=source,
     )
+
+
+def quiz_seed(mistake_id: int, schedule_id: int) -> int:
+    """到期任务选题种子：同一排期永远同题，跨进程/重启可 replay。"""
+
+    return (mistake_id * 0x9E3779B1 + schedule_id) & 0xFFFFFFFF
 
 
 async def due_queue(
     session: AsyncSession, today: date, limit: int = 50
 ) -> list[DueReview]:
-    """今日到期（含逾期）、未完成、错题仍 active 的排期；纯查询。"""
+    """今日到期（含逾期）的复习任务；纯查询。
+
+    v2.5 考核优先/重做兜底：按 `primary_topic_id` 检索 seed 题库——
+    命中出"同类题考核"，未命中（无主考点或该知识点 0 题）退回原题重做并标
+    `bank_gap`。`coverage=thin` 只是覆盖偏薄提示，仍正常出题、不得当 gap。
+    """
 
     if limit < 1:
         raise ValueError("limit 必须 ≥1")
@@ -744,11 +778,28 @@ async def due_queue(
             .limit(limit)
         )
     ).all()
-    return [
-        DueReview(
-            schedule=schedule,
-            mistake=mistake,
-            problem_text=version.problem_text if version is not None else None,
+
+    items: list[DueReview] = []
+    for schedule, mistake, version in rows:
+        seed = quiz_seed(mistake.id, schedule.id)
+        pick = find_same_type(mistake.primary_topic_id, seed)
+        task: DueTask = "quiz" if pick.question is not None else "redo"
+        items.append(
+            DueReview(
+                schedule=schedule,
+                mistake=mistake,
+                problem_text=version.problem_text if version is not None else None,
+                primary_topic_id=pick.topic_id,
+                task=task,
+                coverage=pick.coverage,
+                bank_gap=pick.bank_gap,
+                seed=seed,
+                quiz=pick if task == "quiz" else None,
+                coverage_hint=(
+                    "覆盖偏薄"
+                    if task == "quiz" and pick.coverage == "thin"
+                    else None
+                ),
+            )
         )
-        for schedule, mistake, version in rows
-    ]
+    return items

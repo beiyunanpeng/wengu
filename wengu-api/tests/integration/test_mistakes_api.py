@@ -333,12 +333,11 @@ async def test_zero_input_wrong_creates_mistake_once_and_correct_voids(tmp_path)
 
 
 @pytest.mark.integration
-async def test_ai_suggestion_alone_never_enters_mistake_book(tmp_path) -> None:
+async def test_process_question_suggestion_never_enters_mistake_book(tmp_path) -> None:
+    """v2.5：过程题系统内不判（无模型初判），不确定只能经核对页人工确认。"""
+
     factory = _migrated(tmp_path)
     gateway = FakeGradeGateway()
-    gateway.default = GradeResult(
-        verdict="wrong", confidence=0.9, source="ai", rationale="wrong"
-    )
 
     async with _client(factory, gateway) as client:
         extraction_id = await _seed_extraction(factory)
@@ -354,13 +353,14 @@ async def test_ai_suggestion_alone_never_enters_mistake_book(tmp_path) -> None:
         grading = response.json()["grading"]
         mistakes = await client.get("/api/mistakes")
 
-    assert grading["current_verdict"] == "wrong"
+    assert grading["current_verdict"] == "uncertain"
+    assert grading["versions"][0]["reason"] == "real_homework_external"
     assert grading["mistake_id"] is None
     assert mistakes.json()["total"] == 0
     assert await _count(factory, Mistake) == 0
     assert await _count(factory, MistakeVersion) == 0
     assert await _count(factory, ReviewSchedule) == 0
-    assert len(gateway.calls) == 1
+    assert gateway.calls == []
 
 
 @pytest.mark.integration

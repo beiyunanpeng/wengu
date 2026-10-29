@@ -97,6 +97,7 @@ _THOUSANDS_RE = re.compile(r"^[+-]?\d{1,3}(?:,\d{3})+(?:\.\d+)?$")
 
 _HARD_SPLIT = re.compile(r"[,，、;；\n]+")
 _SOFT_SPLIT = re.compile(r"(?:或者|和|或)")
+_SOLUTION_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,3}\s*=\s*\S(?:.*\S)?$")
 
 _TRAILING_PUNCT = "。．.；;，,、:：!！?？"
 
@@ -278,6 +279,7 @@ def _normalize_text(text: str) -> str:
     value = text.casefold()
     if re.search(r"[\u3400-\u9fff]", value):
         return re.sub(r"\s+", "", value)
+    value = re.sub(r"\s*=\s*", "=", value)
     return re.sub(r"\s+", " ", value).strip()
 
 
@@ -286,12 +288,14 @@ def _split_multi(text: str) -> list[str] | None:
     if len(parts) >= 2:
         return parts
 
-    # 和/或 仅在两侧含数字/选项时拆，避免把“饱和”“共和国”等词拆开。
+    # 和/或 仅在两侧像“答案 token”时拆，避免把“饱和”“共和国”等词拆开。
     soft_parts = [part.strip() for part in _SOFT_SPLIT.split(text) if part.strip()]
     if len(soft_parts) < 2:
         return None
     if not any(
-        _parse_number_with_unit(part) is not None or _parse_choice(part) is not None
+        _parse_number_with_unit(part) is not None
+        or _parse_choice(part) is not None
+        or _SOLUTION_RE.match(part) is not None
         for part in soft_parts
     ):
         return None
