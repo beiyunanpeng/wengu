@@ -134,12 +134,16 @@ source=system_quiz，不新建错题）；数学解答大题（bank type 非客�
 考核结果计入该知识点掌握度、可整表清空。
 【安全红线（最重要）】考核 API/响应体只下发 `题干 + 选项 + 题型`，**绝不下发 `answer`/`explanation`/`verify`**——
 判分全在服务端 judgeAnswer 完成，前端拿不到答案（防 F12 偷看 = 又一支"更漂亮的红笔"）。
+**system_quiz 的 `correct` 必须由服务端 judgeAnswer 得出后落库：新增"提交考核答案→服务端判→记录"端点，
+绝不能信任客户端传入的 `correct`（否则孩子谎报即刷掌握度）；只有 student_self 原题重做自评端点
+（P1-7a complete）才接受客户端 correct。**
 对 verify_status=unverifiable 的题：判分仍以 bank `answer`+`accept` 走 judgeAnswer，但 UI 须透传质量标签
 （unaudited / blind_verified=false / unverifiable），让家长看得到"此题未经二遍复核"。
 【DoD】一道数学错题到期 → 推同 topicId 客观题 → 系统判对/错 → 掌握度变化可重放；大题 → 降级自评路径生效；
-家长手动组卷可用；source=system_quiz 的 attempts 不新建错题；**响应体断言不含 answer/explanation/verify 字段**。
+家长手动组卷可用；source=system_quiz 的 attempts 不新建错题；**响应体断言不含 answer/explanation/verify 字段；
+system_quiz 完成端点拒绝客户端直接传 correct（必须服务端判）**。
 【禁止】让模型判考核题；把考核结果建成错题本条目；把 answer/explanation/verify 序列化进任何前端响应；
-对 unverifiable 题当作已核验静默加分。
+对 unverifiable 题当作已核验静默加分；让 system_quiz 的 correct 由客户端决定。
 ```
 
 ---
