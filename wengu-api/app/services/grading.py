@@ -76,6 +76,20 @@ class Suggestion:
     sample_verdicts: tuple[str, ...] = ()
 
 
+@dataclass(frozen=True)
+class ConfirmationDetails:
+    """转录草稿转正时随确认一起提交的字段（正常批改确认不用）。"""
+
+    standard_answer: str | None = None
+    primary_topic_id: str | None = None
+    suggested_category_id: str | None = None
+    suggested_concept_ids: tuple[int, ...] | None = None
+    suggested_error_cause: str | None = None
+    confirmed_concept_ids: tuple[int, ...] = ()
+    confirmed_error_cause: str | None = None
+    review_subject: str | None = None
+
+
 class SourceNotFound(LookupError):
     pass
 
@@ -385,11 +399,15 @@ async def append_user_decision(
     actor: Literal["student", "parent"],
     reason: str,
     category_id: str | None = None,
+    details: ConfirmationDetails | None = None,
+    allow_unscheduled: bool = False,
 ) -> GradingVersion:
     """追加确认/申诉版本并写事实事件；版本号即幂等边界。"""
 
     next_version = grading.current_version + 1
     now = datetime.now(UTC)
+    if details is not None and details.standard_answer is not None:
+        grading.standard_answer = details.standard_answer
     version = GradingVersion(
         grading_id=grading.id,
         version=next_version,
@@ -407,6 +425,7 @@ async def append_user_decision(
     grading.updated_at = now
     await session.flush()
 
+    extra = details or ConfirmationDetails()
     mistake = await sync_mistake_for_verdict(
         session,
         grading,
@@ -414,6 +433,15 @@ async def append_user_decision(
         actor=actor,
         category_id=category_id,
         now=now,
+        primary_topic_id=extra.primary_topic_id,
+        standard_answer=extra.standard_answer,
+        suggested_category_id=extra.suggested_category_id,
+        suggested_concept_ids=extra.suggested_concept_ids,
+        suggested_error_cause=extra.suggested_error_cause,
+        confirmed_concept_ids=extra.confirmed_concept_ids,
+        confirmed_error_cause=extra.confirmed_error_cause,
+        review_subject=extra.review_subject,
+        allow_unscheduled=allow_unscheduled,
     )
     event_mistake_id = mistake.id if verdict == "wrong" and mistake is not None else None
 

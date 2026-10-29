@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app import __version__
+from app.api.attempts import router as attempts_router
 from app.api.captures import router as captures_router
 from app.api.concepts import router as concepts_router
 from app.api.explanations import router as explanations_router
@@ -76,6 +77,7 @@ def create_app() -> FastAPI:
     application.include_router(mistakes_router)
     application.include_router(concepts_router)
     application.include_router(practice_router)
+    application.include_router(attempts_router)
     application.include_router(problem_bank_router)
     application.include_router(reviews_router)
     application.include_router(imports_router)

@@ -1,5 +1,5 @@
 import { Loader, Select } from "@mantine/core";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { errorMessage } from "../api/client";
 import { searchTopics } from "../api/endpoints";
@@ -31,6 +31,19 @@ export default function CategoryPicker({
   const [selectedLabel, setSelectedLabel] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const valueRef = useRef(value);
+  valueRef.current = value;
+  // Mantine 会把选中项 label 回填进搜索框并触发 onSearchChange；记下这次回填，
+  // 避免把 label 当用户输入再查一遍（否则 label 格式一变就无限重查）
+  const echoedQueryRef = useRef<string | null>(initialLabel ?? null);
+
+  function handleSearchChange(next: string) {
+    if (next && next === echoedQueryRef.current) {
+      echoedQueryRef.current = null;
+      return;
+    }
+    setQuery(next);
+  }
 
   useEffect(() => {
     let active = true;
@@ -42,12 +55,20 @@ export default function CategoryPicker({
             if (!active) {
               return;
             }
-            setOptions(
-              response.items.map((topic) => ({
-                value: topic.id,
-                label: `${topic.name} · ${topic.subject}`,
-              })),
-            );
+            const next = response.items.map((topic) => ({
+              value: topic.id,
+              label: `${topic.name} · ${topic.subject}`,
+            }));
+            setOptions(next);
+            const current = valueRef.current;
+            const hit = current
+              ? next.find((option) => option.value === current)
+              : undefined;
+            if (hit) {
+              // 合成兜底项的 label 与真实项保持一致，搜索框里的文本才能稳定
+              setSelectedLabel(hit.label);
+              echoedQueryRef.current = hit.label;
+            }
             setError(null);
           })
           .catch((cause: unknown) => {
@@ -87,12 +108,14 @@ export default function CategoryPicker({
       data={data}
       value={value}
       onChange={(next) => {
-        setSelectedLabel(
-          options.find((option) => option.value === next)?.label ?? null,
-        );
+        const label =
+          options.find((option) => option.value === next)?.label ?? null;
+        setSelectedLabel(label);
+        echoedQueryRef.current = label;
+        setQuery("");
         onChange(next);
       }}
-      onSearchChange={setQuery}
+      onSearchChange={handleSearchChange}
       searchable
       clearable
       required={required}

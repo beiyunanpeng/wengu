@@ -10,15 +10,17 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict
-from datetime import datetime
+from datetime import date, datetime
+from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_session
 from app.models import ImportBatch, IngestionDraft
+from app.services.concepts import CategoryNotFound
 from app.services.inbox import (
     NoValidItemsError,
     PayloadEnvelopeError,
@@ -26,6 +28,14 @@ from app.services.inbox import (
     PayloadTooLargeError,
     ingest_raw_payload,
 )
+from app.services.intake import (
+    DraftGateError,
+    DraftNotFound,
+    list_drafts,
+    promote_draft,
+)
+from app.services.mistakes import MistakeConflict, error_cause_label
+from app.services.review import ReviewError, ReviewSubjectError
 
 router = APIRouter(tags=["imports"])
 
@@ -68,6 +78,60 @@ class BatchInfo(BaseModel):
     created_at: datetime
 
 
+class IntakeSuggestion(BaseModel):
+    topic_id: str | None
+    topic_name: str | None
+    error_cause: str | None
+    error_cause_label: str | None
+    source: str | None
+
+
+class IntakeDraftInfo(BaseModel):
+    id: int
+    batch_id: int
+    filename: str | None
+    seq: int
+    status: str
+    has_placeholder: bool
+    is_incomplete: bool
+    created_at: datetime
+    subject: str
+    problem_text: str
+    student_answer: str
+    standard_answer: str
+    source_ref: str
+    captured_at: str
+    suggestion: IntakeSuggestion
+    grading_id: int | None
+    mistake_id: int | None
+
+
+class IntakeDraftList(BaseModel):
+    items: list[IntakeDraftInfo]
+    total: int
+    limit: int
+    offset: int
+
+
+class DraftConfirmRequest(BaseModel):
+    primary_topic_id: str | None = Field(default=None, max_length=64)
+    standard_answer: str | None = Field(default=None, max_length=500)
+    error_cause: str | None = Field(default=None, max_length=32)
+    concept_ids: list[int] = Field(default_factory=list, max_length=10)
+    question_type: Literal["objective", "process"] = "objective"
+    actor: Literal["student", "parent"] = "student"
+
+
+class DraftConfirmResponse(BaseModel):
+    draft_id: int
+    grading_id: int
+    mistake_id: int
+    primary_topic_id: str | None
+    standard_answer: str
+    due_on: date | None
+    already_promoted: bool
+
+
 @router.post("/api/imports", response_model=ImportResult, status_code=201)
 async def import_json(
     request: Request, session: AsyncSession = Depends(get_session)
@@ -100,6 +164,102 @@ async def import_json(
     )
 
 
+@router.get("/api/imports/drafts", response_model=IntakeDraftList)
+async def list_intake_drafts(
+    status: Literal["draft", "promoted", "all"] = "draft",
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    session: AsyncSession = Depends(get_session),
+) -> IntakeDraftList:
+    """核对页草稿队列：并排回显题目/错答/正答 + 建议值；纯查询。"""
+
+    async with session.begin():
+        items, total = await list_drafts(
+            session, status=status, limit=limit, offset=offset
+        )
+        return IntakeDraftList(
+            items=[
+                IntakeDraftInfo(
+                    id=item.draft.id,
+                    batch_id=item.draft.import_batch_id,
+                    filename=item.filename,
+                    seq=item.draft.seq,
+                    status=item.draft.status,
+                    has_placeholder=item.draft.has_placeholder,
+                    is_incomplete=item.draft.is_incomplete,
+                    created_at=item.draft.created_at,
+                    subject=item.normalized.get("subject", ""),
+                    problem_text=item.normalized.get("problem_text", ""),
+                    student_answer=item.normalized.get("student_answer", ""),
+                    standard_answer=item.normalized.get("standard_answer", ""),
+                    source_ref=item.normalized.get("source_ref", ""),
+                    captured_at=item.normalized.get("captured_at", ""),
+                    suggestion=IntakeSuggestion(
+                        topic_id=item.suggested_topic_id,
+                        topic_name=item.suggested_topic_name,
+                        error_cause=item.suggested_error_cause,
+                        error_cause_label=error_cause_label(
+                            item.suggested_error_cause
+                        ),
+                        source=item.suggestion_source,
+                    ),
+                    grading_id=item.grading_id,
+                    mistake_id=item.mistake_id,
+                )
+                for item in items
+            ],
+            total=total,
+            limit=limit,
+            offset=offset,
+        )
+
+
+@router.post(
+    "/api/imports/drafts/{draft_id}/confirm", response_model=DraftConfirmResponse
+)
+async def confirm_intake_draft(
+    draft_id: int,
+    payload: DraftConfirmRequest,
+    session: AsyncSession = Depends(get_session),
+) -> DraftConfirmResponse:
+    """一键确认转正：建批改单 → 唯一写入路径建错题 → 首次排期（幂等）。"""
+
+    async with session.begin():
+        try:
+            result = await promote_draft(
+                session,
+                draft_id,
+                primary_topic_id=payload.primary_topic_id,
+                standard_answer=payload.standard_answer,
+                error_cause=payload.error_cause,
+                concept_ids=tuple(payload.concept_ids),
+                question_type=payload.question_type,
+                actor=payload.actor,
+            )
+        except DraftNotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from None
+        except DraftGateError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail={"message": str(exc), "code": exc.code},
+            ) from None
+        except (MistakeConflict, CategoryNotFound) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from None
+        except ReviewSubjectError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from None
+        except ReviewError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from None
+        return DraftConfirmResponse(
+            draft_id=result.draft_id,
+            grading_id=result.grading_id,
+            mistake_id=result.mistake_id,
+            primary_topic_id=result.primary_topic_id,
+            standard_answer=result.standard_answer,
+            due_on=result.due_on,
+            already_promoted=result.already_promoted,
+        )
+
+
 @router.get("/api/imports/{batch_id}", response_model=BatchInfo)
 async def get_batch(batch_id: int, session: AsyncSession = Depends(get_session)) -> BatchInfo:
     row = (
@@ -111,7 +271,7 @@ async def get_batch(batch_id: int, session: AsyncSession = Depends(get_session))
 
 
 @router.get("/api/imports/{batch_id}/drafts", response_model=DraftList)
-async def list_drafts(
+async def list_batch_drafts(
     batch_id: int, session: AsyncSession = Depends(get_session)
 ) -> DraftList:
     exists = (

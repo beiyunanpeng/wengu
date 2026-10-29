@@ -282,3 +282,94 @@ export interface ExplanationAttemptResponse {
   recorded: boolean;
   attempted: boolean;
 }
+
+export interface IntakeSuggestion {
+  topic_id: string | null;
+  topic_name: string | null;
+  error_cause: string | null;
+  error_cause_label: string | null;
+  source: string | null;
+}
+
+export interface IntakeDraft {
+  id: number;
+  batch_id: number;
+  filename: string | null;
+  seq: number;
+  status: string;
+  has_placeholder: boolean;
+  is_incomplete: boolean;
+  created_at: string;
+  subject: string;
+  problem_text: string;
+  student_answer: string;
+  standard_answer: string;
+  source_ref: string;
+  captured_at: string;
+  suggestion: IntakeSuggestion;
+  grading_id: number | null;
+  mistake_id: number | null;
+}
+
+export interface IntakeDraftListResponse {
+  items: IntakeDraft[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface DraftConfirmPayload {
+  primary_topic_id?: string | null;
+  standard_answer?: string | null;
+  error_cause?: string | null;
+  concept_ids?: number[];
+  question_type?: "objective" | "process";
+  actor?: "student" | "parent";
+}
+
+export interface DraftConfirmResponse {
+  draft_id: number;
+  grading_id: number;
+  mistake_id: number;
+  primary_topic_id: string | null;
+  standard_answer: string;
+  due_on: string | null;
+  already_promoted: boolean;
+}
+
+export interface AttemptInfo {
+  id: number;
+  mistake_id: number;
+  kind: string;
+  source: string;
+  problem_bank_id: number | null;
+  answer_text: string | null;
+  is_correct: boolean;
+  problem_text: string | null;
+  created_at: string;
+}
+
+export interface AttemptListResponse {
+  items: AttemptInfo[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface PracticeRecordInfo {
+  id: number;
+  source_mistake_id: number | null;
+  problem_bank_id: number | null;
+  kind: string;
+  problem_text: string;
+  student_answer: string | null;
+  is_correct: boolean | null;
+  created_at: string;
+}
+
+export interface PracticeListResponse {
+  items: PracticeRecordInfo[];
+  total: number;
+  limit: number;
+  offset: number;
+}

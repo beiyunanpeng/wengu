@@ -16,6 +16,51 @@ P1-7b（前置回溯诊断）与受闸门阻塞的 P1-7c；P1-3c B2（依赖图�
 
 ### Added
 
+- **v2.5 核对页确认入本（批次③，P1-6）**（2026-10-29）：外部转录草稿只有在核对页
+  人工确认后才转正——**正答（`standard_answer`）必填、任一字段含 `〔?〕` 一律拒转正**；
+  `primary_topic_id` 与 `student_answer` 可空（未确认主考点仍入本、`mistakes.primary_topic_id`
+  存 NULL；孩子整题没做也算错题），无主考点时只走原题重做自评、不排同类题考核。转正走既有唯一写入路径：
+  `GradingResult(source_kind='ingestion_draft', source_id=draft_id)` →
+  `append_user_decision(confirmed, wrong)` → `sync_mistake_for_verdict`，不新增旁路，
+  也不改 `mistakes` 结构。
+  - 后端新增 `services/intake.py`：草稿列表带外部 agent 建议（topic / 错因，仅作
+    `suggested_*`），`promote_draft` 依次校验题目/错答/正答/主考点/错因/细标签；
+    正答缺失或任一字段含占位符直接拒转正并回 `code`（`placeholder` /
+    `standard_answer_missing` / `primary_topic_unknown` / `concept_category_mismatch` 等）。
+  - 确认值与建议值分来源存：`mistake_versions.confirmed_*` 写用户确认的
+    category/concepts/error_cause（`confirmed_by`），`suggested_*` 保留 agent 原建议；
+    主考点（`mistakes.primary_topic_id`）可空；有则同步为确认分类供复习阶梯解析学科，
+    无则存 NULL 并以转录草稿自带学科定复习阶梯（`source_subject`），只做原题重做自评；
+    确认值不覆盖 agent 建议，后续仍可经 `POST /api/mistakes/{id}/labels` 修订。
+  - 正答在核对页可补填/改正（卷面漏订正时的人工通道）：草稿值缺失或为 `〔?〕` 时
+    以确认值入 `grading_results.standard_answer`；题目或错答含 `〔?〕` 则不可修补，
+    必须重新转录。
+  - 幂等：同一草稿重复确认返回原 `grading_id` / `mistake_id` / `due_on`
+    （`already_promoted=true`），不重复建错题、不重复排期、不重复写事件。
+  - 新增 `GET /api/imports/drafts`（待确认列表 + 建议）、
+    `POST /api/imports/drafts/{draft_id}/confirm`（一键确认入本）；
+    新增只读 `GET /api/attempts`（按 `source=system_quiz|student_self|manual` 过滤，
+    题目文本从题库或最近错题版本解析，不落 PII）。
+  - 前端新增 **入库核对页**（题目/错答/正答三栏回显、建议来源提示、正答可改、
+    主考点 CategoryPicker、细标签多选 + 新建/复用、错因确认、确认人切换、
+    一键"确认入本"及缺项禁用原因）与 **练习记录页**（同类题考核 / 变式加练两个
+    独立回看 tab）；导航新增"入库核对""练习记录"。
+  - 测试：新增 `tests/integration/test_intake_api.py` 10 项（建议回显、确认建单建错题、
+    排期、无 attempt 写入、各类闸门、无主考点入本、空错答入本、未知主考点拒绝、幂等、
+    建议/确认分离、attempts 过滤 + quiz 文本解析）；全量 **373 passed**，
+    `ruff check .` 全绿，前端 `tsc` / `npm run lint` 通过。
+  - **真实实跑**（独立 SQLite + uvicorn，inbox 投 4 份转录件共 6 条草稿）：
+    列表正确回显 agent 建议（`cnm_010` / 计算失误等）；一键确认返回
+    `{"grading_id":1,"mistake_id":1,"due_on":"2026-10-30"}`；缺正答 → 422
+    `standard_answer_missing`、含占位符 → 422 `placeholder`、未知主考点 → 422
+    （不传主考点可照常入本、存 NULL）；
+    补填正答 `-5` 后成功入本；`GET /api/mistakes/3` 同时给出 `labels`（确认：category /
+    concept / 错因 / `confirmed_by=parent`）与 `suggestion`；到期队列 3 条、
+    `attempts?source=system_quiz` 为 0、`practice-records` 1 条变式可回看；
+    浏览器实测核对页三栏回显、缺项禁用提示与一键入本成功回执。
+  - 残留：系统自造同类题考核的写入方在本批之后（attempts 过滤已就绪，当前实跑
+    `system_quiz` 为空）；复习完成产生的 attempt 沿用既有 `source=manual`，本批未改。
+
 - **v2.5 监听目录导入引擎（批次②，P1-3d）**（2026-10-29）：外部 agent 转录的错题
   JSON 落到 `data/inbox/`（`WENGU_INBOX_DIR` 可配）即被后台每 2 s 扫描处理——
   复用 ingestion 的确定性校验/归一（不调模型），`sha256` 对原始报文去重，

@@ -1,11 +1,14 @@
 import { apiRequest, requestJson } from "./client";
 import type {
+  AttemptListResponse,
   CaptureCreated,
   CompleteReviewResponse,
   Concept,
   ConceptCreateResponse,
   CreateGradingPayload,
   CreateGradingResponse,
+  DraftConfirmPayload,
+  DraftConfirmResponse,
   DueReviewResponse,
   ExplainMode,
   ExplainSourceKind,
@@ -13,9 +16,11 @@ import type {
   ExplanationResponse,
   ExtractionBatch,
   GradingDetail,
+  IntakeDraftListResponse,
   MistakeDetail,
   MistakeListResponse,
   MistakeOptions,
+  PracticeListResponse,
   QuestionType,
   SliceResult,
   TopicListResponse,
@@ -267,3 +272,79 @@ export const QUESTION_TYPE_LABELS: Record<QuestionType, string> = {
   process: "过程题",
   open: "开放题",
 };
+
+export interface IntakeDraftFilters {
+  status?: "draft" | "promoted" | "all";
+  limit?: number;
+  offset?: number;
+}
+
+export function listIntakeDrafts(
+  filters: IntakeDraftFilters = {},
+): Promise<IntakeDraftListResponse> {
+  const params = new URLSearchParams();
+  params.set("status", filters.status ?? "draft");
+  params.set("limit", String(filters.limit ?? 50));
+  params.set("offset", String(filters.offset ?? 0));
+  return apiRequest<IntakeDraftListResponse>(
+    `/api/imports/drafts?${params.toString()}`,
+  );
+}
+
+export function confirmIntakeDraft(
+  draftId: number,
+  payload: DraftConfirmPayload,
+): Promise<DraftConfirmResponse> {
+  return requestJson<DraftConfirmResponse>(
+    `/api/imports/drafts/${draftId}/confirm`,
+    "POST",
+    { actor: "student", question_type: "objective", ...payload },
+    60_000,
+  );
+}
+
+export interface AttemptFilters {
+  source?: "manual" | "student_self" | "system_quiz";
+  mistakeId?: number;
+  limit?: number;
+  offset?: number;
+}
+
+export function listAttempts(
+  filters: AttemptFilters = {},
+): Promise<AttemptListResponse> {
+  const params = new URLSearchParams();
+  if (filters.source) {
+    params.set("source", filters.source);
+  }
+  if (filters.mistakeId) {
+    params.set("mistake_id", String(filters.mistakeId));
+  }
+  params.set("limit", String(filters.limit ?? 50));
+  params.set("offset", String(filters.offset ?? 0));
+  return apiRequest<AttemptListResponse>(`/api/attempts?${params.toString()}`);
+}
+
+export interface PracticeFilters {
+  kind?: "variant" | "extra";
+  sourceMistakeId?: number;
+  limit?: number;
+  offset?: number;
+}
+
+export function listPracticeRecords(
+  filters: PracticeFilters = {},
+): Promise<PracticeListResponse> {
+  const params = new URLSearchParams();
+  if (filters.kind) {
+    params.set("kind", filters.kind);
+  }
+  if (filters.sourceMistakeId) {
+    params.set("source_mistake_id", String(filters.sourceMistakeId));
+  }
+  params.set("limit", String(filters.limit ?? 50));
+  params.set("offset", String(filters.offset ?? 0));
+  return apiRequest<PracticeListResponse>(
+    `/api/practice-records?${params.toString()}`,
+  );
+}
