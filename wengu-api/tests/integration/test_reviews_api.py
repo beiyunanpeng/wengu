@@ -29,13 +29,27 @@ from app.models import (
 )
 from app.providers.base import CallMeta, GradeResult
 from app.services.ai_gateway import get_ai_gateway
-from app.services.bank import find_same_type
+from app.services.bank import find_same_type, get_bank
 from app.services.review import derive_review_state, quiz_seed
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 API_DIR = Path(__file__).resolve().parents[2]
+
+FORBIDDEN_KEYS = {"answer", "accept", "explanation", "verify"}
+
+
+def _assert_no_answer_keys(payload: object) -> None:
+    stack = [payload]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, dict):
+            for key, value in node.items():
+                assert key not in FORBIDDEN_KEYS, (key, node)
+                stack.append(value)
+        elif isinstance(node, list):
+            stack.extend(node)
 
 
 def _migrated(tmp_path: Path) -> async_sessionmaker:
@@ -835,36 +849,76 @@ async def test_due_queue_prefers_same_type_quiz_and_tags_system_quiz(tmp_path) -
         assert item["primary_topic_id"] == "cnm_001"
 
         quiz = item["quiz"]
+        replayed = find_same_type(item["primary_topic_id"], quiz["seed"])
+        assert quiz["question_id"] == replayed.question_id
         assert quiz["question_id"].startswith("cnm_001_q")
         assert quiz["topic_id"] == "cnm_001"
-        assert quiz["pool_size"] >= 4
+        assert quiz["pool_size"] == replayed.pool_size >= 4
         assert quiz["seed"] == quiz_seed(mistake_id, schedule.id)
         assert quiz["prompt"].strip()
-        assert "answer" not in quiz and "accept" not in quiz and "verify" not in quiz
+        assert quiz["mode"] == "system"
+        assert quiz["quality"] == {
+            "unaudited": replayed.question.unaudited,
+            "blind_verified": replayed.question.blind_verified,
+            "verify_status": replayed.question.verify_status,
+            "verify_reason": replayed.question.verify_reason,
+        }
+        assert quiz["quality"]["verify_status"] in ("verified", "unverifiable")
+        _assert_no_answer_keys(quiz)
 
         again = (await _due_items(client, schedule.due_date))[0]["quiz"]
         assert again["question_id"] == quiz["question_id"]
-        replayed = find_same_type(item["primary_topic_id"], quiz["seed"])
-        assert replayed.question_id == quiz["question_id"]
 
+        # 客户端谎报 correct 无效：服务端按 bank answer 判分
+        submit = {
+            "schedule_id": schedule.id,
+            "question_id": quiz["question_id"],
+            "answer": replayed.question.answer,
+            "correct": False,
+            "completed_on": schedule.due_date.isoformat(),
+        }
         completed = await client.post(
+            f"/api/reviews/{mistake_id}/quiz", json=submit
+        )
+        assert completed.status_code == 200, completed.text
+        body = completed.json()
+        assert body["mode"] == "system"
+        assert body["verdict"] == "correct"
+        assert body["completion"]["source"] == "system_quiz"
+        assert body["completion"]["correct"] is True
+        assert body["question"]["question_id"] == quiz["question_id"]
+        _assert_no_answer_keys(body)
+
+        repeated = await client.post(
+            f"/api/reviews/{mistake_id}/quiz", json=submit
+        )
+        assert repeated.status_code == 200, repeated.text
+        assert repeated.json() == body
+
+        # 原题重做自评端点绝不接受客户端直接塞 system_quiz 结果
+        rejected = await client.post(
             f"/api/reviews/{mistake_id}/complete",
             json={
                 "schedule_id": schedule.id,
                 "correct": True,
-                "completed_on": schedule.due_date.isoformat(),
                 "source": "system_quiz",
             },
         )
-        assert completed.status_code == 200, completed.text
-        assert completed.json()["source"] == "system_quiz"
+        assert rejected.status_code == 422
 
         records = await client.get(
             "/api/attempts", params={"source": "system_quiz"}
         )
         assert records.status_code == 200
         assert records.json()["total"] == 1
-        assert records.json()["items"][0]["source"] == "system_quiz"
+        record = records.json()["items"][0]
+        assert record["source"] == "system_quiz"
+        assert record["kind"] == "review"
+        assert record["mistake_id"] == mistake_id
+        assert record["question_id"] == quiz["question_id"]
+        assert record["topic_id"] == "cnm_001"
+        assert record["problem_text"] == replayed.question.prompt
+        assert record["answer_text"] is None
 
     async with factory() as session:
         attempt = (
@@ -880,6 +934,9 @@ async def test_due_queue_prefers_same_type_quiz_and_tags_system_quiz(tmp_path) -
     assert payload["source"] == "system_quiz"
     assert payload["kind"] == "review"
     assert payload["concept_ids"] == []
+    assert payload["quiz_question_id"] == quiz["question_id"]
+    assert payload["quiz_mode"] == "system"
+    assert payload["quiz_verdict"] == "correct"
 
 
 @pytest.mark.integration
@@ -927,3 +984,128 @@ async def test_due_queue_thin_coverage_still_serves_quiz(tmp_path) -> None:
     assert item["bank_gap"] is False
     assert item["coverage_hint"] == "覆盖偏薄"
     assert item["quiz"]["question_id"].startswith("cnp_001_q")
+
+
+@pytest.mark.integration
+async def test_due_queue_self_eval_downgrade_for_figure_topic(tmp_path) -> None:
+    """解答大题/依赖题图不参与系统判分，降级为纸上做 + 自评（student_self）。"""
+
+    factory = _migrated(tmp_path)
+    await _seed_topic(factory)
+    await _seed_topic(factory, topic_id="cnm_258", name="相似三角形", subject="数学")
+
+    async with _client(factory, FakeGradeGateway()) as client:
+        body = await _confirm_wrong(client, factory)
+        mistake_id = body["mistake_id"]
+        await _set_primary_topic(factory, mistake_id, "cnm_258")
+        schedule = (await _schedules(factory, mistake_id))[0]
+
+        item = (await _due_items(client, schedule.due_date))[0]
+        assert item["task"] == "self_eval"
+        assert item["bank_gap"] is False
+        assert item["quiz"]["mode"] == "self_eval"
+        assert item["quiz"]["figure"]
+        _assert_no_answer_keys(item["quiz"])
+
+        missing_verdict = await client.post(
+            f"/api/reviews/{mistake_id}/quiz",
+            json={
+                "schedule_id": schedule.id,
+                "question_id": item["quiz"]["question_id"],
+            },
+        )
+        assert missing_verdict.status_code == 422
+
+        stale = await client.post(
+            f"/api/reviews/{mistake_id}/quiz",
+            json={
+                "schedule_id": schedule.id,
+                "question_id": "cnm_001_q1",
+                "correct": True,
+            },
+        )
+        assert stale.status_code == 409
+
+        submitted = await client.post(
+            f"/api/reviews/{mistake_id}/quiz",
+            json={
+                "schedule_id": schedule.id,
+                "question_id": item["quiz"]["question_id"],
+                "correct": True,
+                "completed_on": schedule.due_date.isoformat(),
+            },
+        )
+        assert submitted.status_code == 200, submitted.text
+        result = submitted.json()
+        assert result["mode"] == "self_eval"
+        assert result["verdict"] == "correct"
+        assert result["completion"]["source"] == "student_self"
+
+
+@pytest.mark.integration
+async def test_clear_attempts_keeps_review_bound_and_rebuilds_paper_rows(
+    tmp_path,
+) -> None:
+    """attempts 可整表清空；复习排期引用的行保留，事件仍可重建考核明细。"""
+
+    factory = _migrated(tmp_path)
+    await _seed_topic(factory)
+    await _seed_topic(factory, topic_id="cnm_001", name="有理数", subject="数学")
+
+    async with _client(factory, FakeGradeGateway()) as client:
+        body = await _confirm_wrong(client, factory)
+        mistake_id = body["mistake_id"]
+        await _set_primary_topic(factory, mistake_id, "cnm_001")
+        schedule = (await _schedules(factory, mistake_id))[0]
+
+        item = (await _due_items(client, schedule.due_date))[0]
+        answer = find_same_type("cnm_001", item["quiz"]["seed"]).question.answer
+        completed = await client.post(
+            f"/api/reviews/{mistake_id}/quiz",
+            json={
+                "schedule_id": schedule.id,
+                "question_id": item["quiz"]["question_id"],
+                "answer": answer,
+                "completed_on": schedule.due_date.isoformat(),
+            },
+        )
+        assert completed.status_code == 200, completed.text
+
+        paper = (
+            await client.get(
+                "/api/quizzes/paper",
+                params={"topic_id": "cnm_001", "count": 1, "seed": 7},
+            )
+        ).json()
+        question = paper["items"][0]
+        bank_question = get_bank().question(question["question_id"])
+        assert bank_question is not None
+        submit = {
+            "topic_id": "cnm_001",
+            "seed": 7,
+            "count": 1,
+            "answers": [
+                {
+                    "question_id": question["question_id"],
+                    "answer": bank_question.answer,
+                }
+            ],
+        }
+        graded = await client.post("/api/quizzes/paper/submit", json=submit)
+        assert graded.status_code == 200, graded.text
+        assert graded.json()["items"][0]["status"] == "correct"
+
+        cleared = await client.delete("/api/attempts")
+        assert cleared.status_code == 200, cleared.text
+        assert cleared.json() == {"deleted": 1, "kept": 1}
+
+        remaining = await client.get("/api/attempts")
+        assert remaining.json()["total"] == 1
+        assert remaining.json()["items"][0]["mistake_id"] == mistake_id
+
+        # 事件仍是事实源：重新交同一张卷补回派生 attempts 行
+        rebuilt = await client.post("/api/quizzes/paper/submit", json=submit)
+        assert rebuilt.status_code == 200, rebuilt.text
+        assert rebuilt.json()["items"][0]["replayed"] is True
+        assert rebuilt.json()["items"][0]["attempt_id"] is not None
+        assert (await client.get("/api/attempts")).json()["total"] == 2

@@ -1,31 +1,37 @@
-"""attempts 只读回看（P1-6 DoD）：按 source 过滤（system_quiz / student_self / manual）。
+"""attempts 只读回看 + 考核明细整表清空（P1-6 / P1-11）。
 
-attempts 是派生作答明细，本模块只查询、不写入——写入仍由复习完成与
-考核闭环（P1-11）负责；查询页不触发任何模型调用或排期变更。
+attempts 是派生作答明细：写入由复习完成与考核闭环负责，本模块只查询/清理。
+同类题考核（复习到期与家长手动组卷）记 `kind=quiz`、`source=system_quiz`
+或 `student_self`、`mistake_id` 可空；清理只删未被复习排期引用的行，
+learning_events 事实源保持 append-only（掌握度仍可由事实重算）。
 """
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_session
-from app.models import Attempt, MistakeVersion, ProblemBankItem
+from app.models import Attempt, LearningEvent, MistakeVersion, ProblemBankItem, ReviewSchedule
+from app.services.bank import get_bank
 
 router = APIRouter(tags=["attempts"])
 
 
 class AttemptInfo(BaseModel):
     id: int
-    mistake_id: int
+    mistake_id: int | None
     kind: str
     source: str
     problem_bank_id: int | None
+    question_id: str | None
+    topic_id: str | None
     answer_text: str | None
     is_correct: bool
     problem_text: str | None
@@ -39,8 +45,23 @@ class AttemptListResponse(BaseModel):
     offset: int
 
 
+class AttemptClearResponse(BaseModel):
+    deleted: int
+    kept: int
+
+
 def _naive_utc(value: datetime) -> datetime:
     return value.astimezone(UTC).replace(tzinfo=None) if value.tzinfo else value
+
+
+def _payload(event: LearningEvent | None) -> dict:
+    if event is None or not event.payload:
+        return {}
+    try:
+        data = json.loads(event.payload)
+    except (TypeError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
 @router.get("/api/attempts", response_model=AttemptListResponse)
@@ -86,7 +107,11 @@ async def list_attempts(
         if bank_ids
         else {}
     )
-    mistake_ids = {row.mistake_id for row in rows if row.problem_bank_id is None}
+    mistake_ids = {
+        row.mistake_id
+        for row in rows
+        if row.problem_bank_id is None and row.mistake_id is not None
+    }
     mistake_texts: dict[int, str | None] = {}
     if mistake_ids:
         for record in (
@@ -101,6 +126,40 @@ async def list_attempts(
         ).all():
             mistake_texts[record.mistake_id] = record.problem_text
 
+    events = {
+        event.id: event
+        for event in (
+            await session.scalars(
+                select(LearningEvent).where(
+                    LearningEvent.id.in_(
+                        [row.learning_event_id for row in rows]
+                    )
+                )
+            )
+        ).all()
+    }
+    bank = get_bank()
+    question_ids: dict[int, str | None] = {}
+    topic_ids: dict[int, str | None] = {}
+    for row in rows:
+        payload = _payload(events.get(row.learning_event_id))
+        question_id = payload.get("quiz_question_id")
+        topic_id = payload.get("quiz_topic_id")
+        question_ids[row.id] = question_id if isinstance(question_id, str) else None
+        topic_ids[row.id] = topic_id if isinstance(topic_id, str) else None
+
+    def _problem_text(row: Attempt) -> str | None:
+        if row.problem_bank_id is not None:
+            return bank_texts.get(row.problem_bank_id)
+        question_id = question_ids.get(row.id)
+        if question_id:
+            question = bank.question(question_id)
+            if question is not None:
+                return question.prompt
+        if row.mistake_id is not None:
+            return mistake_texts.get(row.mistake_id)
+        return None
+
     return AttemptListResponse(
         items=[
             AttemptInfo(
@@ -109,13 +168,11 @@ async def list_attempts(
                 kind=row.kind,
                 source=row.source,
                 problem_bank_id=row.problem_bank_id,
+                question_id=question_ids.get(row.id),
+                topic_id=topic_ids.get(row.id),
                 answer_text=row.answer_text,
                 is_correct=row.is_correct,
-                problem_text=(
-                    bank_texts.get(row.problem_bank_id)
-                    if row.problem_bank_id is not None
-                    else mistake_texts.get(row.mistake_id)
-                ),
+                problem_text=_problem_text(row),
                 created_at=_naive_utc(row.created_at),
             )
             for row in rows
@@ -124,3 +181,28 @@ async def list_attempts(
         limit=limit,
         offset=offset,
     )
+
+
+@router.delete("/api/attempts", response_model=AttemptClearResponse)
+async def clear_attempts(
+    session: AsyncSession = Depends(get_session),
+) -> AttemptClearResponse:
+    """整表清空派生作答明细；被复习排期引用的行保留（外键约束）。"""
+
+    async with session.begin():
+        referenced = select(ReviewSchedule.completed_attempt_id).where(
+            ReviewSchedule.completed_attempt_id.is_not(None)
+        )
+        kept = int(
+            await session.scalar(
+                select(func.count())
+                .select_from(Attempt)
+                .where(Attempt.id.in_(referenced))
+            )
+            or 0
+        )
+        result = await session.execute(
+            delete(Attempt).where(Attempt.id.not_in(referenced))
+        )
+        deleted = result.rowcount or 0
+    return AttemptClearResponse(deleted=deleted, kept=kept)

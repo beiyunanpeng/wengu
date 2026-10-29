@@ -1,4 +1,4 @@
-"""P1-10 内存题库：倒排、verify 分类、SVG 净化、固定种子检索与 replay。"""
+"""P1-10/P1-11 内存题库：倒排、verify 分类、SVG 净化、固定种子检索、组卷与 replay。"""
 
 from __future__ import annotations
 
@@ -10,8 +10,11 @@ from app.seed.bank import BankFormatError, load_bank
 from app.services.bank import (
     BankReplayError,
     find_same_type,
+    is_answerable,
     mulberry32,
+    paper_picks,
     replay,
+    replay_paper,
 )
 
 TOPICS = [
@@ -206,3 +209,112 @@ def test_mulberry32_matches_js_reference(seed: int, expected: list[float]) -> No
 def test_mulberry32_wraps_like_js_32bit() -> None:
     rng = mulberry32(-1)
     assert next(rng) == pytest.approx(0.896422614111, rel=1e-12)
+
+
+QUIZ_TOPICS = [
+    {"id": "x_self", "subject": "数学", "name": "解答大题"},
+    {"id": "x_mix", "subject": "数学", "name": "混合卷"},
+]
+
+QUIZ_QUESTIONS = [
+    {"id": "x_self_q1", "topic_id": "x_self", "type": "numeric", "prompt": "带图", "answer": "1",
+     "figure": FIGHTING_SVG},
+    {"id": "x_self_q2", "topic_id": "x_self", "type": "self", "prompt": "说明理由", "answer": "略"},
+    {"id": "x_mix_q1", "topic_id": "x_mix", "type": "numeric", "prompt": "1", "answer": "1"},
+    {"id": "x_mix_q2", "topic_id": "x_mix", "type": "numeric", "prompt": "2", "answer": "2"},
+    {"id": "x_mix_q3", "topic_id": "x_mix", "type": "numeric", "prompt": "带图", "answer": "3",
+     "figure": FIGHTING_SVG},
+    {"id": "x_mix_q4", "topic_id": "x_mix", "type": "self", "prompt": "说明理由", "answer": "略"},
+]
+
+
+@pytest.fixture
+def quiz_bank(tmp_path: Path):
+    return load_bank(
+        _write_seed(tmp_path / "quiz", topics=QUIZ_TOPICS, questions=QUIZ_QUESTIONS)
+    )
+
+
+@pytest.mark.unit
+def test_answerable_requires_objective_type_without_figure(bank, quiz_bank) -> None:
+    by_id = {q.id: q for items in quiz_bank.by_topic.values() for q in items}
+    assert is_answerable(by_id["x_mix_q1"]) is True
+    assert is_answerable(by_id["x_mix_q3"]) is False  # 依赖题图
+    assert is_answerable(by_id["x_mix_q4"]) is False  # 解答大题
+
+    source = {q.id: q for items in bank.by_topic.values() for q in items}
+    assert is_answerable(source["cnm_002_q2"]) is False
+    assert is_answerable(source["cne_001_q1"]) is True  # 选项内联图仍可作答
+
+
+@pytest.mark.unit
+def test_find_same_type_uses_answerable_pool_first(quiz_bank) -> None:
+    pick = find_same_type("x_mix", 3, bank=quiz_bank)
+    assert pick.mode == "system"
+    assert pick.question_id in {"x_mix_q1", "x_mix_q2"}
+    assert set(pick.pool_ids) == {"x_mix_q1", "x_mix_q2"}
+    assert replay(pick, bank=quiz_bank) == pick
+
+
+@pytest.mark.unit
+def test_find_same_type_falls_back_to_self_eval(quiz_bank) -> None:
+    pick = find_same_type("x_self", 7, bank=quiz_bank)
+    assert pick.mode == "self_eval"
+    assert pick.question is not None
+    assert is_answerable(pick.question) is False
+    assert replay(pick, bank=quiz_bank) == pick
+
+
+@pytest.mark.unit
+def test_paper_picks_are_deterministic_distinct_and_prefix_stable(quiz_bank) -> None:
+    paper = paper_picks("x_mix", 11, 4, bank=quiz_bank)
+    assert paper.system_count == 2
+    assert paper.self_eval_count == 2
+    ids = [item.question.id for item in paper.items]
+    assert len(ids) == len(set(ids)) == 4
+    assert set(ids[:2]) == {"x_mix_q1", "x_mix_q2"}  # 可答题排在前
+    assert paper_picks("x_mix", 11, 4, bank=quiz_bank) == paper
+    assert replay_paper(paper, bank=quiz_bank) == paper
+
+    smaller = paper_picks("x_mix", 11, 2, bank=quiz_bank)
+    assert [item.question.id for item in smaller.items] == ids[:2]
+    assert smaller.system_count == 2
+
+
+@pytest.mark.unit
+def test_paper_picks_mark_self_eval_only_topic(quiz_bank) -> None:
+    paper = paper_picks("x_self", 5, 2, bank=quiz_bank)
+    assert paper.answerable_total == 0
+    assert paper.pool_total == 2
+    assert [item.mode for item in paper.items] == ["self_eval", "self_eval"]
+    assert paper.coverage == "thin"  # 测试库题量少，覆盖偏薄
+
+
+@pytest.mark.unit
+def test_paper_gap_and_validation(quiz_bank) -> None:
+    gap = paper_picks("x_missing", 1, 3, bank=quiz_bank)
+    assert gap.bank_gap is True
+    assert gap.coverage == "gap"
+    assert gap.items == ()
+    assert replay_paper(gap, bank=quiz_bank) == gap
+
+    with pytest.raises(TypeError):
+        paper_picks("", 1, 1, bank=quiz_bank)
+    with pytest.raises(TypeError):
+        paper_picks("x_mix", True, 1, bank=quiz_bank)  # type: ignore[arg-type]
+    with pytest.raises(ValueError):
+        paper_picks("x_mix", 1, 0, bank=quiz_bank)
+
+
+@pytest.mark.unit
+def test_paper_replay_fails_when_pool_changes(tmp_path: Path) -> None:
+    first = load_bank(
+        _write_seed(tmp_path / "a", topics=QUIZ_TOPICS, questions=QUIZ_QUESTIONS)
+    )
+    changed = [q for q in QUIZ_QUESTIONS if q["id"] != "x_mix_q3"]
+    second = load_bank(
+        _write_seed(tmp_path / "b", topics=QUIZ_TOPICS, questions=changed)
+    )
+    paper = paper_picks("x_mix", 11, 4, bank=first)
+    with pytest.raises(BankReplayError):
+        replay_paper(paper, bank=second)

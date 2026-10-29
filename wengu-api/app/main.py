@@ -21,6 +21,7 @@ from app.api.imports import router as imports_router
 from app.api.mistakes import router as mistakes_router
 from app.api.practice import router as practice_router
 from app.api.problem_bank import router as problem_bank_router
+from app.api.quizzes import router as quizzes_router
 from app.api.reviews import router as reviews_router
 from app.api.seed import router as seed_router
 from app.core.config import get_settings
@@ -80,6 +81,7 @@ def create_app() -> FastAPI:
     application.include_router(attempts_router)
     application.include_router(problem_bank_router)
     application.include_router(reviews_router)
+    application.include_router(quizzes_router)
     application.include_router(imports_router)
     application.include_router(explanations_router)
     return application

@@ -35,7 +35,8 @@ class Attempt(Base):
     __tablename__ = "attempts"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    mistake_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    # 手动组卷的考核不挂错题（P1-11）；错题链路仍写 mistake_id。
+    mistake_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     learning_event_id: Mapped[int] = mapped_column(
         ForeignKey("learning_events.id", ondelete="RESTRICT"), nullable=False
     )

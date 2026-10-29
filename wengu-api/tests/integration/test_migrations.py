@@ -232,6 +232,78 @@ def test_model_runs_attempt_chain_columns(tmp_path) -> None:
 
 
 @pytest.mark.integration
+def test_v25_quiz_attempts_allow_null_mistake(tmp_path) -> None:
+    """0012：手动组卷 attempts 不挂错题；回退先清 NULL 行再恢复 NOT NULL。"""
+
+    db_path = tmp_path / "quiz-attempts.db"
+    config = _alembic_config(db_path)
+    command.upgrade(config, "head")
+
+    engine = create_engine(f"sqlite:///{db_path.as_posix()}")
+    try:
+        with engine.connect() as connection:
+            columns = {
+                column["name"]: column["nullable"]
+                for column in inspect(connection).get_columns("attempts")
+            }
+        assert columns["mistake_id"] is True
+
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO learning_events (type, actor, idempotency_key)"
+                    " VALUES ('attempt_correct', 'student', 'quiz-null-1')"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO attempts (learning_event_id, kind, source,"
+                    " is_correct, created_at)"
+                    " VALUES (1, 'quiz', 'system_quiz', 1, CURRENT_TIMESTAMP)"
+                )
+            )
+            assert (
+                connection.scalar(
+                    text("SELECT mistake_id FROM attempts WHERE id = 1")
+                )
+                is None
+            )
+    finally:
+        engine.dispose()
+
+    command.downgrade(config, "0011_v25_intake_and_quiz")
+    engine = create_engine(f"sqlite:///{db_path.as_posix()}")
+    try:
+        with engine.connect() as connection:
+            columns = {
+                column["name"]: column["nullable"]
+                for column in inspect(connection).get_columns("attempts")
+            }
+            indexes = {
+                index["name"]
+                for index in inspect(connection).get_indexes("attempts")
+            }
+            remaining = connection.scalar(text("SELECT COUNT(*) FROM attempts"))
+        assert columns["mistake_id"] is False
+        assert {"ix_attempts_mistake_id", "ix_attempts_problem_bank_id"} <= indexes
+        assert remaining == 0
+    finally:
+        engine.dispose()
+
+    command.upgrade(config, "head")
+    engine = create_engine(f"sqlite:///{db_path.as_posix()}")
+    try:
+        with engine.connect() as connection:
+            columns = {
+                column["name"]: column["nullable"]
+                for column in inspect(connection).get_columns("attempts")
+            }
+        assert columns["mistake_id"] is True
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.integration
 def test_review_schedules_idempotency_indexes(tmp_path) -> None:
     """0009：同一事实事件最多一条排期；同一错题最多一条未完成排期。"""
 

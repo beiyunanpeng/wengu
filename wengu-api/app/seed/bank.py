@@ -80,11 +80,15 @@ class BankStats:
 @dataclass(frozen=True)
 class QuestionBank:
     by_topic: dict[str, tuple[BankQuestion, ...]]
+    by_id: dict[str, BankQuestion]
     topics: dict[str, dict[str, Any]]
     stats: BankStats
 
     def questions_for(self, topic_id: str) -> tuple[BankQuestion, ...]:
         return self.by_topic.get(topic_id, ())
+
+    def question(self, question_id: str) -> BankQuestion | None:
+        return self.by_id.get(question_id)
 
 
 def load_bank(seeds_dir: Path | None = None) -> QuestionBank:
@@ -104,17 +108,17 @@ def load_bank(seeds_dir: Path | None = None) -> QuestionBank:
     by_subject: dict[str, int] = {}
     by_type: dict[str, int] = {}
     grouped: dict[str, list[BankQuestion]] = {}
-    seen: set[str] = set()
+    by_id: dict[str, BankQuestion] = {}
     verified = unverifiable = figures = 0
 
     for raw in questions_raw:
         question = _build_question(raw, topics, dropped)
         if question is None:
             continue
-        if question.id in seen:
+        if question.id in by_id:
             _drop(dropped, "duplicate_id")
             continue
-        seen.add(question.id)
+        by_id[question.id] = question
         grouped.setdefault(question.topic_id, []).append(question)
         by_subject[question.subject] = by_subject.get(question.subject, 0) + 1
         by_type[question.type] = by_type.get(question.type, 0) + 1
@@ -142,7 +146,7 @@ def load_bank(seeds_dir: Path | None = None) -> QuestionBank:
         dropped=dict(sorted(dropped.items())),
         figures=figures,
     )
-    return QuestionBank(by_topic=by_topic, topics=topics, stats=stats)
+    return QuestionBank(by_topic=by_topic, by_id=by_id, topics=topics, stats=stats)
 
 
 def _build_question(
