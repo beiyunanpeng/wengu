@@ -44,6 +44,7 @@ from app.services.recompute import (
     Event as RecomputeEvent,
 )
 from app.services.review_policy import (
+    SUBJECT_LADDERS,
     ReviewState,
     decide,
     initial_state,
@@ -235,7 +236,11 @@ def _category_id(version: MistakeVersion) -> str | None:
 
 
 async def _resolve_subject(
-    session: AsyncSession, mistake: Mistake, version: MistakeVersion
+    session: AsyncSession,
+    mistake: Mistake,
+    version: MistakeVersion,
+    *,
+    subject_hint: str | None = None,
 ) -> tuple[str, str]:
     grading = await session.get(GradingResult, mistake.source_grading_id)
     if grading is not None and grading.problem_bank_id is not None:
@@ -253,6 +258,11 @@ async def _resolve_subject(
                 else "suggested_category"
             )
             return seed.subject.strip(), source
+
+    # 未确认主考点时，用转录草稿自带的学科定阶梯（只决定复习节奏，不等于挂知识点）
+    hint = (subject_hint or "").strip()
+    if hint in SUBJECT_LADDERS:
+        return hint, "source_subject"
 
     raise ReviewSubjectMissing(
         "无法确定学科，未创建错题与复习排期："
@@ -404,6 +414,7 @@ async def schedule_initial(
     *,
     actor: Literal["student", "parent"] = "student",
     now: datetime | None = None,
+    subject_hint: str | None = None,
 ) -> ReviewSchedule:
     """用户确认 wrong 后建首次排期；同一错题最多一次。
 
@@ -430,7 +441,9 @@ async def schedule_initial(
         return existing
 
     version = await _latest_version(session, mistake_id)
-    subject, subject_source = await _resolve_subject(session, mistake, version)
+    subject, subject_source = await _resolve_subject(
+        session, mistake, version, subject_hint=subject_hint
+    )
     ladder = _ladder_for_subject(subject)
     mastery_value = await _mastery_for(
         session, _confirmed_concepts(version)

@@ -34,8 +34,8 @@ from app.services.concepts import (
     resolve_concepts,
 )
 from app.services.events import append_mistake_version, record_event
-from app.services.labels import suggest_labels
-from app.services.review import schedule_initial
+from app.services.labels import LabelSuggestions, suggest_labels
+from app.services.review import ReviewSubjectError, schedule_initial
 
 MAX_CONCEPTS = 10
 MAX_ERROR_CAUSE_LENGTH = 32
@@ -119,6 +119,19 @@ def error_cause_label(value: str | None) -> str | None:
     return ERROR_CAUSES.get(value, value)
 
 
+def clean_error_cause(value: str | None) -> str | None:
+    """错因只接受 ERROR_CAUSES 里的键；空串归一为 None。"""
+
+    cleaned = (value or "").strip() or None
+    if cleaned is None:
+        return None
+    if len(cleaned) > MAX_ERROR_CAUSE_LENGTH:
+        raise MistakeConflict("错因取值过长")
+    if cleaned not in ERROR_CAUSES:
+        raise MistakeConflict("未知错因")
+    return cleaned
+
+
 async def _subject_for(
     session: AsyncSession, grading: GradingResult
 ) -> str | None:
@@ -136,12 +149,23 @@ async def sync_mistake_for_verdict(
     actor: Literal["student", "parent"] = "student",
     category_id: str | None = None,
     now: datetime | None = None,
+    primary_topic_id: str | None = None,
+    standard_answer: str | None = None,
+    suggested_category_id: str | None = None,
+    suggested_concept_ids: Sequence[int] | None = None,
+    suggested_error_cause: str | None = None,
+    confirmed_concept_ids: Sequence[int] | None = None,
+    confirmed_error_cause: str | None = None,
+    review_subject: str | None = None,
+    allow_unscheduled: bool = False,
 ) -> Mistake | None:
     """把用户确认/申诉的 verdict 同步到错题生命周期。
 
-    wrong  → 建根 + 首版快照（含零模型确定性标签建议），已存在则复活；
+    wrong  → 建根 + 首版快照（含标签建议），已存在则复活；
     correct → 已存在则作废，不删除任何版本。
-    category_id 是用户确认值，只在新建错题时落库；已有错题不覆盖标签。
+    category_id / primary_topic_id 是用户确认值，只在新建错题时落库；
+    已有错题不覆盖标签（冲突不静默覆盖）。
+    suggested_* 是外部转录/确定性匹配给出的建议值，与确认值分列存储。
     返回 wrong 时的错题根；correct 或无错题时返回 None。
     """
 
@@ -149,6 +173,27 @@ async def sync_mistake_for_verdict(
         raise MistakeConflict("只有 correct/wrong 能触发错题本同步")
     moment = now or datetime.now(UTC)
     cleaned_category = (category_id or "").strip() or None
+    cleaned_primary = (primary_topic_id or "").strip() or None
+    if (
+        cleaned_primary is not None
+        and cleaned_category is not None
+        and cleaned_primary != cleaned_category
+    ):
+        raise MistakeConflict("主考点与确认分类不一致")
+    cleaned_category = cleaned_primary or cleaned_category
+    cleaned_suggested_category = (suggested_category_id or "").strip() or None
+    cleaned_suggested_error = (
+        None
+        if suggested_error_cause is None
+        else clean_error_cause(suggested_error_cause)
+    )
+    cleaned_confirmed_error = clean_error_cause(confirmed_error_cause)
+    confirmed_ids = tuple(sorted({int(value) for value in confirmed_concept_ids or ()}))
+    has_confirmation = (
+        cleaned_category is not None
+        or bool(confirmed_ids)
+        or cleaned_confirmed_error is not None
+    )
 
     existing = (
         await session.execute(
@@ -170,16 +215,15 @@ async def sync_mistake_for_verdict(
             await session.flush()
         return existing
 
-    if (
-        cleaned_category is not None
-        and await session.get(KnowledgeSeed, cleaned_category) is None
-    ):
-        raise CategoryNotFound("知识点 category 不存在")
+    for topic_id in (cleaned_category, cleaned_suggested_category):
+        if topic_id is not None and await session.get(KnowledgeSeed, topic_id) is None:
+            raise CategoryNotFound("知识点 category 不存在")
 
     root = Mistake(
         source_grading_id=grading.id,
         status=MISTAKE_ACTIVE,
         current_version=1,
+        primary_topic_id=cleaned_primary,
         created_at=moment,
         updated_at=moment,
     )
@@ -195,31 +239,48 @@ async def sync_mistake_for_verdict(
         ).scalar_one()
         return existing
 
-    suggestions = await suggest_labels(
-        session,
-        grading.problem_text,
-        subject=await _subject_for(session, grading),
-    )
+    if cleaned_suggested_category is not None or suggested_concept_ids is not None:
+        suggestions = LabelSuggestions(
+            category_id=cleaned_suggested_category,
+            concept_ids=tuple(sorted(set(suggested_concept_ids or ()))),
+        )
+    else:
+        suggestions = await suggest_labels(
+            session,
+            grading.problem_text,
+            subject=await _subject_for(session, grading),
+        )
     await append_mistake_version(
         session,
         root.id,
         problem_text=grading.problem_text,
-        standard_answer=grading.standard_answer,
+        standard_answer=(
+            grading.standard_answer if standard_answer is None else standard_answer
+        ),
         student_answer=grading.student_answer,
         is_correct=False,
         status="confirmed",
         suggested_category_id=suggestions.category_id,
         suggested_concept_ids=suggestions.concept_ids,
+        suggested_error_cause=cleaned_suggested_error,
         confirmed_category_id=cleaned_category,
-        confirmed_by=actor if cleaned_category is not None else None,
+        confirmed_concept_ids=confirmed_ids,
+        confirmed_by=actor if has_confirmation else None,
+        confirmed_error_cause=cleaned_confirmed_error,
     )
-    await schedule_initial(
-        session,
-        root.id,
-        completed_on=moment.date(),
-        actor=actor,
-        now=moment,
-    )
+    try:
+        await schedule_initial(
+            session,
+            root.id,
+            completed_on=moment.date(),
+            actor=actor,
+            now=moment,
+            subject_hint=review_subject,
+        )
+    except ReviewSubjectError:
+        # 核对页允许无主考点入本：定不出学科时只跳过首次排期，错题照常保留
+        if not allow_unscheduled:
+            raise
     return root
 
 
@@ -298,12 +359,7 @@ async def append_label_version(
         if mismatched:
             raise ConceptConflict("细标签不属于所选 category")
 
-    cleaned_error_cause = (error_cause or "").strip() or None
-    if cleaned_error_cause is not None:
-        if len(cleaned_error_cause) > MAX_ERROR_CAUSE_LENGTH:
-            raise MistakeConflict("错因取值过长")
-        if cleaned_error_cause not in ERROR_CAUSES:
-            raise MistakeConflict("未知错因")
+    cleaned_error_cause = clean_error_cause(error_cause)
 
     version = await append_mistake_version(
         session,

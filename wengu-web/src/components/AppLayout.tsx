@@ -3,8 +3,10 @@ import { Outlet, useLocation, useNavigate } from "react-router-dom";
 
 const NAV = [
   { to: "/capture", label: "采集" },
+  { to: "/intake", label: "入库核对" },
   { to: "/mistakes", label: "错题本" },
   { to: "/review", label: "复习" },
+  { to: "/records", label: "练习记录" },
 ];
 
 export default function AppLayout() {

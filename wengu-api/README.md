@@ -77,6 +77,10 @@ make downgrade D=base               # 回退到空库（保留空的 alembic_ver
   - `POST /api/gradings/{id}/confirm` / `POST /api/gradings/{id}/appeal`（`base_version` 乐观锁）
   - `POST /api/explanations` / `POST /api/explanations/attempts`
   - `GET /api/mistakes` / `GET /api/mistakes/{id}` / `POST /api/mistakes/{id}/labels`
+  - `GET /api/imports/drafts` / `POST /api/imports/drafts/{draft_id}/confirm`
+    （核对页确认入本：缺正答、含 `〔?〕` → 422；主考点可空，无主考点存 NULL、只做原题重做自评）
+  - `GET /api/attempts?source=system_quiz|student_self|manual`（只读回看；不写入）
+  - `GET /api/practice-records`（变式/加练，独立于错题本与复习）
 
 ## 模型评测（真实模型，不进 CI）
 
