@@ -1,7 +1,8 @@
-"""P1-5 批改分级闸 API：创建/查询/确认/申诉。
+"""P1-5 判分 API：创建/查询/确认/申诉（v2.5 零模型）。
 
-客观题零模型（judgeAnswer），过程题才调 gateway；GET 纯查询。
-Phase 0 边界表未回填：所有新单 pending，确认/申诉只追加版本与事实事件。
+客观题走确定性 judgeAnswer；过程题系统内不判、一律转人工确认；
+真实作业的批改在卷面外部完成。GET 纯查询。
+所有新单 pending，确认/申诉只追加版本与事实事件。
 """
 
 from __future__ import annotations
@@ -18,10 +19,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_session
 from app.models import GradingResult, GradingVersion, Mistake
-from app.prompts.loader import PromptError
-from app.providers.failover import AllProvidersFailed
-from app.providers.registry import ProviderConfigError
-from app.services.ai_gateway import AiGateway, get_ai_gateway
 from app.services.concepts import CategoryNotFound
 from app.services.grading import (
     ReferenceNotFound,
@@ -49,7 +46,6 @@ class GradingCreateRequest(BaseModel):
     answer: str | None = Field(default=None, max_length=2000)
     acceptable: list[str] = Field(default_factory=list, max_length=50)
     unordered: bool = False
-    samples: int = Field(default=1, ge=1, le=3)
 
 
 class GradingVersionInfo(BaseModel):
@@ -191,7 +187,6 @@ async def _get_or_404(session: AsyncSession, grading_id: int) -> GradingResult:
 async def create_grading(
     payload: GradingCreateRequest,
     session: AsyncSession = Depends(get_session),
-    gateway: AiGateway = Depends(get_ai_gateway),
 ) -> GradingCreateResponse:
     _validate_reference_shape(payload)
 
@@ -226,31 +221,10 @@ async def create_grading(
             source, reference, reference_reason=reference_reason
         )
     else:
-        try:
-            suggestion = await process_suggestion(
-                source,
-                reference,
-                gateway=gateway,
-                samples=payload.samples,
-                reference_reason=reference_reason,
-            )
-        except (ProviderConfigError, PromptError) as exc:
-            raise HTTPException(
-                status_code=503, detail=f"批改模型未配置：{type(exc).__name__}"
-            ) from None
-        except AllProvidersFailed as exc:
-            raise HTTPException(
-                status_code=503 if exc.config_only else 502,
-                detail=(
-                    f"批改模型未配置：{exc.kind}"
-                    if exc.config_only
-                    else f"批改模型调用失败（{exc.kind}），请稍后重试"
-                ),
-            ) from None
-        except Exception:
-            raise HTTPException(
-                status_code=502, detail="过程题模型调用失败，请稍后重试"
-            ) from None
+        # v2.5：过程题由卷面外部批改，系统内只落"待确认"，不调模型。
+        suggestion = process_suggestion(
+            source, reference, reference_reason=reference_reason
+        )
 
     async with session.begin():
         grading, created = await persist_grading(

@@ -16,6 +16,7 @@ from alembic.config import Config
 from app.core.database import create_sqlite_engine, get_session
 from app.main import create_app
 from app.models import (
+    Attempt,
     Concept,
     GradingResult,
     GradingVersion,
@@ -28,7 +29,8 @@ from app.models import (
 )
 from app.providers.base import CallMeta, GradeResult
 from app.services.ai_gateway import get_ai_gateway
-from app.services.review import derive_review_state
+from app.services.bank import find_same_type
+from app.services.review import derive_review_state, quiz_seed
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -215,6 +217,23 @@ async def _schedules(
 async def _count(factory: async_sessionmaker, model) -> int:
     async with factory() as session:
         return int(await session.scalar(select(func.count()).select_from(model)))
+
+
+async def _set_primary_topic(
+    factory: async_sessionmaker, mistake_id: int, topic_id: str | None
+) -> None:
+    async with factory() as session, session.begin():
+        row = await session.get(Mistake, mistake_id)
+        assert row is not None
+        row.primary_topic_id = topic_id
+
+
+async def _due_items(client: AsyncClient, day: date) -> list[dict]:
+    response = await client.get(
+        "/api/reviews/due", params={"today": day.isoformat()}
+    )
+    assert response.status_code == 200, response.text
+    return response.json()["items"]
 
 
 @pytest.mark.integration
@@ -462,6 +481,11 @@ async def test_due_queue_filters_completed_future_and_voided(tmp_path) -> None:
             first_schedule.id,
             second_schedule.id,
         ]
+        # 未确认主考点 → 不出同类题，退回原题重做并标 bank_gap
+        assert all(
+            item["task"] == "redo" and item["bank_gap"] is True
+            for item in both.json()["items"]
+        )
 
         await client.post(
             f"/api/reviews/{first['mistake_id']}/complete",
@@ -786,3 +810,120 @@ async def test_unsupported_subject_rolls_back_confirmation(tmp_path) -> None:
     assert await _count(factory, Mistake) == 0
     assert await _count(factory, ReviewSchedule) == 0
     assert await _count(factory, LearningEvent) == 0
+
+
+@pytest.mark.integration
+async def test_due_queue_prefers_same_type_quiz_and_tags_system_quiz(tmp_path) -> None:
+    factory = _migrated(tmp_path)
+    gateway = FakeGradeGateway()
+    await _seed_topic(factory)
+    await _seed_topic(factory, topic_id="cnm_001", name="有理数", subject="数学")
+
+    async with _client(factory, gateway) as client:
+        body = await _confirm_wrong(client, factory)
+        mistake_id = body["mistake_id"]
+        await _set_primary_topic(factory, mistake_id, "cnm_001")
+        schedule = (await _schedules(factory, mistake_id))[0]
+
+        first_items = await _due_items(client, schedule.due_date)
+        assert len(first_items) == 1
+        item = first_items[0]
+        assert item["task"] == "quiz"
+        assert item["coverage"] == "ok"
+        assert item["bank_gap"] is False
+        assert item["coverage_hint"] is None
+        assert item["primary_topic_id"] == "cnm_001"
+
+        quiz = item["quiz"]
+        assert quiz["question_id"].startswith("cnm_001_q")
+        assert quiz["topic_id"] == "cnm_001"
+        assert quiz["pool_size"] >= 4
+        assert quiz["seed"] == quiz_seed(mistake_id, schedule.id)
+        assert quiz["prompt"].strip()
+        assert "answer" not in quiz and "accept" not in quiz and "verify" not in quiz
+
+        again = (await _due_items(client, schedule.due_date))[0]["quiz"]
+        assert again["question_id"] == quiz["question_id"]
+        replayed = find_same_type(item["primary_topic_id"], quiz["seed"])
+        assert replayed.question_id == quiz["question_id"]
+
+        completed = await client.post(
+            f"/api/reviews/{mistake_id}/complete",
+            json={
+                "schedule_id": schedule.id,
+                "correct": True,
+                "completed_on": schedule.due_date.isoformat(),
+                "source": "system_quiz",
+            },
+        )
+        assert completed.status_code == 200, completed.text
+        assert completed.json()["source"] == "system_quiz"
+
+        records = await client.get(
+            "/api/attempts", params={"source": "system_quiz"}
+        )
+        assert records.status_code == 200
+        assert records.json()["total"] == 1
+        assert records.json()["items"][0]["source"] == "system_quiz"
+
+    async with factory() as session:
+        attempt = (
+            await session.scalars(
+                select(Attempt).where(Attempt.mistake_id == mistake_id)
+            )
+        ).one()
+    assert attempt.source == "system_quiz"
+    async with factory() as session:
+        event = await session.get(LearningEvent, attempt.learning_event_id)
+        assert event is not None
+        payload = json.loads(event.payload)
+    assert payload["source"] == "system_quiz"
+    assert payload["kind"] == "review"
+    assert payload["concept_ids"] == []
+
+
+@pytest.mark.integration
+async def test_due_queue_falls_back_to_redo_when_topic_has_no_questions(
+    tmp_path,
+) -> None:
+    factory = _migrated(tmp_path)
+    gateway = FakeGradeGateway()
+    await _seed_topic(factory)
+    await _seed_topic(factory, topic_id="cnm_999999", name="题库空缺", subject="数学")
+
+    async with _client(factory, gateway) as client:
+        body = await _confirm_wrong(client, factory)
+        mistake_id = body["mistake_id"]
+        await _set_primary_topic(factory, mistake_id, "cnm_999999")
+        schedule = (await _schedules(factory, mistake_id))[0]
+
+        item = (await _due_items(client, schedule.due_date))[0]
+
+    assert item["task"] == "redo"
+    assert item["coverage"] == "gap"
+    assert item["bank_gap"] is True
+    assert item["coverage_hint"] is None
+    assert item["quiz"] is None
+    assert item["primary_topic_id"] == "cnm_999999"
+
+
+@pytest.mark.integration
+async def test_due_queue_thin_coverage_still_serves_quiz(tmp_path) -> None:
+    factory = _migrated(tmp_path)
+    gateway = FakeGradeGateway()
+    await _seed_topic(factory)
+    await _seed_topic(factory, topic_id="cnp_001", name="速度", subject="物理")
+
+    async with _client(factory, gateway) as client:
+        body = await _confirm_wrong(client, factory)
+        mistake_id = body["mistake_id"]
+        await _set_primary_topic(factory, mistake_id, "cnp_001")
+        schedule = (await _schedules(factory, mistake_id))[0]
+
+        item = (await _due_items(client, schedule.due_date))[0]
+
+    assert item["task"] == "quiz"  # thin 不是 gap，仍正常出题
+    assert item["coverage"] == "thin"
+    assert item["bank_gap"] is False
+    assert item["coverage_hint"] == "覆盖偏薄"
+    assert item["quiz"]["question_id"].startswith("cnp_001_q")

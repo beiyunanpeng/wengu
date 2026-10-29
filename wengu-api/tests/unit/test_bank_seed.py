@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from app.judge.normalize import judge_answer
 from app.seed.bank import load_bank
 from app.services.bank import find_same_type, replay
 
@@ -72,6 +73,93 @@ def test_missing_topic_returns_gap(bank) -> None:
 def test_physics_thin_math_ok(bank) -> None:
     assert find_same_type("cnp_001", 7, bank=bank).coverage == "thin"
     assert find_same_type("cnm_001", 7, bank=bank).coverage == "ok"
+
+
+@pytest.mark.unit
+def test_every_verify_expression_was_checked_at_ingest(bank) -> None:
+    """入库时每题 verify 都过 AST 沙箱并落状态；未通过者必须给原因。"""
+
+    assert bank.stats.verified + bank.stats.unverifiable == bank.stats.total
+    questions = [q for items in bank.by_topic.values() for q in items]
+    assert len(questions) == 2803
+    assert all(q.verify_status in ("verified", "unverifiable") for q in questions)
+    assert all(
+        q.verify_reason
+        for q in questions
+        if q.verify_status == "unverifiable"
+    )
+    assert all(q.verify for q in questions if q.verify_status == "verified")
+    assert "mismatch" not in bank.stats.verify_reasons
+
+
+@pytest.mark.unit
+def test_every_seed_standard_answer_judges_itself_correct(bank) -> None:
+    """P1-5 DoD：seed 题库 2803 题的标准答案过 judgeAnswer 全部判对。"""
+
+    checked = 0
+    for items in bank.by_topic.values():
+        for question in items:
+            outcome = judge_answer(
+                question.answer,
+                question.answer,
+                acceptable=question.accept,
+                unordered=question.unordered,
+            )
+            assert outcome.verdict == "correct", (question.id, question.answer, outcome)
+            checked += 1
+    assert checked == 2803
+
+
+@pytest.mark.unit
+def test_choice_distractors_are_judged_wrong(bank) -> None:
+    """选择题的错误选项不得被判定为正确（含别名也不能放行）。"""
+
+    checked = 0
+    for items in bank.by_topic.values():
+        for question in items:
+            if question.type != "choice":
+                continue
+            distractor = next(
+                (
+                    choice.key
+                    for choice in question.choices
+                    if choice.key != question.answer
+                    and choice.key not in question.accept
+                ),
+                None,
+            )
+            if distractor is None:
+                continue
+            outcome = judge_answer(
+                distractor,
+                question.answer,
+                acceptable=question.accept,
+                unordered=question.unordered,
+            )
+            assert outcome.verdict == "wrong", (question.id, distractor, outcome)
+            checked += 1
+    assert checked > 1000
+
+
+@pytest.mark.unit
+def test_seed_answers_accept_harmless_formatting(bank) -> None:
+    """孩子常见的全角/尾标点差异不影响判对（抽样覆盖三类题型）。"""
+
+    seen: set[str] = set()
+    for items in bank.by_topic.values():
+        for question in items:
+            if question.type in seen:
+                continue
+            seen.add(question.type)
+            decorated = f" {question.answer}。"
+            outcome = judge_answer(
+                decorated,
+                question.answer,
+                acceptable=question.accept,
+                unordered=question.unordered,
+            )
+            assert outcome.verdict == "correct", (question.id, question.type, outcome)
+    assert seen == {"choice", "numeric", "self", "short"}
 
 
 @pytest.mark.unit

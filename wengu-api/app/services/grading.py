@@ -1,12 +1,13 @@
-"""P1-5 批改分级闸服务：客观题确定性判、过程题保守初判、确认/申诉版本化。
+"""P1-5 判分服务（v2.5：真实题不在系统内判，只判自造同类题）。
 
-纪律（AGENTS §5 / TICKETS P1-5）：
-- 客观题零模型调用，只走 judge_answer 规范化比对；模型只提作答，绝不二次判分。
-- 过程题才调模型，默认落 pending；多次采样不一致一律 uncertain。
+纪律（AGENTS §5 / 设计文档 §16.B）：
+- 真实作业的批改/引导/解析全部外部完成；本模块不再做过程题模型初判，
+  也不再做多次采样一致性检查（整段已随 v2.5 退役）。
+- 客观题仍走确定性 judge_answer 规范化比对，零模型调用；不确定一律 uncertain。
 - 提取质量闸门未过 / 缺可信标准答案 / 占位 / 作答为空 → manual，不猜、不调模型。
 - 建议值与确认值分离：grading_results 存逻辑单，grading_versions 只追加，
   确认/申诉写 learning_events（幂等键含 grading_id + version）。
-- Phase 0 边界表未回填：所有新批改单 status=pending，不自动建错题/排复习。
+- 所有新批改单 status=pending，不自动建错题/排复习（入本一律经核对页确认）。
 """
 
 from __future__ import annotations
@@ -42,8 +43,6 @@ from app.services.recompute import ATTEMPT_CORRECT, ATTEMPT_WRONG
 QuestionType = Literal["objective", "process"]
 UserVerdict = Literal["correct", "wrong"]
 
-MAX_SAMPLES = 3
-
 
 @dataclass(frozen=True)
 class SourceProblem:
@@ -73,7 +72,6 @@ class Suggestion:
     model: str | None = None
     prompt_id: str | None = None
     prompt_version: int | None = None
-    sample_verdicts: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -250,57 +248,22 @@ def objective_suggestion(
     return Suggestion(judged.verdict, "code", None, judged.reason)
 
 
-async def process_suggestion(
+def process_suggestion(
     source: SourceProblem,
     reference: Reference | None,
     *,
-    gateway,
-    samples: int,
     reference_reason: str | None = None,
 ) -> Suggestion:
-    """过程题：模型保守初判（1–3 次采样，任一次不确定/不一致 → uncertain）。"""
+    """过程题：v2.5 起系统内不判，一律转人工确认（真实题在卷面已批改）。
+
+    保留该分支只为兼容旧入口：不调模型、不做采样，直接落 uncertain。
+    """
 
     if not source.ready:
         return _manual(source.manual_reason or "extraction_not_ready")
     if reference is None:
         return _manual(reference_reason or "reference_missing")
-
-    results = []
-    metas = []
-    for index in range(max(1, min(samples, MAX_SAMPLES))):
-        result, meta = await gateway.grade(
-            source.problem_text,
-            source.student_answer or "",
-            standard_answer=reference.answer,
-            sample_index=index,
-        )
-        results.append(result)
-        metas.append(meta)
-
-    verdicts = tuple(result.verdict for result in results)
-    if len(set(verdicts)) > 1:
-        verdict = "uncertain"
-        reason = "sampling_disagreement"
-    elif verdicts[0] == "uncertain":
-        verdict = "uncertain"
-        reason = "ai_uncertain"
-    else:
-        verdict = verdicts[0]
-        reason = "ai_consistent" if len(verdicts) > 1 else "ai_initial"
-
-    confidences = [r.confidence for r in results if r.confidence is not None]
-    meta = metas[-1]
-    return Suggestion(
-        verdict=verdict,
-        source="ai",
-        confidence=min(confidences) if confidences else None,
-        reason=reason,
-        provider=meta.provider,
-        model=meta.model,
-        prompt_id=meta.prompt_id,
-        prompt_version=meta.prompt_version,
-        sample_verdicts=verdicts,
-    )
+    return _manual("real_homework_external")
 
 
 async def get_by_source(
@@ -371,7 +334,7 @@ async def persist_grading(
         model=suggestion.model,
         prompt_id=suggestion.prompt_id,
         prompt_version=suggestion.prompt_version,
-        sample_verdicts_json=json.dumps(list(suggestion.sample_verdicts), ensure_ascii=False),
+        sample_verdicts_json="[]",
         created_at=now,
     )
 

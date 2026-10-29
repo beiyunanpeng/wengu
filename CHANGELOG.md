@@ -7,14 +7,51 @@
 
 ## [Unreleased]
 
-P1-9、P1-2b、P1-2c 已完成，P1-3c 的 B1/B1.5（配图切片几何）已交付，Phase 1 只剩
-P1-7b（前置回溯诊断）与受闸门阻塞的 P1-7c；P1-3c B2（依赖图形闸门放宽）未动。
-下一步按风险排序：**P0-1 样本扩容 + P0-2 黄金评测集**，再补 P1-7b。
+P1-9、P1-2b、P1-2c 已完成，P1-3c 的 B1/B1.5（配图切片几何）已交付；
+P1-5 与 P1-7a 已按 v2.5 收口（真实题退场、到期队列考核优先/重做兜底），P1-10 题库就绪。
+Phase 1 只剩 P1-11（同类题考核闭环）、P1-7b（前置回溯诊断）与受闸门阻塞的 P1-7c。
+下一步先做 **P1-11 考核闭环**，再补 P0-1 样本扩容 + P0-2 黄金评测集与 P1-7b。
 **P1-7c 自动排复习仍受 Phase 0 闸门阻塞**（边界表未回填前不自动排复习）；
 复习排期只由**用户确认错题**触发；P1-6 的"入本"也仍以孩子/家长确认 `wrong`
 为前提，不得静默自动建错题。
 
 ### Added
+
+- **P1-5 / P1-7a：真实题退场、考核优先（v2.5 收口）**（2026-10-29）：
+  - **P1-5 删除真实作业的模型初判与多次采样**：`services/grading.py` 不再调
+    gateway、不再 `MAX_SAMPLES` 采样；`POST /api/gradings` 只回显来源题面，结论固定
+    `uncertain`（`reason=real_homework_external`；提取未过闸门则保留原闸门原因），
+    真实题判分/讲解在系统外完成；`sample_verdicts_json` 恒为 `[]`。保留
+    `judgeAnswer`（确定性归一化）与 `verify` AST 沙箱（仅题库入库时）。
+  - `judgeAnswer` 补强：软分隔 `和/或` 增加"方程解"token（`x=1或者x=2` ≡
+    `x=2和x=1`），`_normalize_text` 归一等号两侧空白（`x = 1` ≡ `x=1`）；
+    新增 NFKC 全角、全分隔符矩阵、禁止 `eval/exec` 的回归测试。
+  - **到期队列考核优先/重做兜底**：`due_queue` 按 `primary_topic_id` 调
+    `find_same_type`——命中 → `task=quiz`（只下发题干/选项/配图 + `question_id`/
+    `seed`/`pool_size`，**不下发答案钥匙**）；`coverage=gap` → `task=redo` +
+    `bank_gap=true`；`thin` 仍正常出题并给 `coverage_hint="覆盖偏薄"`，不当 gap。
+    种子 `quiz_seed(mistake_id, schedule_id)` 稳定，重复查询同题、可 `replay()`。
+  - **掌握度双来源**：`recompute.mastery` 计入 `attempts.source ∈ {student_self,
+    system_quiz}`（MVP 各 1 次、暂不加权、可整体重算），`manual` 不计；复习完成事件
+    payload 写入 `source` 与确认 `concept_ids`，多 concept 取最小 mastery 不变；
+    `complete` 新增 `source`（默认 `student_self`），考核式完成传 `system_quiz`。
+  - 测试：`test_gradings_api`/`test_mistakes_api` 断言"永不调模型、只给 uncertain"；
+    `test_reviews_api` 覆盖 quiz/gap/thin 三分流、重复查询同题、`source=system_quiz`
+    落 attempts 与事件；`test_recompute` 覆盖双来源与多 concept；`test_bank_seed`
+    校验 2803 题自答全对、干扰项被判错、verify 全已过沙箱。**全量 419 passed**，
+    `ruff check .` 全绿。
+  - **运行态实跑**（临时库 + 真 uvicorn + 既有导入/核对页链路）：导入 3 条外部转录 →
+    核对页确认（`cnm_001` / `cnm_gap_test` / `cnp_001`）→ 次日到期队列 3 条：数学
+    `quiz`/`ok`/`cnm_001_q2`（pool 4，seed 2654435762）、语文 `redo`/`gap`/`bank_gap`、
+    物理 `quiz`/`thin` + `覆盖偏薄`（`cnp_001_q3`）；重复查询完全一致；完成数学考核
+    `source=system_quiz` → 间隔 10 天、due 2026-11-09、rung 1；
+    `/api/attempts?source=system_quiz` 1 条、`student_self` 0 条；`attempt_correct`
+    事件含 `source=system_quiz` 与 `concept_ids`、不含题目原文。纯函数实跑：12 条判分
+    矩阵符合预期（注入串只当文本）、沙箱拒 `__import__`/`open`/赋值、2803 题
+    `verified 1738 / unverifiable 1065`、`replay` 一致。
+  - 残留：考核题目 id 未落 `attempts.problem_bank_id`（seed 题库题不在
+    `problem_bank` 表，当前靠 `seed + topic` 重放定位，P1-11 考核页可回传题目 id）；
+    方程解软拆只认单变量赋值；`thin` 为学科级阈值（物理 368 < 500），非知识点级。
 
 - **P1-10 题库检索引擎（同类题地基）**（2026-10-29）：把 `cn-math-taxonomy`
   `questions.json` 初中段 **2803 题**（数学 1407 / 英语 1028 / 物理 368）以 JSON

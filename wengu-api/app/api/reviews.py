@@ -1,6 +1,8 @@
 """P1-7a 复习 API：只读到期队列 + 用户主动完成一次复习。
 
 排期只由用户确认 wrong 时创建（P1-6 写入路径内），本模块不提供自动排期入口。
+v2.5 到期任务考核优先/重做兜底：能按主考点检索到同类题就给"quiz"，
+否则给"redo"（原题重做自评）并标 `bank_gap`；`thin` 只是覆盖偏薄提示。
 """
 
 from __future__ import annotations
@@ -32,6 +34,25 @@ class ScheduleInfo(BaseModel):
     base_interval_days: int
 
 
+class QuizChoiceInfo(BaseModel):
+    key: str
+    text: str
+    figure: str | None
+
+
+class QuizQuestionInfo(BaseModel):
+    question_id: str
+    topic_id: str
+    subject: str
+    type: str
+    difficulty: str
+    prompt: str
+    choices: list[QuizChoiceInfo]
+    figure: str | None
+    seed: int
+    pool_size: int
+
+
 class DueReviewItem(BaseModel):
     schedule_id: int
     mistake_id: int
@@ -39,6 +60,12 @@ class DueReviewItem(BaseModel):
     rung: int
     base_interval_days: int
     problem_text: str | None
+    primary_topic_id: str | None
+    task: Literal["quiz", "redo"]
+    coverage: Literal["ok", "thin", "gap"]
+    bank_gap: bool
+    coverage_hint: str | None
+    quiz: QuizQuestionInfo | None
 
 
 class DueReviewResponse(BaseModel):
@@ -53,6 +80,7 @@ class CompleteRequest(BaseModel):
     correct: bool
     completed_on: date | None = None
     actor: Literal["student", "parent"] = "student"
+    source: Literal["student_self", "system_quiz"] = "student_self"
 
 
 class ReviewStateInfo(BaseModel):
@@ -71,6 +99,7 @@ class CompleteResponse(BaseModel):
     due_on: date | None
     state: ReviewStateInfo
     next_schedule: ScheduleInfo | None
+    source: str
 
 
 @router.get("/api/reviews/due", response_model=DueReviewResponse)
@@ -90,6 +119,34 @@ async def due_reviews(
                 rung=row.schedule.rung,
                 base_interval_days=row.schedule.base_interval_days,
                 problem_text=row.problem_text,
+                primary_topic_id=row.primary_topic_id,
+                task=row.task,
+                coverage=row.coverage,
+                bank_gap=row.bank_gap,
+                coverage_hint=row.coverage_hint,
+                quiz=(
+                    QuizQuestionInfo(
+                        question_id=row.quiz.question.id,
+                        topic_id=row.quiz.question.topic_id,
+                        subject=row.quiz.question.subject,
+                        type=row.quiz.question.type,
+                        difficulty=row.quiz.question.difficulty,
+                        prompt=row.quiz.question.prompt,
+                        choices=[
+                            QuizChoiceInfo(
+                                key=choice.key,
+                                text=choice.text,
+                                figure=choice.figure,
+                            )
+                            for choice in row.quiz.question.choices
+                        ],
+                        figure=row.quiz.question.figure,
+                        seed=row.quiz.seed,
+                        pool_size=row.quiz.pool_size,
+                    )
+                    if row.quiz is not None and row.quiz.question is not None
+                    else None
+                ),
             )
             for row in rows
         ]
@@ -116,6 +173,7 @@ async def complete_review(
                 correct=payload.correct,
                 completed_on=completed_on,
                 actor=payload.actor,
+                source=payload.source,
             )
         except ReviewNotFound as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from None
@@ -147,4 +205,5 @@ async def complete_review(
             if result.next_schedule is not None
             else None
         ),
+        source=result.source,
     )

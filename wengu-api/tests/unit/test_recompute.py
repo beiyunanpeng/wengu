@@ -37,6 +37,44 @@ def test_mastery_is_correct_ratio() -> None:
 
 
 @pytest.mark.unit
+def test_mastery_counts_student_self_and_system_quiz_only() -> None:
+    """双来源：自评与系统考核各计 1 次；manual 不进掌握度。"""
+
+    def sourced(correct: bool, seq: int, source: str) -> Event:
+        return Event(
+            type=ATTEMPT_CORRECT if correct else ATTEMPT_WRONG,
+            actor="student",
+            payload={"concept_id": "cnm_a", "source": source},
+            occurred_at=seq,
+        )
+
+    events = [
+        sourced(True, 1, "student_self"),
+        sourced(False, 2, "system_quiz"),
+        sourced(True, 3, "manual"),
+        sourced(False, 4, "manual"),
+    ]
+    assert mastery(events, "cnm_a") == 0.5
+    assert mastery([sourced(True, 1, "manual")], "cnm_a") == 0.0
+
+
+@pytest.mark.unit
+def test_mastery_counts_review_events_with_multiple_concepts() -> None:
+    """一次复习挂多 concept 时，同一事件对各 concept 各计 1 次。"""
+
+    event = Event(
+        type=ATTEMPT_CORRECT,
+        actor="student",
+        mistake_id=1,
+        payload={"concept_ids": [7, 9], "source": "system_quiz"},
+        occurred_at=1,
+    )
+    assert mastery([event], 7) == 1.0
+    assert mastery([event], 9) == 1.0
+    assert mastery([event], 8) == 0.0
+
+
+@pytest.mark.unit
 def test_is_graduated_requires_tail_streak_of_three() -> None:
     assert not is_graduated([_attempt(1, True, 1), _attempt(1, True, 2)], 1)
     assert is_graduated([_attempt(1, True, 1), _attempt(1, True, 2), _attempt(1, True, 3)], 1)

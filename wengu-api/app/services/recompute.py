@@ -17,6 +17,22 @@ GRADUATION_STREAK = 3  # 抗挫败规则：尾部连续对 ≥3 才毕业（设�
 ATTEMPT_CORRECT = "attempt_correct"
 ATTEMPT_WRONG = "attempt_wrong"
 
+# 掌握度双来源（设计文档 §16.D）：系统判考核 + 原题重做自评各计 1 次，仅打标签；
+# manual（手工补录）与旧批改建议不进掌握度。缺失 source 的旧事件按历史自评计入。
+MASTERY_SOURCES = frozenset({"student_self", "system_quiz"})
+
+
+def _counts_toward_mastery(payload: Mapping[str, Any]) -> bool:
+    source = payload.get("source")
+    return source is None or source in MASTERY_SOURCES
+
+
+def _matches_concept(payload: Mapping[str, Any], concept_id: str | int) -> bool:
+    if payload.get("concept_id") == concept_id:
+        return True
+    concept_ids = payload.get("concept_ids")
+    return isinstance(concept_ids, list) and concept_id in concept_ids
+
 
 @dataclass(frozen=True)
 class Event:
@@ -78,9 +94,11 @@ def _dedupe_grading_versions(
     ]
 
 
-def mastery(events: Sequence[Event | Mapping[str, Any]], concept_id: str) -> float:
+def mastery(events: Sequence[Event | Mapping[str, Any]], concept_id: str | int) -> float:
     """单个 concept 的掌握度 = 该知识点下历史作答的正确率，无信号 = 0.0。
 
+    只计入 source ∈ {student_self, system_quiz} 的作答（各计 1 次、暂不加权），
+    manual/旧批改建议不计；缺失 source 的旧事件按历史自评计入，保证可整体重放。
     注：`(1 + mastery × 4)` 是 review_interval 用 mastery 算间隔的公式（见 review_policy），
     不是 mastery 本身的定义。多 concept 错题排期时取【最小 mastery】（设计文档 §5.4）。
     后续可升级为近期加权正确率；调用方只依赖"输入事件 → 输出 [0,1] 数值"的契约。
@@ -92,7 +110,9 @@ def mastery(events: Sequence[Event | Mapping[str, Any]], concept_id: str) -> flo
         if event_type not in (ATTEMPT_CORRECT, ATTEMPT_WRONG):
             continue
         payload = _payload(event)
-        if payload.get("concept_id") != concept_id:
+        if not _matches_concept(payload, concept_id):
+            continue
+        if not _counts_toward_mastery(payload):
             continue
         if event_type == ATTEMPT_CORRECT:
             correct += 1
