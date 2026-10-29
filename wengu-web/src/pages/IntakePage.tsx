@@ -229,7 +229,13 @@ function DraftCard({
             setNewConceptName("");
           }}
           label="主考点（primary_topic_id，可空）"
-          initialLabel={draft.suggestion.topic_name}
+          initialLabel={
+            draft.suggestion.topic_name
+              ? [draft.suggestion.topic_name, draft.subject]
+                  .filter(Boolean)
+                  .join(" · ")
+              : null
+          }
         />
 
         <MultiSelect
