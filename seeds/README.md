@@ -11,7 +11,9 @@ seeds/
 ├─ data/                    # 随仓库分发：转换后的 cn-math-taxonomy 初中包（CC BY-NC 4.0）
 │  ├─ topics.json           #   664 个初中知识点（数学 315 + 英语 257 + 物理 92）
 │  ├─ dependencies.json     #   1018 条先修边（两端点均在初中集内；hard/soft）
-│  └─ _source.json          #   署名：上游 URL / License / NC 声明 / 导入日期 / 计数
+│  ├─ questions.json        #   2803 道初中题（数学 1407 + 英语 1028 + 物理 368；P1-10）
+│  ├─ _source.json          #   知识点/先修边署名：上游 URL / License / NC 声明 / 计数
+│  └─ questions_source.json #   题库署名：同上 + 题目计数 / 配图 / verify 统计
 ├─ local/                   # 家长自建，不进 Git：化学/语文等同契约 seed 文件
 ├─ mappings/                # 家长自建，不进 Git：教材包对照（<版本id>.json）
 └─ README.md
@@ -36,6 +38,28 @@ make seed-load   # python -m scripts.import_seed --src ../cn-math-taxonomy-main
 `subject`（cnm_=数学、cne_=英语、cnp_=物理）→ 打质量标签 → 先修边仅保留两端点均在初中集内的
 （跨小学/高中的 74 条丢弃，小学阶段成为回溯天然停止点；丢弃数记入 `_source.json`）。
 注意：上游 `grade 10–16` 语义为"册"（高中），本次未导入。
+
+## 题库（P1-10，同类题考核的数据源）
+
+- `data/questions.json` 是**运行时内存索引的唯一真源**：`app/seed/bank.py` 读入后建
+  `topic_id → [题]` 倒排，**不写 SQLite**（SQLite 只存动态数据，守设计 §14）。
+- 每题在装载时过 P1-5 AST 白名单沙箱核验 `verify`：能算且与答案一致 → `verified`；
+  无 `verify` / 表达式用了沙箱白名单外的 `Fraction`、`range`、数学函数 / 选择题选项带单位
+  → `unverifiable`（保留，供考核使用）；**纯数值题算出矛盾 → 不装载**。
+  当前 2803 题：verified 1738、unverifiable 1065（no_verify 532、sandbox 498、选项带单位 35）、
+  mismatch 0。
+- 同类题检索：`services/bank.py` 的 `find_same_type(primary_topic_id, seed)` 用
+  mulberry32（与上游 JS 逐位一致）按固定种子取 1 题，`replay(pick)` 可重放；
+  无题知识点返回空 + `bank_gap=true`（P1-7a 退回原题重做）。物理 368 题按学科总量标
+  `thin`，语文/化学无题 → 缺口。
+- 配图安全：题干与选项的内联 SVG 在后端装载时过白名单净化（`app/seed/svg.py`，
+  使用既有 `bleach` 依赖），前端只能渲染净化后的字符串。
+
+重新生成题库（开发者，需上游 clone）：
+
+```bash
+make seed-questions
+```
 
 ## 化学、语文（上游无数据）：local/ 起步
 
