@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import contextlib
 import json
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Literal
@@ -23,6 +23,7 @@ from sqlalchemy import and_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.judge.normalize import judge_answer
 from app.models import (
     Attempt,
     GradingResult,
@@ -34,7 +35,14 @@ from app.models import (
     ReviewSchedule,
 )
 from app.models.mistakes import MISTAKE_ACTIVE
-from app.services.bank import BankPick, Coverage, find_same_type
+from app.seed.bank import BankQuestion
+from app.services.bank import (
+    AnswerMode,
+    BankPick,
+    Coverage,
+    find_same_type,
+    get_bank,
+)
 from app.services.events import record_event
 from app.services.recompute import (
     ATTEMPT_CORRECT,
@@ -58,7 +66,8 @@ REVIEW_EVENT_KIND = "review"
 REVIEW_ATTEMPT_KIND = "review"
 
 AttemptSource = Literal["student_self", "system_quiz"]
-DueTask = Literal["quiz", "redo"]
+DueTask = Literal["quiz", "self_eval", "redo"]
+QuizVerdict = Literal["correct", "wrong"]
 
 
 class ReviewError(Exception):
@@ -89,6 +98,26 @@ class ReviewSubjectUnsupported(ReviewSubjectError):
     pass
 
 
+class ReviewQuizError(ReviewError):
+    pass
+
+
+class ReviewQuizUnavailable(ReviewQuizError):
+    """该错题没有可用同类题 / 已按原题重做完成，不能走考核提交。"""
+
+
+class ReviewQuizStale(ReviewQuizError):
+    """客户端看到的题与当前题库选择不一致（题库热更新），必须刷新。"""
+
+
+class ReviewQuizInvalid(ReviewQuizError):
+    """提交内容不完整（缺作答 / 解答大题缺自评）。"""
+
+
+class ReviewQuizUncertain(ReviewQuizError):
+    """judgeAnswer 无法确定（占位符等），绝不猜对错。"""
+
+
 @dataclass(frozen=True)
 class ReviewFact:
     correct: bool
@@ -103,6 +132,17 @@ class ReviewHistory:
 
 
 @dataclass(frozen=True)
+class QuizFact:
+    """完成事件里记录的考核信息（服务端判分结果），用于幂等回放。"""
+
+    question_id: str
+    topic_id: str | None
+    mode: AnswerMode
+    verdict: QuizVerdict
+    verify_status: str | None
+
+
+@dataclass(frozen=True)
 class CompleteResult:
     mistake_id: int
     schedule_id: int
@@ -113,7 +153,19 @@ class CompleteResult:
     interval_days: int | None
     due_on: date | None
     next_schedule: ReviewSchedule | None
+    correct: bool
     source: str = "student_self"
+    quiz: QuizFact | None = None
+
+
+@dataclass(frozen=True)
+class ReviewQuizResult:
+    completion: CompleteResult
+    question: BankQuestion
+    mode: AnswerMode
+    verdict: QuizVerdict
+    seed: int
+    pool_size: int
 
 
 @dataclass(frozen=True)
@@ -552,6 +604,38 @@ def _mastery_from_payload(payload: dict[str, Any]) -> float:
     return float(value)
 
 
+def _correct_from_payload(payload: dict[str, Any]) -> bool:
+    value = payload.get("correct")
+    if not isinstance(value, bool):
+        raise ReviewStateError("完成事件缺少 correct")
+    return value
+
+
+def _quiz_fact(payload: dict[str, Any]) -> QuizFact | None:
+    question_id = payload.get("quiz_question_id")
+    if question_id is None:
+        return None
+    if not isinstance(question_id, str) or not question_id:
+        raise ReviewStateError("考核事件 quiz_question_id 非法")
+    mode = payload.get("quiz_mode")
+    verdict = payload.get("quiz_verdict")
+    if mode not in ("system", "self_eval") or verdict not in ("correct", "wrong"):
+        raise ReviewStateError("考核事件 quiz_mode/quiz_verdict 非法")
+    topic_id = payload.get("quiz_topic_id")
+    if topic_id is not None and not isinstance(topic_id, str):
+        raise ReviewStateError("考核事件 quiz_topic_id 非法")
+    verify_status = payload.get("quiz_verify_status")
+    if verify_status is not None and not isinstance(verify_status, str):
+        raise ReviewStateError("考核事件 quiz_verify_status 非法")
+    return QuizFact(
+        question_id=question_id,
+        topic_id=topic_id,
+        mode=mode,
+        verdict=verdict,
+        verify_status=verify_status,
+    )
+
+
 async def _completed_result(
     session: AsyncSession,
     *,
@@ -592,7 +676,9 @@ async def _completed_result(
         interval_days=interval_days,
         due_on=_date_from_payload(payload.get("due_on")),
         next_schedule=next_schedule,
+        correct=_correct_from_payload(payload),
         source=attempt.source,
+        quiz=_quiz_fact(payload),
     )
 
 
@@ -606,11 +692,13 @@ async def complete_attempt(
     actor: Literal["student", "parent"] = "student",
     source: AttemptSource = "student_self",
     now: datetime | None = None,
+    extra_payload: Mapping[str, Any] | None = None,
 ) -> CompleteResult:
     """完成一次复习：写 attempt 事件 + attempts 行 + 下一次排期（毕业则不写）。
 
     `source` 只打标签（student_self 原题重做自评 / system_quiz 系统判考核），
-    MVP 两者在掌握度里各计 1 次，暂不加权。
+    MVP 两者在掌握度里各计 1 次，暂不加权。`extra_payload` 只允许追加考核溯源
+    字段（题目 id/模式/判分结论），核心字段由本函数覆盖，客户端无法借此改写事实。
     """
 
     if actor not in ("student", "parent"):
@@ -657,36 +745,38 @@ async def complete_attempt(
         raise ReviewStateError(str(exc)) from None
 
     moment = now or datetime.now(UTC)
+    payload: dict[str, Any] = {
+        **dict(extra_payload or {}),
+        "mistake_id": mistake_id,
+        "kind": REVIEW_EVENT_KIND,
+        "schedule_id": schedule.id,
+        "correct": correct,
+        "completed_on": completed_on.isoformat(),
+        "mastery": mastery_value,
+        "source": source,
+        "concept_ids": list(concept_ids),
+        "rung_before": history.state.rung,
+        "times_wrong_before": history.state.times_wrong,
+        "trailing_correct_before": history.state.trailing_correct,
+        "rung_after": decision.state.rung,
+        "times_wrong_after": decision.state.times_wrong,
+        "trailing_correct_after": decision.state.trailing_correct,
+        "base_interval_days": decision.base_days,
+        "interval_days": decision.interval_days,
+        "due_on": (
+            decision.due_on.isoformat()
+            if decision.due_on is not None
+            else None
+        ),
+        "graduated": decision.graduated,
+    }
     event, created = await record_event(
         session,
         ATTEMPT_CORRECT if correct else ATTEMPT_WRONG,
         actor,
         idempotency_key=event_key,
         mistake_id=mistake_id,
-        payload={
-            "mistake_id": mistake_id,
-            "kind": REVIEW_EVENT_KIND,
-            "schedule_id": schedule.id,
-            "correct": correct,
-            "completed_on": completed_on.isoformat(),
-            "mastery": mastery_value,
-            "source": source,
-            "concept_ids": list(concept_ids),
-            "rung_before": history.state.rung,
-            "times_wrong_before": history.state.times_wrong,
-            "trailing_correct_before": history.state.trailing_correct,
-            "rung_after": decision.state.rung,
-            "times_wrong_after": decision.state.times_wrong,
-            "trailing_correct_after": decision.state.trailing_correct,
-            "base_interval_days": decision.base_days,
-            "interval_days": decision.interval_days,
-            "due_on": (
-                decision.due_on.isoformat()
-                if decision.due_on is not None
-                else None
-            ),
-            "graduated": decision.graduated,
-        },
+        payload=payload,
     )
     if not created:
         await session.refresh(schedule)
@@ -736,7 +826,9 @@ async def complete_attempt(
         interval_days=decision.interval_days,
         due_on=decision.due_on,
         next_schedule=next_schedule,
+        correct=correct,
         source=source,
+        quiz=_quiz_fact(payload),
     )
 
 
@@ -783,7 +875,12 @@ async def due_queue(
     for schedule, mistake, version in rows:
         seed = quiz_seed(mistake.id, schedule.id)
         pick = find_same_type(mistake.primary_topic_id, seed)
-        task: DueTask = "quiz" if pick.question is not None else "redo"
+        if pick.question is None:
+            task: DueTask = "redo"
+        elif pick.mode == "self_eval":
+            task = "self_eval"
+        else:
+            task = "quiz"
         items.append(
             DueReview(
                 schedule=schedule,
@@ -794,7 +891,7 @@ async def due_queue(
                 coverage=pick.coverage,
                 bank_gap=pick.bank_gap,
                 seed=seed,
-                quiz=pick if task == "quiz" else None,
+                quiz=pick if pick.question is not None else None,
                 coverage_hint=(
                     "覆盖偏薄"
                     if task == "quiz" and pick.coverage == "thin"
@@ -803,3 +900,147 @@ async def due_queue(
             )
         )
     return items
+
+
+async def _attempt_event(
+    session: AsyncSession, schedule: ReviewSchedule
+) -> LearningEvent | None:
+    return (
+        await session.execute(
+            select(LearningEvent).where(
+                LearningEvent.idempotency_key
+                == f"review:attempt:{schedule.id}"
+            )
+        )
+    ).scalar_one_or_none()
+
+
+def _recorded_quiz_result(
+    pick: BankPick, completion: CompleteResult
+) -> ReviewQuizResult:
+    if completion.quiz is None:
+        raise ReviewQuizUnavailable("该排期已按原题重做完成，不能按考核回放")
+    recorded = get_bank().question(completion.quiz.question_id)
+    question = recorded or pick.question
+    if question is None:
+        raise ReviewQuizUnavailable("题库中已找不到该考核题")
+    return ReviewQuizResult(
+        completion=completion,
+        question=question,
+        mode=completion.quiz.mode,
+        verdict=completion.quiz.verdict,
+        seed=pick.seed,
+        pool_size=pick.pool_size,
+    )
+
+
+async def submit_review_quiz(
+    session: AsyncSession,
+    mistake_id: int,
+    *,
+    schedule_id: int,
+    answer: str | None = None,
+    correct: bool | None = None,
+    question_id: str | None = None,
+    completed_on: date,
+    actor: Literal["student", "parent"] = "student",
+    now: datetime | None = None,
+) -> ReviewQuizResult:
+    """到期考核提交：服务端按同一种子重算题目并 judgeAnswer 判分后再落库。
+
+    - 可答题：客户端只传作答 `answer`，`correct` 一律由服务端判分得出
+      （客户端传了也忽略），source=system_quiz；
+    - 解答大题/依赖题图：客户端必须传自评 `correct`，source=student_self；
+    - 同一排期幂等：已完成时按事件记录回放，绝不允许用新答案改写旧结果。
+    """
+
+    if actor not in ("student", "parent"):
+        raise ReviewConflict("只有 student/parent 可以完成复习")
+    mistake = await _get_mistake(session, mistake_id)
+    if mistake.status != MISTAKE_ACTIVE:
+        raise ReviewConflict("已作废错题不能完成复习")
+    schedule = await _schedule_by_id(session, mistake_id, schedule_id)
+    seed = quiz_seed(mistake.id, schedule.id)
+    pick = find_same_type(mistake.primary_topic_id, seed)
+
+    existing_event = await _attempt_event(session, schedule)
+    if schedule.completed_at is not None or existing_event is not None:
+        if schedule.completed_at is None or existing_event is None:
+            raise ReviewStateError("排期与完成事件状态不一致")
+        completion = await _completed_result(
+            session, schedule=schedule, event=existing_event
+        )
+        return _recorded_quiz_result(pick, completion)
+
+    if pick.question is None:
+        raise ReviewQuizUnavailable(
+            "该错题没有可用同类题，请改用原题重做（task=redo）"
+        )
+    if question_id is not None and question_id != pick.question.id:
+        raise ReviewQuizStale("题目已更新，请刷新到期任务后重试")
+
+    if pick.mode == "system":
+        text = (answer or "").strip()
+        if not text:
+            raise ReviewQuizInvalid("请先作答再提交")
+        outcome = judge_answer(
+            text,
+            pick.question.answer,
+            acceptable=pick.question.accept,
+            unordered=pick.question.unordered,
+        )
+        if outcome.verdict == "uncertain":
+            raise ReviewQuizUncertain(
+                "无法自动判分（作答含不确定内容），请改用原题重做或自评"
+            )
+        judged_correct = outcome.verdict == "correct"
+        verdict: QuizVerdict = (
+            "correct" if judged_correct else "wrong"
+        )
+        source: AttemptSource = "system_quiz"
+    else:
+        if correct is None:
+            raise ReviewQuizInvalid(
+                "解答大题需在纸上完成并自评：请传 correct"
+            )
+        judged_correct = correct
+        verdict = "correct" if correct else "wrong"
+        source = "student_self"
+
+    completion = await complete_attempt(
+        session,
+        mistake_id,
+        schedule_id=schedule.id,
+        correct=judged_correct,
+        completed_on=completed_on,
+        actor=actor,
+        source=source,
+        now=now,
+        extra_payload={
+            "quiz_question_id": pick.question.id,
+            "quiz_topic_id": pick.question.topic_id,
+            "quiz_mode": pick.mode,
+            "quiz_verdict": verdict,
+            "quiz_verify_status": pick.question.verify_status,
+            "quiz_seed": seed,
+        },
+    )
+
+    # 并发重试可能命中已存在事件：以记录为准回放，不采用本次判分。
+    if completion.quiz is not None and completion.quiz.question_id != pick.question.id:
+        return _recorded_quiz_result(pick, completion)
+    question = pick.question
+    if completion.quiz is not None:
+        question = get_bank().question(completion.quiz.question_id) or question
+    return ReviewQuizResult(
+        completion=completion,
+        question=question,
+        mode=completion.quiz.mode if completion.quiz is not None else pick.mode,
+        verdict=(
+            completion.quiz.verdict
+            if completion.quiz is not None
+            else verdict
+        ),
+        seed=seed,
+        pool_size=pick.pool_size,
+    )

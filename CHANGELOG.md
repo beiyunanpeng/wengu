@@ -8,14 +8,59 @@
 ## [Unreleased]
 
 P1-9、P1-2b、P1-2c 已完成，P1-3c 的 B1/B1.5（配图切片几何）已交付；
-P1-5 与 P1-7a 已按 v2.5 收口（真实题退场、到期队列考核优先/重做兜底），P1-10 题库就绪。
-Phase 1 只剩 P1-11（同类题考核闭环）、P1-7b（前置回溯诊断）与受闸门阻塞的 P1-7c。
-下一步先做 **P1-11 考核闭环**，再补 P0-1 样本扩容 + P0-2 黄金评测集与 P1-7b。
+P1-5、P1-7a、P1-10、P1-11 已按 v2.5 收口（真实题退场、到期队列考核优先、
+题库就绪、同类题考核闭环）。
+Phase 1 只剩 P1-7b（前置回溯诊断）与受闸门阻塞的 P1-7c。
+下一步先做 **P0-1 样本扩容 + P0-2 黄金评测集**，再补 P1-7b。
 **P1-7c 自动排复习仍受 Phase 0 闸门阻塞**（边界表未回填前不自动排复习）；
 复习排期只由**用户确认错题**触发；P1-6 的"入本"也仍以孩子/家长确认 `wrong`
 为前提，不得静默自动建错题。
 
 ### Added
+
+- **P1-11 同类题考核闭环（服务端判分 + 手动组卷）**（2026-10-29）：
+  - **到期考核走新端点 `POST /api/reviews/{mistake_id}/quiz`**：服务端按
+    `quiz_seed(mistake_id, schedule_id)` 重算题目并用 `judge_answer` 判分后落库
+    （`source=system_quiz`），**客户端传的 `correct` 一律忽略**；解答大题/依赖题图
+    （`mode=self_eval`）必须传自评 `correct`（`source=student_self`）；同一排期重复
+    提交按事件回放原判分，绝不用新答案改写旧结果。空白作答、judgeAnswer
+    `uncertain` 一律拒绝或跳过，绝不猜对错。
+  - **`POST /api/reviews/{id}/complete` 收紧为原题重做自评**：`source` 只接受
+    `student_self`，客户端直塞 `system_quiz` 返回 422——掌握度不能被前端"自报对"刷高。
+  - **到期队列三分类**：`task=quiz`（可答题）/ `self_eval`（大题降级）/
+    `redo`（无题兜底 + `bank_gap`）；题面统一走 `schemas.quiz.quiz_view`，
+    **绝不序列化 `answer / accept / explanation / verify`**，并透传
+    `unaudited / blind_verified / verify_status / verify_reason` 质量标签。
+  - **家长手动组卷**：`GET /api/quizzes/topics`（可组卷知识点 + 可答题数）、
+    `GET /api/quizzes/paper?topic_id&count&seed`（`paper_picks` 固定种子、前缀稳定、
+    `count` 增大只在卷尾追加）、`POST /api/quizzes/paper/submit`（整卷交卷，逐题服务端
+    判分；空白=skipped、大题需自评）。内容对 `(topic, seed, count)` 可 `replay_paper`。
+  - **考核结果只进 attempts、不进错题本**：新增迁移 `0012_attempts_mistake_nullable`
+    （`attempts.mistake_id` 可空）；考核 attempts 记 `kind=quiz`、`source` 标签、
+    `answer_text=NULL`（不存作答原文），事件 payload 记题目 id/模式/判分结论/题库质量。
+    `GET /api/attempts` 新增 `question_id/topic_id` 与题面回显；新增
+    `DELETE /api/attempts` 整表清空派生明细（被复习排期引用者保留，事件仍为事实源，
+    重复交卷会按事件补回明细）。
+  - **掌握度**：`recompute.mastery` 只认 `student_self/system_quiz` 且按
+    `concept_ids` 归属；手动组卷按该知识点下**已确认、未归并**的 concepts 归属，
+    整体可重放，绝不存易变字段。题库层新增 `is_answerable`（客观/数值/短答且不依赖
+    题图）与 `paper_picks`（Fisher–Yates + mulberry32），`find_same_type` 改为可答题优先。
+  - 测试：新增 `tests/integration/test_quiz_api.py`（确定性/前缀稳定/服务端判分/
+    客户端谎报被忽略/无答案泄漏递归断言/大题自评/陌生题拦截/清表重建），并改造
+    `test_reviews_api` 覆盖 `/quiz` 判分、幂等回放、`/complete` 拒绝 `system_quiz`、
+    `cnm_258` 自评降级、清表保留排期引用。**全量 432 passed**，`ruff check .` 全绿。
+  - **运行态实跑**（临时库 + 真 uvicorn）：`cnm_001` 组卷 seed 7 → `q3/q2` 两题、
+    correct+wrong 恰好 1:1（客户端 `correct` 全谎报仍按题库判）、attempts 两条
+    `mistake_id=NULL` 且无答案字段；外部转录导入 → 核对页确认（`primary_topic_id`
+    分别为 `cnm_001/cnm_258`）→ 到期队列 `quiz`（system）与 `self_eval`（配图大题）
+    分流；复习考核答对 → `source=system_quiz`、掌握度 0.5（组卷事实）→ 重复提交
+    回放同一结果 → `/complete` 塞 `system_quiz` 422 → 第二档答对掌握度 2/3；
+    大题自评 `source=student_self`；`DELETE /api/attempts` 删 2 留 3（排期引用）。
+    离线重放：`mastery(concept)=0.75` 与 5 条考核事件题目全部由 `(topic, seed)`
+    确定性重建；错题本仅 2 条且均来自核对页确认。
+  - 残留：`DELETE /api/attempts` 只清明细、不动 `learning_events`（事实源纪律），
+    掌握度仍可重算；要彻底清零走备份/恢复。手动组卷 `seed` 由客户端携带，换 seed
+    重复交卷等于再练一次（与重复练习同语义）。前端考核页未接入（P1-9 既有 UI 待跟进）。
 
 - **P1-5 / P1-7a：真实题退场、考核优先（v2.5 收口）**（2026-10-29）：
   - **P1-5 删除真实作业的模型初判与多次采样**：`services/grading.py` 不再调
