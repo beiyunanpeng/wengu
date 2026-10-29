@@ -73,10 +73,12 @@ duplicate=true）→ 落 ingestion_drafts → 处理完的源文件归档到 dat
 统一口径：主考点列 = primary_topic_id；闭环同类题考核复用 attempts、不建 quiz_attempts。
 【任务】核对页把草稿的"题目 + 错答 + 正答"并排回显 → 家长/孩子一键确认 → 走唯一写入路径建错题（来源链
 GradingResult(source_kind='ingestion_draft')→Mistake，不改结构）；standard_answer / 错因 / 知识点按"AI 建议值→确认值"
-分来源存（冲突不静默覆盖）；确认时指定 primary_topic_id（主考点）。知识点：粗 seed 挂载 + 细粒度受控生长
+分来源存（冲突不静默覆盖）；尽量指定 primary_topic_id（主考点，可空）。知识点：粗 seed 挂载 + 细粒度受控生长
 （优先复用、不覆盖确认值、归并需人工确认、alias）。主动加练变式 → practice_records。
-【DoD】一条转录错题确认 ≤1 点击入本；缺 standard_answer 或未确认 primary_topic_id → 不能转正、不排同类题考核
-（只走原题重做自评 student_self）；practice_records 有独立可回看查询页。
+转正闸门（v2.5 定稿）：standard_answer 必填、problem_text 必填；primary_topic_id 可空（缺则仍入本、存 NULL）；
+student_answer 可空（整题没做也算错题）；但任一字段含〔?〕占位符一律拒绝转正（看不清须重拍，区别于"留空"）。
+【DoD】一条转录错题确认 ≤1 点击入本；无 primary_topic_id 仍入本、只是不排同类题考核（复习退回原题重做自评
+student_self）；缺 standard_answer 或含〔?〕 → 拒绝转正；practice_records / attempts 有可回看查询页。
 【禁止】AI 自由生成标签泛滥；把变式/考核写进错题本；无用户确认静默入库。
 ```
 

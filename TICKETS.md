@@ -82,8 +82,8 @@
 
 ### P1-6 错题本入库（v2.5 改：入本=核对页确认的外部转录错题）
 - 依赖：P1-3d、P1-4b、P1-5。
-- 交付：核对页确认外部转录错题 → **唯一写入路径**建错题（记 `standard_answer / 错答 / 错因(确认值) / 多 concept 挂载 + `primary_topic_id``）；**`〔?〕`/残缺/缺 `standard_answer` → 不得自动转正**；错因 AI 建议值 + 孩子确认值分离、来源标记（`ai / student / parent`）；知识点粗 seed 挂载 + 细粒度受控生长（优先复用、不覆盖确认值、归并需人工确认、alias）。主动加练变式 → `practice_records`；闭环同类题考核 → 记 `attempts`（`source=system_quiz`）（都不进错题本）。
-- DoD：一条转录错题确认 ≤1 点击入本；缺主考点/未确认 topicId → 不排考核、只走原题重做；`attempts`（按 `source=system_quiz` 过滤）/`practice_records` 有可回看查询页。禁止：AI 自由生成标签泛滥；把变式/考核写入错题本；无确认静默入库。
+- 交付：核对页确认外部转录错题 → **唯一写入路径**建错题（记 `standard_answer(必填) / 错答(可空——整题没做也算错题) / 错因(确认值) / 多 concept 挂载 + `primary_topic_id`(可空)`）；**含 `〔?〕` 或缺 `standard_answer` → 不得自动转正**（占位符=看不清须重拍，区别于"留空错答"）；错因 AI 建议值 + 孩子确认值分离、来源标记（`ai / student / parent`）；知识点粗 seed 挂载 + 细粒度受控生长（优先复用、不覆盖确认值、归并需人工确认、alias）。主动加练变式 → `practice_records`；闭环同类题考核 → 记 `attempts`（`source=system_quiz`）（都不进错题本）。
+- DoD：一条转录错题确认 ≤1 点击入本；无 `primary_topic_id` 仍入本（存 NULL）、只是不排同类题考核、复习退回原题重做自评；`attempts`（按 `source=system_quiz` 过滤）/`practice_records` 有可回看查询页。禁止：AI 自由生成标签泛滥；把变式/考核写入错题本；无确认静默入库。
 
 ### P1-7a 复习排期服务（用户触发，v2.5 补：考核优先/重做兜底 + 双来源）
 - 依赖：P1-6、P1-10、`review_policy.py`（已交付）。
