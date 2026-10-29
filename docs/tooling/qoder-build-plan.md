@@ -111,6 +111,8 @@ find_same_type(primary_topic_id, seed) —— 同 topicId + mulberry32 固定种
   坐标/单位别名/带分数、acceptableAnswers 别名），运行时不 eval；bank verify 仅入库时过 AST 白名单沙箱。
 - 复习 due_queue() 对每道到期错题：先按 primary_topic_id 检索同类题（P1-10）→ 命中推"同类题考核"、
   未命中退回"原题重做（自评 student_self）"并标 bank_gap。
+- 口径：只有 coverage="gap"（该知识点 0 题，如语文/化学）才触发"退回原题重做"；coverage="thin"
+  （物理 368<500 的软提示）仍正常出同类题、只是给 UI 一个"覆盖偏薄"提示，**不得把 thin 当 gap**。
 - recompute.mastery() 把 attempts 里 source ∈ {student_self, system_quiz} 两类都计入、MVP 各算 1 次仅打标签
   （暂不加权、可整体重算）；一道错题挂多 concept 取最小 mastery（不变）。
 v2.5 关键：删除旧"对真实作业做客观/过程/开放分级 + 模型初判 + 多次采样一致性"整段——真实题不在系统内判。
@@ -130,9 +132,14 @@ v2.5 关键：删除旧"对真实作业做客观/过程/开放分级 + 模型初
 source=system_quiz，不新建错题）；数学解答大题（bank type 非客观 或 figure 依赖图）→ 降级"纸上做 → 拍已批改 →
 自评"（source=student_self）。触发两者都要：复习到点自动推（P1-7a）+ 家长手动组卷入口（选知识点→出 1..N 题）。
 考核结果计入该知识点掌握度、可整表清空。
+【安全红线（最重要）】考核 API/响应体只下发 `题干 + 选项 + 题型`，**绝不下发 `answer`/`explanation`/`verify`**——
+判分全在服务端 judgeAnswer 完成，前端拿不到答案（防 F12 偷看 = 又一支"更漂亮的红笔"）。
+对 verify_status=unverifiable 的题：判分仍以 bank `answer`+`accept` 走 judgeAnswer，但 UI 须透传质量标签
+（unaudited / blind_verified=false / unverifiable），让家长看得到"此题未经二遍复核"。
 【DoD】一道数学错题到期 → 推同 topicId 客观题 → 系统判对/错 → 掌握度变化可重放；大题 → 降级自评路径生效；
-家长手动组卷可用；source=system_quiz 的 attempts 不新建错题。
-【禁止】让模型判考核题；把考核结果建成错题本条目。
+家长手动组卷可用；source=system_quiz 的 attempts 不新建错题；**响应体断言不含 answer/explanation/verify 字段**。
+【禁止】让模型判考核题；把考核结果建成错题本条目；把 answer/explanation/verify 序列化进任何前端响应；
+对 unverifiable 题当作已核验静默加分。
 ```
 
 ---
