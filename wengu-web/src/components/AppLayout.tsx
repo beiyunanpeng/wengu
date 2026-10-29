@@ -2,10 +2,10 @@ import { AppShell, Button, Container, Group, Text } from "@mantine/core";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 
 const NAV = [
-  { to: "/capture", label: "采集" },
-  { to: "/intake", label: "入库核对" },
+  { to: "/import", label: "导入" },
+  { to: "/intake", label: "核对" },
   { to: "/mistakes", label: "错题本" },
-  { to: "/review", label: "复习" },
+  { to: "/review", label: "复习考核" },
   { to: "/records", label: "练习记录" },
 ];
 

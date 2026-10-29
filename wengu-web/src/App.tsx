@@ -4,6 +4,7 @@ import AppLayout from "./components/AppLayout";
 import CapturePage from "./pages/CapturePage";
 import ExplainPage from "./pages/ExplainPage";
 import GradingPage from "./pages/GradingPage";
+import ImportPage from "./pages/ImportPage";
 import IntakePage from "./pages/IntakePage";
 import MistakeDetailPage from "./pages/MistakeDetailPage";
 import MistakesPage from "./pages/MistakesPage";
@@ -14,7 +15,8 @@ export default function App() {
   return (
     <Routes>
       <Route element={<AppLayout />}>
-        <Route index element={<Navigate to="/capture" replace />} />
+        <Route index element={<Navigate to="/import" replace />} />
+        <Route path="import" element={<ImportPage />} />
         <Route path="capture" element={<CapturePage />} />
         <Route path="capture/:captureId" element={<CapturePage />} />
         <Route path="grading/:gradingId" element={<GradingPage />} />
@@ -24,7 +26,7 @@ export default function App() {
         <Route path="review" element={<ReviewPage />} />
         <Route path="records" element={<RecordsPage />} />
         <Route path="explain" element={<ExplainPage />} />
-        <Route path="*" element={<Navigate to="/capture" replace />} />
+        <Route path="*" element={<Navigate to="/import" replace />} />
       </Route>
     </Routes>
   );

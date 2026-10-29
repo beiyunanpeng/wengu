@@ -50,9 +50,11 @@ function Field({ label, value }: { label: string; value: string }) {
 function DraftCard({
   draft,
   errorCauses,
+  onConfirmed,
 }: {
   draft: IntakeDraft;
   errorCauses: ErrorCauseOption[];
+  onConfirmed: (alreadyPromoted: boolean) => void;
 }) {
   const navigate = useNavigate();
   const [topicId, setTopicId] = useState<string | null>(
@@ -131,7 +133,9 @@ function DraftCard({
         error_cause: errorCause,
         concept_ids: conceptIds,
         actor,
-      });      setResult(response);
+      });
+      setResult(response);
+      onConfirmed(response.already_promoted);
     } catch (cause) {
       setActionError(errorMessage(cause));
     } finally {
@@ -228,7 +232,7 @@ function DraftCard({
             setConceptIds([]);
             setNewConceptName("");
           }}
-          label="主考点（primary_topic_id，可空）"
+          label="主考点 primary_topic_id（决定是否推同类题考核）"
           initialLabel={
             draft.suggestion.topic_name
               ? [draft.suggestion.topic_name, draft.subject]
@@ -237,6 +241,10 @@ function DraftCard({
               : null
           }
         />
+        <Text size="xs" c="dimmed">
+          选了主考点：到期时按该知识点检索同类题（有题就考、系统判分）；
+          不选：只排原题重做自评，不推考核。挂多个细概念仍可照常保存。
+        </Text>
 
         <MultiSelect
           label="细粒度概念（可多选）"
@@ -429,8 +437,8 @@ export default function IntakePage() {
       </Group>
 
       <Alert color="blue" variant="light">
-        外部 agent 转录的错题只会停在这里；确认后才进错题本、才排复习。题目/错答
-        含占位符的草稿需要重新拍照转录。
+        外部 agent 转录的错题只会停在这里；确认后才进错题本、才排复习。确认成功后
+        「待确认」计数会即时递减。题目/错答含占位符的草稿需要重新拍照转录。
       </Alert>
 
       {loading && (
@@ -446,13 +454,22 @@ export default function IntakePage() {
 
       {!loading && !error && drafts.length === 0 && (
         <Alert color="gray" variant="light" title="没有待确认草稿">
-          把外部 agent 转录好的 JSON 放进 inbox 监听目录（或走 /api/imports），
-          刷新后就会出现在这里。
+          把外部 agent 转录好的 JSON 放进 inbox 监听目录（或到导入页手填），
+          生成草稿后会出现在这里。
         </Alert>
       )}
 
       {drafts.map((draft) => (
-        <DraftCard key={draft.id} draft={draft} errorCauses={errorCauses} />
+        <DraftCard
+          key={draft.id}
+          draft={draft}
+          errorCauses={errorCauses}
+          onConfirmed={(alreadyPromoted) => {
+            if (!alreadyPromoted) {
+              setTotal((value) => Math.max(0, value - 1));
+            }
+          }}
+        />
       ))}
     </Stack>
   );

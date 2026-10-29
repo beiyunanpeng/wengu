@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.database import get_session
 from app.models import ImportBatch, IngestionDraft
 from app.services.concepts import CategoryNotFound
@@ -28,6 +29,7 @@ from app.services.inbox import (
     PayloadTooLargeError,
     ingest_raw_payload,
 )
+from app.services.ingestion import MAX_BATCH_BODY_BYTES, MAX_ITEMS_PER_BATCH, SUPPORTED_CHANNELS
 from app.services.intake import (
     DraftGateError,
     DraftNotFound,
@@ -130,6 +132,13 @@ class DraftConfirmResponse(BaseModel):
     standard_answer: str
     due_on: date | None
     already_promoted: bool
+
+
+class InboxInfo(BaseModel):
+    path: str
+    channels: list[str]
+    max_items: int
+    max_body_bytes: int
 
 
 @router.post("/api/imports", response_model=ImportResult, status_code=201)
@@ -258,6 +267,19 @@ async def confirm_intake_draft(
             due_on=result.due_on,
             already_promoted=result.already_promoted,
         )
+
+
+@router.get("/api/imports/inbox", response_model=InboxInfo)
+async def inbox_info() -> InboxInfo:
+    """导入页展示：真实监听目录与单批上限（纯查询，不读库、不调模型）。"""
+
+    settings = get_settings()
+    return InboxInfo(
+        path=str(settings.inbox_path),
+        channels=list(SUPPORTED_CHANNELS),
+        max_items=MAX_ITEMS_PER_BATCH,
+        max_body_bytes=MAX_BATCH_BODY_BYTES,
+    )
 
 
 @router.get("/api/imports/{batch_id}", response_model=BatchInfo)

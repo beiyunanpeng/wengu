@@ -16,12 +16,19 @@ import type {
   ExplanationResponse,
   ExtractionBatch,
   GradingDetail,
+  ImportResult,
+  InboxInfo,
   IntakeDraftListResponse,
   MistakeDetail,
   MistakeListResponse,
   MistakeOptions,
+  PaperSubmitAnswer,
+  PaperSubmitResponse,
   PracticeListResponse,
   QuestionType,
+  QuizPaperResponse,
+  QuizTopicListResponse,
+  ReviewQuizResponse,
   SliceResult,
   TopicListResponse,
 } from "./types";
@@ -230,8 +237,98 @@ export function completeReview(
   return requestJson<CompleteReviewResponse>(
     `/api/reviews/${mistakeId}/complete`,
     "POST",
+    { actor: "student", source: "student_self", ...payload },
+  );
+}
+
+export function submitReviewQuiz(
+  mistakeId: number,
+  payload: {
+    schedule_id: number;
+    question_id?: string | null;
+    answer?: string | null;
+    correct?: boolean | null;
+    completed_on?: string;
+    actor?: "student" | "parent";
+  },
+): Promise<ReviewQuizResponse> {
+  return requestJson<ReviewQuizResponse>(
+    `/api/reviews/${mistakeId}/quiz`,
+    "POST",
     { actor: "student", ...payload },
   );
+}
+
+export function getInboxInfo(): Promise<InboxInfo> {
+  return apiRequest<InboxInfo>("/api/imports/inbox");
+}
+
+export interface TranscribeItem {
+  subject?: string;
+  problem_text: string;
+  student_answer?: string;
+  standard_answer?: string;
+  source_ref?: string;
+  captured_at?: string;
+}
+
+export function importTranscribe(
+  items: TranscribeItem[],
+): Promise<ImportResult> {
+  return requestJson<ImportResult>(
+    "/api/imports",
+    "POST",
+    { channel: "agent_transcribe_v1", items },
+    60_000,
+  );
+}
+
+export function listQuizTopics(filters: {
+  subject?: string;
+  q?: string;
+  limit?: number;
+}): Promise<QuizTopicListResponse> {
+  const params = new URLSearchParams();
+  if (filters.subject) {
+    params.set("subject", filters.subject);
+  }
+  if (filters.q?.trim()) {
+    params.set("q", filters.q.trim());
+  }
+  params.set("limit", String(filters.limit ?? 100));
+  return apiRequest<QuizTopicListResponse>(
+    `/api/quizzes/topics?${params.toString()}`,
+  );
+}
+
+export function getQuizPaper(filters: {
+  topicId: string;
+  count: number;
+  seed?: number;
+}): Promise<QuizPaperResponse> {
+  const params = new URLSearchParams();
+  params.set("topic_id", filters.topicId);
+  params.set("count", String(filters.count));
+  if (filters.seed !== undefined) {
+    params.set("seed", String(filters.seed));
+  }
+  return apiRequest<QuizPaperResponse>(
+    `/api/quizzes/paper?${params.toString()}`,
+  );
+}
+
+export function submitQuizPaper(payload: {
+  topic_id: string;
+  seed: number;
+  count: number;
+  answers: PaperSubmitAnswer[];
+  completed_on?: string;
+  actor?: "student" | "parent";
+}): Promise<PaperSubmitResponse> {
+  return requestJson<PaperSubmitResponse>("/api/quizzes/paper/submit", "POST", {
+    actor: "student",
+    ...payload,
+  });
 }
 
 export interface CreateExplanationPayload {
@@ -305,7 +402,7 @@ export function confirmIntakeDraft(
 
 export interface AttemptFilters {
   source?: "manual" | "student_self" | "system_quiz";
-  mistakeId?: number;
+  mistakeId?: number | null;
   limit?: number;
   offset?: number;
 }
