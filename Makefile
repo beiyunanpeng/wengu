@@ -33,7 +33,7 @@ M             ?= auto
 D             ?= base
 
 .PHONY: help install-api dev-api install-web dev-web \
-        seed-load migrate upgrade downgrade migration-test \
+        seed-load seed-questions migrate upgrade downgrade migration-test \
         eval test lint format \
         up down logs \
         backup restore
@@ -51,6 +51,7 @@ help:
 	@echo ""
 	@echo "  # 数据与迁移"
 	@echo "  make seed-load          从 seeds/ 装载 knowledge_seed + prerequisite_edges"
+	@echo "  make seed-questions     转换初中题库到 seeds/data/questions.json（一次性）"
 	@echo "  make migrate            生成新 Alembic 迁移（改表后跑；M=描述）"
 	@echo "  make upgrade            应用最新迁移到 SQLite"
 	@echo "  make downgrade          回退迁移（D=base 或 revision）"
@@ -93,7 +94,11 @@ dev-web:
 # ---------- 数据与迁移 ----------
 seed-load:
 	@echo "===> 从 cn-math-taxonomy 转换初中 seed 到 seeds/data/（一次性，开发者跑）..."
-	cd wengu-api && $(VENV_PY) -m scripts.import_seed --src ../cn-math-taxonomy-main
+	cd wengu-api && $(VENV_PY) -m scripts.import_seed --src ../../cn-math-taxonomy-main
+
+seed-questions:
+	@echo "===> 从 cn-math-taxonomy 转换初中题库到 seeds/data/questions.json（一次性，开发者跑）..."
+	cd wengu-api && $(VENV_PY) -m scripts.import_questions --src ../../cn-math-taxonomy-main
 
 migrate:
 	cd wengu-api && $(VENV_ALEMBIC) revision --autogenerate -m "$(M)"

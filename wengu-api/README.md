@@ -19,9 +19,9 @@ wengu-api/
 │  ├─ judge/                     # judgeAnswer 规范化 + AST 白名单沙箱 verify
 │  ├─ jobs/                      # ai_jobs 表 + 进程内循环
 │  ├─ prompts/loader.py          # 从 ../llm_prompts/ 加载真源
-│  └─ seed/                      # 装载 knowledge_seed + prerequisite_edges
+│  └─ seed/                      # seed 装载 + 题库内存索引（bank.py / svg.py）
 ├─ migrations/                   # Alembic
-├─ scripts/                      # import_seed / make_* / eval_* / smoke_providers
+├─ scripts/                      # import_seed / import_questions / make_* / eval_* / smoke_providers
 ├─ tests/                        # unit / integration / e2e / memory
 ├─ requirements.txt
 ├─ .env.example                  # 密钥走 env；运行时可改参数走 config/app-config.json

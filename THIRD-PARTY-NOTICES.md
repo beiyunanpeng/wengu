@@ -9,10 +9,10 @@
 - **来源**：<https://github.com/xiaoyang111222/cn-math-taxonomy>
 - **许可**：**Creative Commons Attribution-NonCommercial 4.0 International (CC BY-NC 4.0)**
 - **许可全文**：<https://creativecommons.org/licenses/by-nc/4.0/legalcode>
-- **使用范围**：wengu 项目内的 `seeds/data/` 目录（由 `wengu-api/scripts/import_seed.py` 从上游转换的**初中子集**，随本仓库分发；内嵌 `_source.json` 署名）。完整上游数据（含小学/高中/题库）请自行从原项目获取
+- **使用范围**：wengu 项目内的 `seeds/data/` 目录（由 `wengu-api/scripts/import_seed.py` 与 `import_questions.py` 从上游转换的**初中子集**，随本仓库分发；内嵌 `_source.json` / `questions_source.json` 署名）。完整上游数据（含小学/高中）请自行从原项目获取
   - 初中数学 315 知识点 + 初中英语 257 + 初中物理 92
   - 初中 1018 条先修边（分 hard/soft；跨学段边已按规则丢弃，见 `seeds/README.md`）
-  - 题库 7431 题（数学 3459 + 英语 2896 + 物理 1076；初中 2803 题）——**尚未导入**，见 P3-1
+  - 初中题库 2803 题（数学 1407 + 英语 1028 + 物理 368；上游全库 7431 题，小学/高中未导入），运行时只读入内存索引、不进 SQLite
 - **归属要求**（依 CC BY-NC 4.0 §3(a)）：
   - README / CHANGELOG / 本文件 显式署名 `cn-math-taxonomy`
   - 附原项目链接

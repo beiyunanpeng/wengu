@@ -16,6 +16,42 @@ P1-7b（前置回溯诊断）与受闸门阻塞的 P1-7c；P1-3c B2（依赖图�
 
 ### Added
 
+- **P1-10 题库检索引擎（同类题地基）**（2026-10-29）：把 `cn-math-taxonomy`
+  `questions.json` 初中段 **2803 题**（数学 1407 / 英语 1028 / 物理 368）以 JSON
+  随仓库分发，运行时载入**内存倒排索引（`topic_id → [题]`），不进 SQLite**
+  （守设计 §14 数据形态）。
+  - 新增 `scripts/import_questions.py`（`make seed-questions`）：按 `seeds/data/topics.json`
+    的 664 个初中点过滤上游 7431 题，camelCase→snake_case，稳定排序；产出
+    `seeds/data/questions.json`（2.1 MB）与 `questions_source.json`（CC BY-NC 4.0
+    署名 + 计数 + 配图/verify 统计）。上游小学/高中 4628 题未导入。
+  - 新增 `app/seed/bank.py`：结构校验（未知知识点/非法题型/答案不在选项/空作答拒绝）、
+    建倒排、按学科/题型统计；缺文件/空数组容忍（语文/化学无题起步）。
+  - **每题 verify 装载时过 P1-5 AST 白名单沙箱**：能算且一致 → `verified`（1738）；
+    无 verify（532）/ 表达式用了沙箱白名单外的 `Fraction`、`range`、数学函数（498）/
+    选择题选项带单位或文字（35）→ `unverifiable`（保留供考核）；**纯数值题算出矛盾 →
+    不装载**（本批 0 条）。选择题按正确选项文本比对，避免把 A/B/C/D 字母当数值。
+  - 新增 `app/services/bank.py`：`find_same_type(primary_topic_id, seed)` 同知识点内
+    用 **mulberry32 固定种子**取 1 题（逐位对齐上游 JS；测试用 Node 参考值校验）；
+    `replay(pick)` 重算并校验，题库漂移抛 `BankReplayError`；无题知识点返回空 +
+    `bank_gap=true`（P1-7a 据此退回原题重做）；物理按学科总量 368 < 500 标 `thin`，
+    数学/英语 `ok`。`get_bank()` 进程内懒加载单例，`reset_bank_cache()` 供测试。
+  - 新增 `app/seed/svg.py`：题干与选项内联 SVG 用**既有 `bleach` 依赖**（无新依赖）
+    做白名单净化，保留 `viewBox` / 描边属性，剥掉 `script`、`on*`、`javascript:`、
+    `foreignObject`；前端只渲染净化后的字符串（P1-11 考核页接入）。
+  - 测试：新增 `tests/unit/test_bank.py`（倒排/verify 分类/SVG/固定种子/replay/缺口/
+    物理 thin/类型校验/mulberry32 与 JS 对齐）、`test_bank_seed.py`（真实 2803 题计数、
+    664 点 4–5 题、`cnm_001` seed=42 → `cnm_001_q3` 稳定且可重放、76 张配图全净化）、
+    `test_import_questions.py`（过滤/字段/计数/署名）。**全量 397 passed**，
+    `ruff check .` 全绿。
+  - **真实实跑**（直接装载 `seeds/data`）：2803 题 / 664 点，`by_subject` 与上游一致，
+    load 0.344 s；`cnm_001` seed=42 → `cnm_001_q3`（pool 4），`cnp_001` seed=7 →
+    `cnp_001_q1` 且 `coverage=thin`，`cne_j001` seed=1 → `cne_j001_q3`，三者 `replay`
+    一致；`cnm_999999` / `None` → `bank_gap=true`；0 张配图残留 `script`/`onload`。
+  - 顺带修正 `make seed-load` / `seed-questions` 的 `--src` 相对路径：`cd wengu-api` 后
+    应为 `../../cn-math-taxonomy-main`（上游 clone 与 wengu 同级），原命令少一级。
+  - 残留：本批只交付检索服务与数据，**不开 API/UI**（考核页在 P1-11，届时注意答案
+    字段不下发）；英语/物理题仍无二遍盲解（`blind_verified=false`），UI 须继续透传质量标签。
+
 - **v2.5 核对页确认入本（批次③，P1-6）**（2026-10-29）：外部转录草稿只有在核对页
   人工确认后才转正——**正答（`standard_answer`）必填、任一字段含 `〔?〕` 一律拒转正**；
   `primary_topic_id` 与 `student_answer` 可空（未确认主考点仍入本、`mistakes.primary_topic_id`

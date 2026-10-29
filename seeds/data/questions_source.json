@@ -1,0 +1,36 @@
+{
+ "name": "cn-math-taxonomy questions（初中部分）",
+ "upstream_url": "https://github.com/xiaoyang111222/cn-math-taxonomy",
+ "upstream_commit": null,
+ "upstream_license": "CC BY-NC 4.0",
+ "nc_statement": "限个人非商用：署名 + 非商业使用（CC BY-NC 4.0 §3(a)）",
+ "imported_at": "2026-10-29",
+ "imported_by": "wengu-api/scripts/import_questions.py",
+ "filter": "topicId ∈ seeds/data/topics.json（初中 664 点）",
+ "counts": {
+  "questions_total_upstream": 7431,
+  "questions_imported": 2803,
+  "questions_by_subject": {
+   "数学": 1407,
+   "物理": 368,
+   "英语": 1028
+  },
+  "questions_by_type": {
+   "choice": 1824,
+   "numeric": 950,
+   "self": 6,
+   "short": 23
+  },
+  "questions_by_difficulty": {
+   "advanced": 285,
+   "basic": 1289,
+   "standard": 1229
+  },
+  "questions_with_figure": 52,
+  "choice_figures": 24,
+  "questions_with_verify": 2271,
+  "questions_out_of_scope": 4628,
+  "topics_referenced": 664,
+  "topics_without_questions": 0
+ }
+}
