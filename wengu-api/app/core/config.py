@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     port: int = Field(default=8000, validation_alias="WENGU_PORT")
     data_dir: Path = Field(default=API_DIR / "data", validation_alias="WENGU_DATA_DIR")
     uploads_dir: Path | None = Field(default=None, validation_alias="WENGU_UPLOADS_DIR")
+    inbox_dir: Path | None = Field(default=None, validation_alias="WENGU_INBOX_DIR")
     db_path: Path | None = Field(default=None, validation_alias="WENGU_DB_PATH")
     prompts_dir: Path = Field(
         default=PROJECT_ROOT / "llm_prompts", validation_alias="WENGU_PROMPTS_DIR"
@@ -94,11 +95,18 @@ class Settings(BaseSettings):
         self.uploads_dir = (
             self.data_dir / "uploads" if self.uploads_dir is None else _resolve(self.uploads_dir)
         )
+        if self.inbox_dir is not None:
+            self.inbox_dir = _resolve(self.inbox_dir)
         self.db_path = self.data_dir / "wengu.db" if self.db_path is None else _resolve(self.db_path)
         self.prompts_dir = _resolve(self.prompts_dir)
         self.seeds_dir = _resolve(self.seeds_dir)
         self.app_config_path = _resolve(self.app_config_path)
         return self
+
+    @property
+    def inbox_path(self) -> Path:
+        """外部 agent 转录报文的监听目录（v2.5 主入本通道）。"""
+        return self.inbox_dir if self.inbox_dir is not None else self.data_dir / "inbox"
 
     @property
     def database_url(self) -> str:

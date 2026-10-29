@@ -16,6 +16,28 @@ P1-7b（前置回溯诊断）与受闸门阻塞的 P1-7c；P1-3c B2（依赖图�
 
 ### Added
 
+- **v2.5 监听目录导入引擎（批次②，P1-3d）**（2026-10-29）：外部 agent 转录的错题
+  JSON 落到 `data/inbox/`（`WENGU_INBOX_DIR` 可配）即被后台每 2 s 扫描处理——
+  复用 ingestion 的确定性校验/归一（不调模型），`sha256` 对原始报文去重，
+  写入 `import_batches` + `ingestion_drafts`（**只进草稿，绝不自动转正**），
+  处理完归档到 `.processed/`。
+  - 与 HTTP `POST /api/imports` 共用同一落库核心 `services/inbox.py::ingest_raw_payload`，
+    两条通道的去重与草稿语义完全一致。
+  - 可靠性：**处理成功才归档**——停机/崩溃时文件留在 inbox，重启补扫；JSON 非法且
+    文件新于 5 s 视为未写完、下轮重试，超过稳定窗口按 `.invalid.json` 隔离归档，不丢文件；
+    扫描按文件名排序保证确定性；日志只记文件名/计数/错误定位（index/field/reason），
+    不记题目全文与答案。
+  - 顺带修复两点：导入落库的草稿计数查询曾在外层事务之外执行（autobegin 挂起事务），
+    同一批多文件处理时第二个文件会 `InvalidRequestError`——已移入外层事务并加回归测试；
+    `WENGU_LOG_LEVEL` 此前只在配置里定义、从未生效，现于 `create_app()` 应用。
+  - 测试：新增 `tests/integration/test_inbox_watcher.py` 8 项（合法件入库归档、
+    同内容重投去重、坏项逐条报告不截断、非法 JSON 重试/隔离、停机补扫、同轮多文件、
+    watcher 循环、全程不调模型）；全量 **363 passed**，`ruff check .` 全绿。
+  - **真实实跑**（独立 SQLite + 真实 uvicorn）：合法 JSON 4 s 内生成 2 条草稿并归档；
+    同内容经 HTTP 重投返回 `duplicate=true` 且 `batch_id` 不变；坏项件批为 `partial`
+    仅 1 条草稿、日志逐条 `#1 problem_text: 题目为空（必填）`；停机期间投入的 3 份文件
+    重启后同一轮补齐（无 traceback），非法 JSON 隔离为 `.invalid.json`。
+
 - **P1-3c B1/B1.5 配图切片几何**（2026-10-27）：此前的裁剪框按组内文本并集取
   bbox，题目配图、草稿与题间空白常落在框外，切出来的图看不到图。本票只扩大
   裁剪范围，**不改一题一块的分组语义**。

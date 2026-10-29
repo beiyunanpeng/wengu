@@ -3,28 +3,28 @@
 导入全程不调模型（AGENTS §5）；sha256 对原始报文去重——
 同一文件重复导入返回旧 batch 并置 duplicate=true（"重复导入提醒"）。
 坏项跳过并逐条报告（index/field/reason），不静默截断超长内容。
+与目录监听（P1-3d services/inbox.py）共用同一个落库核心。
 """
 
 from __future__ import annotations
 
-import hashlib
 import json
 from dataclasses import asdict
-from datetime import UTC, datetime
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_session
 from app.models import ImportBatch, IngestionDraft
-from app.services.events import create_import_batch
-from app.services.ingestion import (
-    MAX_BATCH_BODY_BYTES,
-    dumps_draft,
-    validate_and_normalize,
-    validate_envelope,
+from app.services.inbox import (
+    NoValidItemsError,
+    PayloadEnvelopeError,
+    PayloadJsonError,
+    PayloadTooLargeError,
+    ingest_raw_payload,
 )
 
 router = APIRouter(tags=["imports"])
@@ -73,60 +73,30 @@ async def import_json(
     request: Request, session: AsyncSession = Depends(get_session)
 ) -> ImportResult:
     raw = await request.body()
-    if len(raw) > MAX_BATCH_BODY_BYTES:
-        raise HTTPException(status_code=413, detail="导入报文超过 5MB 上限，请拆分")
     try:
-        payload = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise HTTPException(status_code=400, detail=f"JSON 解析失败: {exc.msg}") from None
-    try:
-        channel, items = validate_envelope(payload)
-    except ValueError as exc:
+        outcome = await ingest_raw_payload(session, raw)
+    except PayloadTooLargeError as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from None
+    except PayloadJsonError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    except PayloadEnvelopeError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
-
-    result = validate_and_normalize(items)
-    if not result.drafts:
+    except NoValidItemsError as exc:
         raise HTTPException(
             status_code=422,
             detail={
-                "message": "没有可导入的合法题目",
-                "errors": [asdict(e) for e in result.errors],
+                "message": str(exc),
+                "errors": [asdict(e) for e in exc.errors],
             },
-        )
-
-    digest = hashlib.sha256(raw).hexdigest()
-    async with session.begin():
-        batch, created = await create_import_batch(
-            session, channel, digest, item_count=len(result.drafts)
-        )
-        if created:
-            batch.status = "imported" if not result.errors else "partial"
-            for draft in result.drafts:
-                session.add(
-                    IngestionDraft(
-                        import_batch_id=batch.id,
-                        seq=draft["seq"],
-                        normalized_json=dumps_draft(draft["normalized"]),
-                        has_placeholder=draft["has_placeholder"],
-                        is_incomplete=draft["is_incomplete"],
-                        created_at=datetime.now(UTC),
-                    )
-                )
-    draft_count = (
-        await session.execute(
-            select(func.count())
-            .select_from(IngestionDraft)
-            .where(IngestionDraft.import_batch_id == batch.id)
-        )
-    ).scalar_one()
+        ) from None
     return ImportResult(
-        batch_id=batch.id,
-        status=batch.status,
-        duplicate=not created,
-        draft_count=draft_count,
-        accepted_count=len(result.drafts),
-        dropped_unknown_fields=result.dropped_unknown_fields,
-        errors=[ImportErrorItem(**asdict(e)) for e in result.errors],
+        batch_id=outcome.batch_id,
+        status=outcome.status,
+        duplicate=outcome.duplicate,
+        draft_count=outcome.draft_count,
+        accepted_count=outcome.accepted_count,
+        dropped_unknown_fields=outcome.dropped_unknown_fields,
+        errors=[ImportErrorItem(**asdict(e)) for e in outcome.errors],
     )
 
 
