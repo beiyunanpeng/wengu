@@ -419,6 +419,19 @@ export interface DashboardEventStats {
   attempt_accuracy: number | null;
 }
 
+export interface DashboardStreakDay {
+  date: string;
+  done: boolean;
+}
+
+export interface DashboardStreak {
+  today_done: boolean;
+  current_streak: number;
+  longest_streak: number;
+  learning_days_total: number;
+  recent_days: DashboardStreakDay[];
+}
+
 export interface DashboardResponse {
   today: string;
   week_start: string;
@@ -431,6 +444,7 @@ export interface DashboardResponse {
   bank_gap: DashboardBankGap;
   governance: DashboardGovernance;
   event_stats: DashboardEventStats;
+  streak: DashboardStreak;
 }
 
 export interface SessionStatus {

@@ -16,6 +16,23 @@ Phase 1 只剩 P1-7b（前置回溯诊断）与受闸门阻塞的 P1-7c。
 
 ### Added
 
+- **P2-6 极简打卡（streak 从事实现算，不入库）**（2026-10-31）：
+  看板新增“每日打卡”卡：今日已打卡 / 今天还没打卡、连续 N 天、最长 N 天、累计学习天数、
+  近 30 天日历条；沿用 P2-5 的掌握度曲线，不新建页面或端点。
+  - **口径**：孩子当天产生任一作答事件（`attempt_correct` / `attempt_wrong`，含复习与
+    自造同类题考核）即当日打卡；答错也续 streak（打卡只反映“来了”，掌握度才反映“学会”）。
+    学习日优先取 `payload.completed_on`（本地日期），缺失或非法回退 `occurred_at`。
+  - **锚定规则**：今天有 → 从今天倒数；今天没有但昨天有 → 从昨天倒数（不算断）；
+    连续两天都没有 → 归零。`longest_streak` 取历史最长连续；streak **绝不入库**，每次现算。
+  - **实现**：新增 `services/streak.py` 纯函数 `summarize_streak(events, today)`；
+    `build_dashboard` 复用已加载事件现算，`GET /api/dashboard` 响应新增 `streak`
+    （`today_done / current_streak / longest_streak / learning_days_total / recent_days[30]`）。
+  - **验证**：新增 `tests/unit/test_streak.py` 14 例（连续 / 隔天断 / 锚昨天 / 两天归零 /
+    答错续签 / quiz 无 `mistake_id` / 日期回退 / 空库 / 30 天窗口 / 同日去重 / 顺序无关）；
+    集成测试断言响应 `streak` == 同一事件序列重算（只读行数与无网络断言沿用 P2-5）。
+    全量 pytest **301 passed**、`ruff check .` 绿、`import app.main` OK、`npm run build` 绿；
+    临时库 + uvicorn :8140 + Vite :5179 浏览器实跑三态：今日已打卡（连续 3 天）、
+    今天还没打卡（锚昨天、连续 3 天）、断签（连续 0、最长 3 天），均无手动签到按钮。
 - **P2-4 两角色 + 本地家长 PIN**（2026-10-30）：
   孩子区免 PIN；仅"家长区"（作废/撤销错题、题库导入/审核、手动组卷）需解锁。
   - **存储**：迁移 `0014_parent_pin` 确保 `user_role(role='parent', pin_hash=NULL)` 行（可逆，
