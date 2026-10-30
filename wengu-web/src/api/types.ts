@@ -205,6 +205,42 @@ export interface DueReviewItem {
   rung: number;
   base_interval_days: number;
   problem_text: string | null;
+  primary_topic_id: string | null;
+  task: "quiz" | "self_eval" | "redo";
+  coverage: "ok" | "thin" | "gap";
+  bank_gap: boolean;
+  coverage_hint: string | null;
+  quiz: QuizQuestionView | null;
+}
+
+export type ReviewTask = DueReviewItem["task"];
+
+export interface QuizChoiceView {
+  key: string;
+  text: string;
+  figure: string | null;
+}
+
+export interface QuizQuality {
+  unaudited: boolean;
+  blind_verified: boolean;
+  verify_status: "verified" | "unverifiable";
+  verify_reason: string | null;
+}
+
+export interface QuizQuestionView {
+  question_id: string;
+  topic_id: string;
+  subject: string;
+  type: string;
+  difficulty: string | null;
+  prompt: string;
+  choices: QuizChoiceView[];
+  figure: string | null;
+  mode: "system" | "self_eval";
+  seed: number;
+  pool_size: number;
+  quality: QuizQuality;
 }
 
 export interface DueReviewResponse {
@@ -232,11 +268,96 @@ export interface CompleteReviewResponse {
   schedule_id: number;
   attempt_id: number;
   graduated: boolean;
+  correct: boolean;
   mastery: number;
   interval_days: number | null;
   due_on: string | null;
   state: ReviewStateInfo;
   next_schedule: ScheduleInfo | null;
+  source: string;
+}
+
+export interface ReviewQuizResponse {
+  completion: CompleteReviewResponse;
+  question: QuizQuestionView;
+  mode: "system" | "self_eval";
+  verdict: "correct" | "wrong";
+}
+
+export interface QuizTopicInfo {
+  topic_id: string;
+  name: string;
+  subject: string;
+  domain: string | null;
+  grade: string | null;
+  semester: string | null;
+  total: number;
+  answerable: number;
+}
+
+export interface QuizTopicListResponse {
+  items: QuizTopicInfo[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface QuizPaperResponse {
+  topic_id: string;
+  seed: number;
+  count: number;
+  coverage: "ok" | "thin" | "gap";
+  bank_gap: boolean;
+  shortfall: boolean;
+  answerable_total: number;
+  pool_total: number;
+  items: QuizQuestionView[];
+}
+
+export interface PaperSubmitAnswer {
+  question_id: string;
+  answer?: string | null;
+  correct?: boolean | null;
+}
+
+export interface PaperAnswerInfo {
+  question_id: string;
+  mode: "system" | "self_eval";
+  status: "correct" | "wrong" | "uncertain" | "skipped";
+  attempt_id: number | null;
+  replayed: boolean;
+}
+
+export interface PaperSubmitResponse {
+  topic_id: string;
+  seed: number;
+  completed_on: string;
+  items: PaperAnswerInfo[];
+  correct: number;
+  wrong: number;
+}
+
+export interface InboxInfo {
+  path: string;
+  channels: string[];
+  max_items: number;
+  max_body_bytes: number;
+}
+
+export interface ImportItemError {
+  index: number;
+  field: string;
+  reason: string;
+}
+
+export interface ImportResult {
+  batch_id: number;
+  status: string;
+  duplicate: boolean;
+  draft_count: number;
+  accepted_count: number;
+  dropped_unknown_fields: number;
+  errors: ImportItemError[];
 }
 
 export type ExplainSourceKind = "mistake" | "problem_extraction" | "ingestion_draft";
@@ -339,13 +460,15 @@ export interface DraftConfirmResponse {
 
 export interface AttemptInfo {
   id: number;
-  mistake_id: number;
+  mistake_id: number | null;
   kind: string;
   source: string;
   problem_bank_id: number | null;
   answer_text: string | null;
   is_correct: boolean;
   problem_text: string | null;
+  question_id: string | null;
+  topic_id: string | null;
   created_at: string;
 }
 

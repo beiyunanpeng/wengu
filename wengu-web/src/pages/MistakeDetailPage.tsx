@@ -377,18 +377,14 @@ export default function MistakeDetailPage() {
             <Button onClick={() => void saveLabels()} loading={saving}>
               保存标签
             </Button>
-            <Button
-              variant="light"
-              onClick={() =>
-                navigate(`/explain?source_kind=mistake&source_id=${detail.id}`)
-              }
-            >
-              看讲解
-            </Button>
             <Button variant="subtle" onClick={() => navigate("/review")}>
               去复习
             </Button>
           </Group>
+          <Text size="xs" c="dimmed">
+            v2.5：批改与讲解在系统外完成（卷面红笔 + 拿不准找豆包/家长）；
+            系统只记录与复习，不生成讲解。
+          </Text>
         </Stack>
       </Card>
     </Stack>

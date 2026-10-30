@@ -150,7 +150,7 @@ export default function MistakesPage() {
 
       {!loading && !error && items.length === 0 && (
         <Alert color="blue" variant="light" title="还没有错题">
-          先在采集页拍一张照片，确认答错后就会出现在这里。
+          先在导入页把外部转录的已批改错题生成草稿，再到核对页确认入本。
         </Alert>
       )}
 
@@ -198,17 +198,6 @@ export default function MistakesPage() {
                 onClick={() => navigate(`/mistakes/${item.id}`)}
               >
                 查看 / 补标签
-              </Button>
-              <Button
-                size="compact-sm"
-                variant="subtle"
-                onClick={() =>
-                  navigate(
-                    `/explain?source_kind=mistake&source_id=${item.id}`,
-                  )
-                }
-              >
-                看讲解
               </Button>
             </Group>
           </Stack>

@@ -163,7 +163,7 @@ export default function RecordsPage() {
             )}
             {!attemptLoading && !attemptError && attempts.length === 0 && (
               <Alert color="gray" variant="light" title="还没有考核记录">
-                同类题考核闭环上线后，系统判分结果会出现在这里。
+                到期考核或手动组卷提交后，服务端判分结果会出现在这里。
               </Alert>
             )}
             {attempts.map((item) => (
@@ -172,7 +172,18 @@ export default function RecordsPage() {
                   <Group justify="space-between" align="flex-start" wrap="wrap">
                     <Group gap="xs">
                       <CorrectnessBadge correct={item.is_correct} />
-                      <Badge variant="outline">错题 #{item.mistake_id}</Badge>
+                      {item.mistake_id !== null ? (
+                        <Badge variant="outline">错题 #{item.mistake_id}</Badge>
+                      ) : (
+                        <Badge color="blue" variant="outline">
+                          手动组卷
+                        </Badge>
+                      )}
+                      {item.topic_id && (
+                        <Badge color="gray" variant="light">
+                          {item.topic_id}
+                        </Badge>
+                      )}
                     </Group>
                     <Text size="xs" c="dimmed">
                       {new Date(item.created_at).toLocaleString()}
@@ -180,17 +191,21 @@ export default function RecordsPage() {
                   </Group>
                   <MathText text={item.problem_text || "（题目文本缺失）"} />
                   <Text size="sm" c="dimmed">
-                    孩子的作答：{item.answer_text || "（未记录）"}
+                    {item.answer_text
+                      ? `孩子的作答：${item.answer_text}`
+                      : "作答不入库（考核只记对错）"}
                   </Text>
-                  <Group>
-                    <Button
-                      size="compact-sm"
-                      variant="subtle"
-                      onClick={() => navigate(`/mistakes/${item.mistake_id}`)}
-                    >
-                      查看来源错题
-                    </Button>
-                  </Group>
+                  {item.mistake_id !== null && (
+                    <Group>
+                      <Button
+                        size="compact-sm"
+                        variant="subtle"
+                        onClick={() => navigate(`/mistakes/${item.mistake_id}`)}
+                      >
+                        查看来源错题
+                      </Button>
+                    </Group>
+                  )}
                 </Stack>
               </Card>
             ))}

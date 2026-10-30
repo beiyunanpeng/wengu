@@ -230,6 +230,20 @@ async def test_get_batch_and_drafts_endpoints(tmp_path) -> None:
 
 
 @pytest.mark.integration
+async def test_inbox_info_is_read_only_and_not_shadowed_by_batch_route(tmp_path) -> None:
+    _, factory = _migrated(tmp_path)
+    async with _make_client(factory) as client:
+        response = await client.get("/api/imports/inbox")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["path"]
+    assert "agent_transcribe_v1" in body["channels"]
+    assert body["max_items"] == 500
+    assert body["max_body_bytes"] == 5 * 1024 * 1024
+
+
+@pytest.mark.integration
 async def test_import_never_calls_models(tmp_path, monkeypatch) -> None:
     from app.services import ai_gateway
 
