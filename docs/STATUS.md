@@ -76,7 +76,10 @@
 
 ### 4.2 错题与标签
 
-- 错题唯一写入路径；`correct` 只作废不删历史（v2.5 后无 HTTP 入口，仅服务层/历史数据语义）。
+- 错题唯一写入路径；`correct` 只作废不删历史。作废 / 撤销作废已有 HTTP 入口
+  （`POST /api/mistakes/{id}/void|unvoid`）：只翻 status + 追加 `mistake_voided` /
+  `mistake_reactivated` 事件，不删版本/事件；作废退出活跃列表与到期队列，撤销后未完成
+  排期自然重回队列；历史复习作答仍按现状计入掌握度。
 - 两级标签：`category` 挂 `knowledge_seed`；`concept` 受控生长、别名归一、人工归并。
 - 标签建议值与确认值分离存储，冲突不静默覆盖。
 - `practice_records` 派生表：变式/加练不进错题、不排复习、不影响掌握度、可整表清空。
@@ -112,7 +115,7 @@
 | 健康 / seed | `GET /health`、`GET /api/seed/summary`、`GET /api/seed/topics` |
 | 导入 | `POST /api/imports`、`GET /api/imports/{batch_id}`、`GET /api/imports/inbox` |
 | 核对入本 | `GET /api/imports/drafts`、`GET /api/imports/{batch_id}/drafts`、`POST /api/imports/drafts/{draft_id}/confirm` |
-| 错题 / 标签 | `GET /api/mistakes`、`GET /api/mistakes/{id}`、`GET /api/mistakes/options`、`POST /api/mistakes/{id}/labels` |
+| 错题 / 标签 | `GET /api/mistakes`、`GET /api/mistakes/{id}`、`GET /api/mistakes/options`、`POST /api/mistakes/{id}/labels`、`POST /api/mistakes/{id}/void`、`POST /api/mistakes/{id}/unvoid` |
 | 概念 | `GET /api/concepts`、`POST /api/concepts`、`POST /api/concepts/merge` |
 | 题库 | `POST /api/problem-bank/import`、`GET /api/problem-bank/items/{id}` |
 | 复习 | `GET /api/reviews/due`、`POST /api/reviews/{mistake_id}/quiz`、`POST /api/reviews/{mistake_id}/complete` |
@@ -142,7 +145,7 @@
 | 复习掌握度归因 | 缺口 | 无 concept 时 mastery 恒 0.0，间隔只取基础档 | 后续工单把已确认 concept 写入事实 |
 | 毕业 / 复活复习周期 | 缺口 | 已毕业错题再次复活不自动开新周期 | 按产品口径决定是否重排 |
 | 主考点未确认 | 部分缓解 | 无主考点只做重做自评，不推同类题 | 核对页引导家长选主考点 |
-| 历史作废/申诉入口 | 已移除 | 无 HTTP 入口修正已入本错题（v2.5 只到确认入本） | 如需恢复，另开"错题状态修订"工单，不复活模型链 |
+| 历史作废/申诉入口 | 部分恢复 | 作废 / 撤销作废已有 HTTP 入口与事件留痕；申诉改判仍未开 | 如需申诉改判，另开"错题状态修订"工单，不复活模型链 |
 | 鉴权 / 本地 PIN | 未做 | 仅适合本机/可信内网 | P5-3 可选 session 鉴权 + README 警告 |
 | 化学 / 语文 seed | 未做 | 两科从空 seed 起步 | 家长按教材目录建章级粗粒度 seed |
 | Phase 2–5 | 未开始 | 日队列、看板、导出、分发向导等缺失 | 按 TICKETS 顺序 |
@@ -155,8 +158,8 @@
 3. **题库覆盖不均**：数学/英语/物理有题；语文/化学 `bank_gap` 走原题重做；物理标 `thin`。
    英语/物理题无二遍盲解，UI 必须继续透传质量标签。
 4. **掌握度归因不足**：事实普遍无 `concept_id` 时 mastery 恒 0.0，自适应间隔退化为固定档。
-5. **删除后语义缺口**：无 HTTP 作废/申诉；`photo_*` / `problem_extractions` 旧表未删；
-   `services/grading.py` 名字保留但只做确认/版本追加。
+5. **删除后语义缺口**：申诉改判仍无 HTTP 入口（作废/撤销作废已补齐）；`photo_*` /
+   `problem_extractions` 旧表未删；`services/grading.py` 名字保留但只做确认/版本追加。
 6. **Docker Desktop + SQLite WAL 运维坑**：容器运行期间从宿主机读写挂载库会破坏 WAL/SHM；
    查库走 `docker exec`，备份前先停 API。
 7. **无鉴权 / 无本地 PIN**：公网暴露前必须先做鉴权与隔离或走 Tailscale。

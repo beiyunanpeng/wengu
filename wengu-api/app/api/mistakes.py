@@ -19,8 +19,10 @@ from app.models import Concept, KnowledgeSeed, Mistake, MistakeVersion
 from app.services.concepts import CategoryNotFound, ConceptConflict, resolve_concept_map
 from app.services.mistakes import (
     ERROR_CAUSES,
+    MAX_VOID_REASON_LENGTH,
     MistakeConflict,
     MistakeNotFound,
+    MistakeStateConflict,
     MistakeVersionConflict,
     append_label_version,
     effective_labels,
@@ -29,6 +31,8 @@ from app.services.mistakes import (
     get_mistake,
     list_mistakes,
     load_concept_ids,
+    unvoid_mistake,
+    void_mistake,
 )
 
 router = APIRouter(tags=["mistakes"])
@@ -95,6 +99,16 @@ class LabelRequest(BaseModel):
     concept_ids: list[int] = Field(default_factory=list, max_length=10)
     error_cause: str | None = Field(default=None, max_length=32)
     actor: Literal["student", "parent"] = "student"
+
+
+class VoidRequest(BaseModel):
+    # actor 用自由字符串交给服务层校验：非法角色按 409 状态冲突返回
+    actor: str = Field(default="student", max_length=16)
+    reason: str | None = Field(default=None, max_length=MAX_VOID_REASON_LENGTH)
+
+
+class UnvoidRequest(BaseModel):
+    actor: str = Field(default="student", max_length=16)
 
 
 def _naive_utc(value: datetime) -> datetime:
@@ -203,6 +217,21 @@ async def _load_lookup(
     return category_names, concept_map
 
 
+async def _render_detail(
+    session: AsyncSession, mistake: Mistake
+) -> MistakeDetail:
+    version = await get_latest_version(session, mistake.id)
+    if version is None:
+        raise HTTPException(status_code=404, detail="错题内容版本缺失")
+    category_names, concept_map = await _load_lookup(session, [version])
+    return _to_detail(
+        mistake,
+        version,
+        category_names=category_names,
+        concept_map=concept_map,
+    )
+
+
 @router.get("/api/mistakes/options", response_model=MistakeOptions)
 async def mistake_options() -> MistakeOptions:
     return MistakeOptions(
@@ -259,16 +288,50 @@ async def get_mistake_endpoint(
             mistake = await get_mistake(session, mistake_id)
         except MistakeNotFound as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from None
-        version = await get_latest_version(session, mistake_id)
-        if version is None:
-            raise HTTPException(status_code=404, detail="错题内容版本缺失")
-        category_names, concept_map = await _load_lookup(session, [version])
-        return _to_detail(
-            mistake,
-            version,
-            category_names=category_names,
-            concept_map=concept_map,
-        )
+        return await _render_detail(session, mistake)
+
+
+@router.post("/api/mistakes/{mistake_id}/void", response_model=MistakeDetail)
+async def void_mistake_endpoint(
+    mistake_id: int,
+    payload: VoidRequest,
+    session: AsyncSession = Depends(get_session),
+) -> MistakeDetail:
+    """作废错题：退出活跃列表与到期队列，可撤销；不删任何历史。"""
+
+    async with session.begin():
+        try:
+            mistake = await void_mistake(
+                session,
+                mistake_id,
+                actor=payload.actor,
+                reason=payload.reason,
+            )
+        except MistakeNotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from None
+        except MistakeConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from None
+        return await _render_detail(session, mistake)
+
+
+@router.post("/api/mistakes/{mistake_id}/unvoid", response_model=MistakeDetail)
+async def unvoid_mistake_endpoint(
+    mistake_id: int,
+    payload: UnvoidRequest,
+    session: AsyncSession = Depends(get_session),
+) -> MistakeDetail:
+    """撤销作废：恢复活跃；未完成排期到期后自然重回队列。"""
+
+    async with session.begin():
+        try:
+            mistake = await unvoid_mistake(
+                session, mistake_id, actor=payload.actor
+            )
+        except MistakeNotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from None
+        except MistakeConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from None
+        return await _render_detail(session, mistake)
 
 
 @router.post("/api/mistakes/{mistake_id}/labels", response_model=MistakeDetail)
@@ -314,7 +377,7 @@ async def update_mistake_labels(
             )
         except MistakeNotFound as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from None
-        except MistakeVersionConflict as exc:
+        except (MistakeVersionConflict, MistakeStateConflict) as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from None
         except (MistakeConflict, CategoryNotFound, ConceptConflict) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from None

@@ -51,6 +51,10 @@ ERROR_CAUSES: dict[str, str] = {
 }
 
 MISTAKE_LABELED = "mistake_labeled"
+MISTAKE_VOIDED_EVENT = "mistake_voided"
+MISTAKE_REACTIVATED_EVENT = "mistake_reactivated"
+
+MAX_VOID_REASON_LENGTH = 200
 
 
 class MistakeNotFound(LookupError):
@@ -63,6 +67,10 @@ class MistakeConflict(ValueError):
 
 class MistakeVersionConflict(MistakeConflict):
     pass
+
+
+class MistakeStateConflict(MistakeConflict):
+    """当前状态不允许该操作（如已作废错题改标签）。"""
 
 
 @dataclass(frozen=True)
@@ -304,6 +312,86 @@ async def get_mistake(session: AsyncSession, mistake_id: int) -> Mistake:
     return mistake
 
 
+def _clean_void_reason(reason: str | None) -> str | None:
+    cleaned = (reason or "").strip() or None
+    if cleaned is not None and len(cleaned) > MAX_VOID_REASON_LENGTH:
+        raise MistakeConflict(
+            f"作废原因不能超过 {MAX_VOID_REASON_LENGTH} 字"
+        )
+    return cleaned
+
+
+async def void_mistake(
+    session: AsyncSession,
+    mistake_id: int,
+    *,
+    actor: str,
+    reason: str | None = None,
+    now: datetime | None = None,
+) -> Mistake:
+    """作废错题：只翻 status + 追加事件，不删版本/事件（可撤销）。
+
+    已作废则幂等返回，不重复写事件；作废不影响历史复习事件的掌握度计算。
+    """
+
+    if actor not in ("student", "parent"):
+        raise MistakeConflict("只有 student/parent 可以作废错题")
+    cleaned_reason = _clean_void_reason(reason)
+    mistake = await get_mistake(session, mistake_id)
+    if mistake.status == MISTAKE_VOIDED:
+        return mistake
+
+    moment = now or datetime.now(UTC)
+    mistake.status = MISTAKE_VOIDED
+    mistake.updated_at = moment
+    await session.flush()
+
+    await record_event(
+        session,
+        MISTAKE_VOIDED_EVENT,
+        actor,
+        idempotency_key=f"mistake:{mistake.id}:void",
+        mistake_id=mistake.id,
+        payload={
+            "mistake_id": mistake.id,
+            "actor": actor,
+            "reason": cleaned_reason,
+        },
+    )
+    return mistake
+
+
+async def unvoid_mistake(
+    session: AsyncSession,
+    mistake_id: int,
+    *,
+    actor: str,
+    now: datetime | None = None,
+) -> Mistake:
+    """撤销作废：voided→active + 追加事件；未完成排期到期后自然重回队列。"""
+
+    if actor not in ("student", "parent"):
+        raise MistakeConflict("只有 student/parent 可以撤销作废")
+    mistake = await get_mistake(session, mistake_id)
+    if mistake.status == MISTAKE_ACTIVE:
+        return mistake
+
+    moment = now or datetime.now(UTC)
+    mistake.status = MISTAKE_ACTIVE
+    mistake.updated_at = moment
+    await session.flush()
+
+    await record_event(
+        session,
+        MISTAKE_REACTIVATED_EVENT,
+        actor,
+        idempotency_key=f"mistake:{mistake.id}:reactivate",
+        mistake_id=mistake.id,
+        payload={"mistake_id": mistake.id, "actor": actor},
+    )
+    return mistake
+
+
 async def append_label_version(
     session: AsyncSession,
     *,
@@ -320,7 +408,7 @@ async def append_label_version(
         raise MistakeConflict("只有 student/parent 可以确认标签")
     mistake = await get_mistake(session, mistake_id)
     if mistake.status != MISTAKE_ACTIVE:
-        raise MistakeConflict("已作废错题不能修改标签")
+        raise MistakeStateConflict("已作废错题不能修改标签")
     if base_version != mistake.current_version:
         raise MistakeVersionConflict(
             f"版本已变化，当前版本 {mistake.current_version}"
