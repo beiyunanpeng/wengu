@@ -303,7 +303,7 @@ X 深挖确认 v2.2 三条决定全部成立、可更具体。追加以下补丁
 
 ### B. wengu 转为零模型（取代 §3、§4 prompt/成本护栏、AGENTS §4）
 
-- wengu **不再调用任何云端模型**。`providers/{doubao,qwen_vl,tencent}`、`VisionProvider` 的 `extract_problem/grade/solve_explain` 路由、**成本护栏**（每日批量上限/内容哈希缓存）、`model_runs`、`llm_prompts/*.md` **全部退役**，仅保留 `providers/mock.py` 供测试。§3"至少两家供应商互备"护栏撤下。
+- wengu **不再调用任何云端模型**。`providers/` 整目录（含 mock）、`VisionProvider` 的 `extract_problem/grade/solve_explain` 路由、**成本护栏**（每日批量上限/内容哈希缓存）、`model_runs`、`llm_prompts/*.md` **全部退役**（P1-12 实际删除时全仓已无 importer，不再保留 mock）。§3"至少两家供应商互备"护栏撤下。
 - 唯一可能用到模型的"错因归类 / suggested_topic_id /（可选）家长周报叙述"**一律外移到 agent 模板/agent 定时任务**产出，以"文本或标签 + 来源=`ai`"入库，**绝不进判分/排期链路**。
 - **§5"模型只提、代码才判"不删除、只收缩作用域**：真实题不再"提+判"（外部已判），该纪律**平移**到"系统自造同类题考核"——系统拿题库已知答案、`judgeAnswer` 代码归一化比对判分，仍禁止让模型判分。
 - **prompt 版本化真源**从 `llm_prompts/*.md` **平移到 `docs/templates/*.md`**（frontmatter `id`+`version`、改语义必递增版本、agent skill 只引用不内嵌）；提取模板是它唯一值得版本化的后继。

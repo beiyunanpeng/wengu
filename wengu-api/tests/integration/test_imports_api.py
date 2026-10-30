@@ -241,22 +241,3 @@ async def test_inbox_info_is_read_only_and_not_shadowed_by_batch_route(tmp_path)
     assert "agent_transcribe_v1" in body["channels"]
     assert body["max_items"] == 500
     assert body["max_body_bytes"] == 5 * 1024 * 1024
-
-
-@pytest.mark.integration
-async def test_import_never_calls_models(tmp_path, monkeypatch) -> None:
-    from app.services import ai_gateway
-
-    def _boom(*args, **kwargs):  # pragma: no cover - 被调用即失败
-        raise AssertionError("导入链路不允许触发模型调用")
-
-    monkeypatch.setattr(ai_gateway.AiGateway, "extract_problem", _boom)
-    monkeypatch.setattr(ai_gateway.AiGateway, "grade", _boom)
-    monkeypatch.setattr(ai_gateway.AiGateway, "solve_explain", _boom)
-
-    _, factory = _migrated(tmp_path)
-    async with _make_client(factory) as client:
-        response = await client.post(
-            "/api/imports", content=json.dumps(VALID_PAYLOAD, ensure_ascii=False)
-        )
-    assert response.status_code == 201

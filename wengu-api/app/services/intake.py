@@ -347,7 +347,6 @@ async def promote_draft(
         session,
         source=source,
         question_type=question_type,  # type: ignore[arg-type]
-        reference=None,
         suggestion=Suggestion(
             verdict="wrong",
             source="ai",

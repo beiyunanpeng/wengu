@@ -34,7 +34,7 @@ D             ?= base
 
 .PHONY: help install-api dev-api install-web dev-web \
         seed-load seed-questions migrate upgrade downgrade migration-test \
-        eval test lint format \
+        test lint format \
         up down logs \
         backup restore
 
@@ -59,7 +59,6 @@ help:
 	@echo ""
 	@echo "  # 测试"
 	@echo "  make test               跑所有 pytest"
-	@echo "  make eval               跑 evals/ 黄金集回归（改 prompt/换供应商/升 Schema 必跑）"
 	@echo "  make lint               ruff 检查"
 	@echo "  make format             ruff format"
 	@echo ""
@@ -115,9 +114,6 @@ migration-test:
 # ---------- 测试 ----------
 test:
 	cd wengu-api && $(VENV_PYTEST)
-
-eval:
-	cd wengu-api && $(VENV_PY) -m scripts.run_evals
 
 lint:
 	cd wengu-api && $(VENV_RUFF) check .

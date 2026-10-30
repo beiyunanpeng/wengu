@@ -1,6 +1,7 @@
 """P1-7a 复习排期集成测试：用户触发、事实重放、幂等、到期队列、学科闸门。
 
-模型调用为零（客观题判分走 judgeAnswer）；聚焦纪律与状态机，不验证真实 VLM。
+v2.5：错题经"外部转录 → 核对页确认"入本；系统内零模型调用（考核判分走 judgeAnswer），
+聚焦纪律与状态机。
 """
 
 from __future__ import annotations
@@ -18,17 +19,11 @@ from app.main import create_app
 from app.models import (
     Attempt,
     Concept,
-    GradingResult,
-    GradingVersion,
     KnowledgeSeed,
     LearningEvent,
     Mistake,
-    PhotoCapture,
-    ProblemExtraction,
     ReviewSchedule,
 )
-from app.providers.base import CallMeta, GradeResult
-from app.services.ai_gateway import get_ai_gateway
 from app.services.bank import find_same_type, get_bank
 from app.services.review import derive_review_state, quiz_seed
 from httpx import ASGITransport, AsyncClient
@@ -36,6 +31,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 API_DIR = Path(__file__).resolve().parents[2]
+
+CHANNEL = "agent_transcribe_v1"
 
 FORBIDDEN_KEYS = {"answer", "accept", "explanation", "verify"}
 
@@ -62,31 +59,7 @@ def _migrated(tmp_path: Path) -> async_sessionmaker:
     return async_sessionmaker(engine, expire_on_commit=False)
 
 
-class FakeGradeGateway:
-    async def grade(
-        self,
-        problem_text: str,
-        student_answer: str,
-        *,
-        prompt: str = "",
-        standard_answer: str = "",
-        sample_index: int = 0,
-    ) -> tuple[GradeResult, CallMeta]:
-        return (
-            GradeResult(
-                verdict="correct", confidence=0.9, source="ai", rationale="ok"
-            ),
-            CallMeta(
-                provider="fake",
-                model="fake-v1",
-                latency_ms=1,
-                prompt_id="grade",
-                prompt_version=1,
-            ),
-        )
-
-
-def _client(factory: async_sessionmaker, gateway) -> AsyncClient:
+def _client(factory: async_sessionmaker) -> AsyncClient:
     app = create_app()
 
     async def override_session():
@@ -94,7 +67,6 @@ def _client(factory: async_sessionmaker, gateway) -> AsyncClient:
             yield session
 
     app.dependency_overrides[get_session] = override_session
-    app.dependency_overrides[get_ai_gateway] = lambda: gateway
     return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
 
 
@@ -143,75 +115,76 @@ async def _seed_concept(
         return row.id
 
 
-async def _seed_extraction(
-    factory: async_sessionmaker,
+async def _import_draft(
+    client: AsyncClient,
     *,
+    subject: str = "数学",
     problem_text: str = "一元一次方程：解方程 2x=4，注意移项",
-    student_answer: str | None = "x=3",
+    student_answer: str = "x=3",
+    standard_answer: str = "x=2",
+    suggested_topic_id: str = "cnm_test_equation",
 ) -> int:
-    now = datetime.now(UTC)
-    async with factory() as session, session.begin():
-        capture = PhotoCapture(
-            sha256=uuid4().hex,
-            stored_path="pages/x.png",
-            original_name="x.png",
-            source="phone",
-            status="sliced",
-            created_at=now,
-        )
-        session.add(capture)
-        await session.flush()
-        row = ProblemExtraction(
-            photo_capture_id=capture.id,
-            seq=1,
-            source_kind="slice",
-            image_path="slices/x-01.png",
-            problem_text=problem_text,
-            student_answer=student_answer,
-            confidence=0.9,
-            problem_complete=True,
-            gate_status="ready_for_grading",
-            review_reasons_json="[]",
-            figure_keywords_json="[]",
-            prompt_id="extract_problem",
-            prompt_version=1,
-            provider="fake",
-            model="fake-v1",
-            created_at=now,
-        )
-        session.add(row)
-        await session.flush()
-        return row.id
+    response = await client.post(
+        "/api/imports",
+        json={
+            "channel": CHANNEL,
+            "items": [
+                {
+                    "subject": subject,
+                    "problem_text": problem_text,
+                    "student_answer": student_answer,
+                    "standard_answer": standard_answer,
+                    "error_cause_suggestion": "计算失误",
+                    "suggested_topic_id": suggested_topic_id,
+                    # 报文去重按原始内容 sha256：每题唯一 source_ref 以免复用旧批次
+                    "source_ref": f"测试卷 第3题 {uuid4().hex}",
+                    "captured_at": "2026-10-28",
+                }
+            ],
+        },
+    )
+    assert response.status_code == 201, response.text
+    batch_id = response.json()["batch_id"]
+    drafts = await client.get(f"/api/imports/{batch_id}/drafts")
+    assert drafts.status_code == 200, drafts.text
+    (draft_id,) = (draft["id"] for draft in drafts.json()["drafts"])
+    return draft_id
 
 
 async def _confirm_wrong(
     client: AsyncClient,
-    factory: async_sessionmaker,
     *,
+    subject: str = "数学",
     problem_text: str = "一元一次方程：解方程 2x=4，注意移项",
     student_answer: str = "x=3",
     answer: str = "x=2",
+    primary_topic_id: str | None = None,
+    concept_ids: tuple[int, ...] = (),
+    error_cause: str | None = None,
+    suggested_topic_id: str = "cnm_test_equation",
 ) -> dict:
-    extraction_id = await _seed_extraction(
-        factory, problem_text=problem_text, student_answer=student_answer
+    draft_id = await _import_draft(
+        client,
+        subject=subject,
+        problem_text=problem_text,
+        student_answer=student_answer,
+        standard_answer=answer,
+        suggested_topic_id=suggested_topic_id,
     )
-    created = await client.post(
-        "/api/gradings",
-        json={
-            "source_kind": "problem_extraction",
-            "source_id": extraction_id,
-            "question_type": "objective",
-            "answer": answer,
-        },
-    )
-    assert created.status_code == 200, created.text
-    grading = created.json()["grading"]
+    payload: dict = {"actor": "student"}
+    if primary_topic_id is not None:
+        payload["primary_topic_id"] = primary_topic_id
+    if concept_ids:
+        payload["concept_ids"] = list(concept_ids)
+    if error_cause is not None:
+        payload["error_cause"] = error_cause
     confirmed = await client.post(
-        f"/api/gradings/{grading['id']}/confirm",
-        json={"base_version": 1, "verdict": "wrong"},
+        f"/api/imports/drafts/{draft_id}/confirm", json=payload
     )
     assert confirmed.status_code == 200, confirmed.text
-    return confirmed.json()
+    body = confirmed.json()
+    body["draft_id"] = draft_id
+    return body
 
 
 async def _schedules(
@@ -253,11 +226,10 @@ async def _due_items(client: AsyncClient, day: date) -> list[dict]:
 @pytest.mark.integration
 async def test_confirm_wrong_schedules_and_three_corrects_graduate(tmp_path) -> None:
     factory = _migrated(tmp_path)
-    gateway = FakeGradeGateway()
     await _seed_topic(factory)
 
-    async with _client(factory, gateway) as client:
-        body = await _confirm_wrong(client, factory)
+    async with _client(factory) as client:
+        body = await _confirm_wrong(client)
         mistake_id = body["mistake_id"]
         schedules = await _schedules(factory, mistake_id)
         assert len(schedules) == 1
@@ -392,11 +364,10 @@ async def test_confirm_wrong_schedules_and_three_corrects_graduate(tmp_path) -> 
 @pytest.mark.integration
 async def test_wrong_resets_streak_and_halves_interval(tmp_path) -> None:
     factory = _migrated(tmp_path)
-    gateway = FakeGradeGateway()
     await _seed_topic(factory)
 
-    async with _client(factory, gateway) as client:
-        body = await _confirm_wrong(client, factory)
+    async with _client(factory) as client:
+        body = await _confirm_wrong(client)
         mistake_id = body["mistake_id"]
         initial = (await _schedules(factory, mistake_id))[0]
 
@@ -467,14 +438,13 @@ async def test_wrong_resets_streak_and_halves_interval(tmp_path) -> None:
 
 
 @pytest.mark.integration
-async def test_due_queue_filters_completed_future_and_voided(tmp_path) -> None:
+async def test_due_queue_filters_completed_and_future(tmp_path) -> None:
     factory = _migrated(tmp_path)
-    gateway = FakeGradeGateway()
     await _seed_topic(factory)
 
-    async with _client(factory, gateway) as client:
-        first = await _confirm_wrong(client, factory)
-        second = await _confirm_wrong(client, factory)
+    async with _client(factory) as client:
+        first = await _confirm_wrong(client)
+        second = await _confirm_wrong(client)
         first_schedule = (await _schedules(factory, first["mistake_id"]))[0]
         second_schedule = (await _schedules(factory, second["mistake_id"]))[0]
         due_day = first_schedule.due_date.isoformat()
@@ -515,38 +485,21 @@ async def test_due_queue_filters_completed_future_and_voided(tmp_path) -> None:
         assert only_second.json()["total"] == 1
         assert only_second.json()["items"][0]["schedule_id"] == second_schedule.id
 
-        await client.post(
-            f"/api/gradings/{second['id']}/appeal",
-            json={"base_version": 2, "verdict": "correct"},
-        )
-        voided = await client.get("/api/reviews/due", params={"today": due_day})
-        assert voided.json()["total"] == 0
-
-        blocked = await client.post(
-            f"/api/reviews/{second['mistake_id']}/complete",
-            json={
-                "schedule_id": second_schedule.id,
-                "correct": True,
-                "completed_on": due_day,
-            },
-        )
-        assert blocked.status_code == 409
-
 
 @pytest.mark.integration
 async def test_initial_and_completion_are_idempotent(tmp_path) -> None:
     factory = _migrated(tmp_path)
-    gateway = FakeGradeGateway()
     await _seed_topic(factory)
 
-    async with _client(factory, gateway) as client:
-        body = await _confirm_wrong(client, factory)
+    async with _client(factory) as client:
+        body = await _confirm_wrong(client)
         mistake_id = body["mistake_id"]
         again = await client.post(
-            f"/api/gradings/{body['id']}/confirm",
-            json={"base_version": 2},
+            f"/api/imports/drafts/{body['draft_id']}/confirm",
+            json={"actor": "student"},
         )
         assert again.status_code == 200, again.text
+        assert again.json()["already_promoted"] is True
         assert again.json()["mistake_id"] == mistake_id
         assert await _count(factory, ReviewSchedule) == 1
         async with factory() as session:
@@ -606,11 +559,10 @@ async def test_initial_and_completion_are_idempotent(tmp_path) -> None:
 @pytest.mark.integration
 async def test_stale_schedule_rung_is_rejected_without_new_events(tmp_path) -> None:
     factory = _migrated(tmp_path)
-    gateway = FakeGradeGateway()
     await _seed_topic(factory)
 
-    async with _client(factory, gateway) as client:
-        body = await _confirm_wrong(client, factory)
+    async with _client(factory) as client:
+        body = await _confirm_wrong(client)
         mistake_id = body["mistake_id"]
         initial = (await _schedules(factory, mistake_id))[0]
 
@@ -636,13 +588,12 @@ async def test_stale_schedule_rung_is_rejected_without_new_events(tmp_path) -> N
 @pytest.mark.integration
 async def test_mastery_is_min_of_confirmed_concepts(tmp_path) -> None:
     factory = _migrated(tmp_path)
-    gateway = FakeGradeGateway()
     await _seed_topic(factory)
     concept_a = await _seed_concept(factory, name="移项")
     concept_b = await _seed_concept(factory, name="合并同类项")
 
-    async with _client(factory, gateway) as client:
-        body = await _confirm_wrong(client, factory)
+    async with _client(factory) as client:
+        body = await _confirm_wrong(client)
         mistake_id = body["mistake_id"]
         initial = (await _schedules(factory, mistake_id))[0]
 
@@ -695,7 +646,6 @@ async def test_mastery_is_min_of_confirmed_concepts(tmp_path) -> None:
 @pytest.mark.integration
 async def test_memory_subject_uses_memory_ladder(tmp_path) -> None:
     factory = _migrated(tmp_path)
-    gateway = FakeGradeGateway()
     await _seed_topic(
         factory,
         topic_id="cnm_test_present_simple",
@@ -703,10 +653,10 @@ async def test_memory_subject_uses_memory_ladder(tmp_path) -> None:
         subject="英语",
     )
 
-    async with _client(factory, gateway) as client:
+    async with _client(factory) as client:
         body = await _confirm_wrong(
             client,
-            factory,
+            subject="英语",
             problem_text="英语：一般现在时专项练习",
             student_answer="go",
             answer="goes",
@@ -753,88 +703,42 @@ async def test_memory_subject_uses_memory_ladder(tmp_path) -> None:
 
 
 @pytest.mark.integration
-async def test_unknown_subject_rolls_back_confirmation(tmp_path) -> None:
+async def test_intake_without_known_subject_keeps_mistake_without_schedule(
+    tmp_path,
+) -> None:
+    """核对页允许定不出学科时只跳过排期，错题照常入本（§16 主考点可后补）。"""
+
     factory = _migrated(tmp_path)
-    gateway = FakeGradeGateway()
 
-    async with _client(factory, gateway) as client:
-        extraction_id = await _seed_extraction(
-            factory, problem_text="1+1=?", student_answer="3"
+    async with _client(factory) as client:
+        body = await _confirm_wrong(
+            client,
+            subject="信息技术",
+            problem_text="信息技术基础：二进制转换",
+            student_answer="101",
+            answer="100",
+            suggested_topic_id="",
         )
-        created = await client.post(
-            "/api/gradings",
-            json={
-                "source_kind": "problem_extraction",
-                "source_id": extraction_id,
-                "question_type": "objective",
-                "answer": "2",
-            },
-        )
-        grading = created.json()["grading"]
-        confirmed = await client.post(
-            f"/api/gradings/{grading['id']}/confirm",
-            json={"base_version": 1, "verdict": "wrong"},
-        )
+        due = await client.get("/api/reviews/due")
 
-    assert confirmed.status_code == 422
-    assert "无法确定学科" in confirmed.json()["detail"]
-    assert await _count(factory, Mistake) == 0
+    assert body["primary_topic_id"] is None
+    assert body["due_on"] is None
+    assert due.json()["total"] == 0
+    assert await _count(factory, Mistake) == 1
     assert await _count(factory, ReviewSchedule) == 0
-    assert await _count(factory, LearningEvent) == 0
-    assert await _count(factory, GradingVersion) == 1
     async with factory() as session:
-        row = await session.get(GradingResult, grading["id"])
-        assert row is not None
-        assert row.current_version == 1
-        assert row.status == "pending"
-
-
-@pytest.mark.integration
-async def test_unsupported_subject_rolls_back_confirmation(tmp_path) -> None:
-    factory = _migrated(tmp_path)
-    gateway = FakeGradeGateway()
-    await _seed_topic(
-        factory,
-        topic_id="cnm_test_it",
-        name="信息技术基础",
-        subject="信息技术",
-    )
-
-    async with _client(factory, gateway) as client:
-        extraction_id = await _seed_extraction(
-            factory, problem_text="信息技术基础：二进制转换", student_answer="101"
-        )
-        created = await client.post(
-            "/api/gradings",
-            json={
-                "source_kind": "problem_extraction",
-                "source_id": extraction_id,
-                "question_type": "objective",
-                "answer": "100",
-            },
-        )
-        grading = created.json()["grading"]
-        confirmed = await client.post(
-            f"/api/gradings/{grading['id']}/confirm",
-            json={"base_version": 1, "verdict": "wrong"},
-        )
-
-    assert confirmed.status_code == 422
-    assert "未配置复习阶梯" in confirmed.json()["detail"]
-    assert await _count(factory, Mistake) == 0
-    assert await _count(factory, ReviewSchedule) == 0
-    assert await _count(factory, LearningEvent) == 0
+        events = (await session.scalars(select(LearningEvent))).all()
+    assert [event.type for event in events] == ["attempt_wrong"]
 
 
 @pytest.mark.integration
 async def test_due_queue_prefers_same_type_quiz_and_tags_system_quiz(tmp_path) -> None:
     factory = _migrated(tmp_path)
-    gateway = FakeGradeGateway()
     await _seed_topic(factory)
     await _seed_topic(factory, topic_id="cnm_001", name="有理数", subject="数学")
 
-    async with _client(factory, gateway) as client:
-        body = await _confirm_wrong(client, factory)
+    async with _client(factory) as client:
+        body = await _confirm_wrong(client)
         mistake_id = body["mistake_id"]
         await _set_primary_topic(factory, mistake_id, "cnm_001")
         schedule = (await _schedules(factory, mistake_id))[0]
@@ -944,12 +848,11 @@ async def test_due_queue_falls_back_to_redo_when_topic_has_no_questions(
     tmp_path,
 ) -> None:
     factory = _migrated(tmp_path)
-    gateway = FakeGradeGateway()
     await _seed_topic(factory)
     await _seed_topic(factory, topic_id="cnm_999999", name="题库空缺", subject="数学")
 
-    async with _client(factory, gateway) as client:
-        body = await _confirm_wrong(client, factory)
+    async with _client(factory) as client:
+        body = await _confirm_wrong(client)
         mistake_id = body["mistake_id"]
         await _set_primary_topic(factory, mistake_id, "cnm_999999")
         schedule = (await _schedules(factory, mistake_id))[0]
@@ -967,12 +870,11 @@ async def test_due_queue_falls_back_to_redo_when_topic_has_no_questions(
 @pytest.mark.integration
 async def test_due_queue_thin_coverage_still_serves_quiz(tmp_path) -> None:
     factory = _migrated(tmp_path)
-    gateway = FakeGradeGateway()
     await _seed_topic(factory)
     await _seed_topic(factory, topic_id="cnp_001", name="速度", subject="物理")
 
-    async with _client(factory, gateway) as client:
-        body = await _confirm_wrong(client, factory)
+    async with _client(factory) as client:
+        body = await _confirm_wrong(client)
         mistake_id = body["mistake_id"]
         await _set_primary_topic(factory, mistake_id, "cnp_001")
         schedule = (await _schedules(factory, mistake_id))[0]
@@ -994,8 +896,8 @@ async def test_due_queue_self_eval_downgrade_for_figure_topic(tmp_path) -> None:
     await _seed_topic(factory)
     await _seed_topic(factory, topic_id="cnm_258", name="相似三角形", subject="数学")
 
-    async with _client(factory, FakeGradeGateway()) as client:
-        body = await _confirm_wrong(client, factory)
+    async with _client(factory) as client:
+        body = await _confirm_wrong(client)
         mistake_id = body["mistake_id"]
         await _set_primary_topic(factory, mistake_id, "cnm_258")
         schedule = (await _schedules(factory, mistake_id))[0]
@@ -1052,8 +954,8 @@ async def test_clear_attempts_keeps_review_bound_and_rebuilds_paper_rows(
     await _seed_topic(factory)
     await _seed_topic(factory, topic_id="cnm_001", name="有理数", subject="数学")
 
-    async with _client(factory, FakeGradeGateway()) as client:
-        body = await _confirm_wrong(client, factory)
+    async with _client(factory) as client:
+        body = await _confirm_wrong(client)
         mistake_id = body["mistake_id"]
         await _set_primary_topic(factory, mistake_id, "cnm_001")
         schedule = (await _schedules(factory, mistake_id))[0]

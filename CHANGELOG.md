@@ -7,14 +7,62 @@
 
 ## [Unreleased]
 
-P1-9、P1-2b、P1-2c 已完成，P1-3c 的 B1/B1.5（配图切片几何）已交付；
-P1-5、P1-7a、P1-10、P1-11 已按 v2.5 收口（真实题退场、到期队列考核优先、
-题库就绪、同类题考核闭环）。
+v2.5 零模型改造已完成：P1-5 / P1-7a / P1-10 / P1-11 收口，P1-12 删除整条"模型在环"旧链路
+（视觉栈、gateway、provider、讲解、HTTP 模型判分、`model_runs` / `ai_jobs`、前端旧三页）。
 Phase 1 只剩 P1-7b（前置回溯诊断）与受闸门阻塞的 P1-7c。
 下一步先做 **P0-1 样本扩容 + P0-2 黄金评测集**，再补 P1-7b。
 **P1-7c 自动排复习仍受 Phase 0 闸门阻塞**（边界表未回填前不自动排复习）；
-复习排期只由**用户确认错题**触发；P1-6 的"入本"也仍以孩子/家长确认 `wrong`
-为前提，不得静默自动建错题。
+复习排期只由**用户确认错题**触发；"入本"也仍以核对页人工确认为前提，不得静默自动建错题。
+
+### Removed
+
+- **P1-12 退役"模型在环"整链（删除票，v2.5 零模型收口）**（2026-10-30）：
+  - **后端视觉/提取链**：`app/preprocess/ocr.py`、`app/services/slicer.py`、
+    `app/services/extraction.py`、`app/api/captures.py`、`app/api/extractions.py`、
+    `app/models/extraction.py`；`photo_captures` / `photo_capture_items` /
+    `problem_extractions` 三张表结构保留但不再有写入方（本票只按清单 DROP 两表）。
+  - **网关/审计/讲解/HTTP 判分**：`services/ai_gateway.py`、`services/model_audit.py`、
+    `services/explanation.py`、`api/explanations.py`、`api/gradings.py`；
+    `services/grading.py` **保留**（intake 唯一写入路径依赖的确认/版本追加服务，
+    已无判分与模型调用）；`judge/`（`judge_answer` + AST 沙箱）、`seed/bank.py`、
+    `services/bank.py`、`services/quiz.py`、`services/review.py` / `recompute.py`、
+    `api/imports.py` + `services/inbox.py` + `services/intake.py`、
+    `api/reviews.py` / `api/quizzes.py` / `api/attempts.py` 全部保留。
+  - **Provider 抽象整体删除**：`app/providers/` 整目录（base/doubao/qwen_vl/tencent/
+    openai_vision/http/failover/registry/cache/text/mock）——删网关后全仓已无 importer，
+    mock 也不再被任何测试引用，一并移除。
+  - **提示词与旧链路脚本**：`llm_prompts/`（模板真源已迁 `docs/templates/`，此目录删除）、
+    `app/prompts/loader.py`、`app/jobs/`、`app/models/jobs.py`、`scripts/smoke_providers.py`、
+    `make_extraction_fixtures.py`、`make_slicing_fixture.py`、`eval_slicing.py`、
+    `eval_extraction.py`、`eval_grading.py`、`eval_explanation.py`、
+    `evals/` 目录骨架与只服务旧链路的单测/集成测试。
+  - **迁移 `0013_drop_model_tables`（可逆）**：`upgrade` DROP `model_runs`（含索引）与
+    `ai_jobs`；`downgrade` 按 0002+0010 原始定义重建空表（UNIQUE / FK / 索引齐全），
+    不回填历史模型审计数据。`learning_events` / `attempts` 等事实与派生表不动。
+  - **配置与部署资产去模型化**：`core/config.py` 移除 provider/model/成本/提示词/上传目录等
+    失效字段；`.env.example` 删除全部模型 Key 与预算项；`docker-compose.yml` 去掉
+    `llm_prompts` / `uploads` / `app-config` 挂载；`Dockerfile` 与 `requirements.txt`
+    移除 OCR/图像/模型 SDK 依赖；`Makefile` 删除 `make eval`；`config/README.md`
+    改为"预留目录"（零模型后无热加载参数）。
+  - **前端**：删除 `CapturePage.tsx`、`GradingPage.tsx`、`ExplainPage.tsx`、
+    `api/explainContext.ts` 及 `App.tsx` 路由、`endpoints.ts` / `types.ts` 中只服务三页的
+    条目、`AppLayout` 残留入口；五页导航（导入 / 核对 / 错题本 / 复习考核 / 练习记录）不变。
+  - **测试迁移到核对页写入路径**：`test_mistakes_api` / `test_reviews_api` 改为
+    `POST /api/imports` → `GET /api/imports/{batch}/drafts` → `POST .../confirm` 驱动，
+    保留标签 / 概念归并 / 派生表 / 复习阶梯 / 掌握度 / 考核三态覆盖；新增
+    "未知学科入本但不排期"用例；删除依赖 `ai_gateway` 的
+    `test_import_never_calls_models`（内核已无模型可调）与全部网关/视觉/讲解测试。
+  - **验证**：`python -c "import app.main"` 成功；临时库 `/health` 200；
+    **全量 pytest 263 passed**；`ruff check .` 全绿；`npm run build`（tsc + vite）绿；
+    迁移 `0013` up→down→up 测试通过。
+  - **运行态端到端实跑**（临时库 `.e2e-data` + 真 uvicorn :8123，脚本跑完即删）：
+    `/health` OK → 导入 3 条外部转录并核对确认 → 到期队列三态（`quiz` / `self_eval` /
+    `redo`）→ 考核答对 `source=system_quiz`、大题自评与重做 `student_self` →
+    手动组卷 cnm_001 ×3 seed 11 全对 → inbox 投递 JSON 被 watcher 拾取成草稿、确认后
+    错题 6→7 → SQLite 确认 `model_runs` / `ai_jobs` 不存在；输出 `E2E PASS`。
+  - 残留：删除 `api/gradings.py` 后**不再有 HTTP 作废/申诉入口**（v2.5 唯一写入路径只到
+    "确认入本"，历史 `correct` 作废语义仅保留在服务层测试与备份恢复场景）；`config/`
+    目录保留但当前无热参数；`docs/methodology/evals.md` 改为退役说明（原方法论在 git 历史）。
 
 ### Added
 

@@ -3,31 +3,32 @@
 **React 19 + Vite + TypeScript + Mantine + KaTeX + PWA**——本目录是 wengu 项目的前端。
 
 > **实现约束请严格遵守仓库根的 [`AGENTS.md`](../AGENTS.md)**：React + Mantine + KaTeX（数学渲染刚需），**不引入 Redux/Zustand 之外的重型状态库**；PWA 支持离线；两角色 + 本地 PIN（不做公网账号体系）。
+> **v2.5 零模型**：前端不触发任何模型调用；真实作业的批改与讲解在系统外完成。
 
-## 页面清单（对应 TICKETS.md）
+## 页面清单
 
-| 路由 | 页面 | 归属工单 |
+| 路由 | 页面 | 说明 |
 |---|---|---|
-| `/` | 打开即弹**今日队列**（PWA） | P2-1 / P2-2 |
-| `/capture` | 采集上传（手机/PC 浏览器 + 快捷方式说明） | P1-3 |
-| `/grading/:id` | 批改结果 + **回显识别到的题目+作答** + 一键确认/纠错 + 申诉 | P1-5 / P1-9 |
-| `/mistakes` | 错题本（按 category/concept/错因/时间筛选） | P1-6 / P1-9 |
-| `/review/:id` | 复习页（重做原题 → 变式异步） | P1-7 / P1-9 |
-| `/explain/:id` | 三段式讲解（引导阶梯 / 完整讲解 / 要答案留痕） | P1-8 |
-| `/practice` | `practice_records` 派生表回看（v2.4） | P1-6 |
-| `/dashboard` | 孩子**自己**的复盘看板（观察复盘型） | P2-5 |
-| `/parent/**` | 家长视图（PIN 解锁：看板/长期目标/组卷/审核题库/备份） | P2-4 / P2-5 |
-| `/settings` | 首次运行向导 + 热配置（`app-config.json` 优先 .env） | P5-1 |
+| `/import` | 导入 | inbox 路径/单批上限说明 + 家长手填最小表单（只生成草稿） |
+| `/intake` | 入库核对 | 题目 / 错答 / 正答三栏回显 + 主考点 + 错因 + 细标签 → 一键确认入本 |
+| `/mistakes` | 错题本 | 按 category / concept / 错因 / 时间筛选 |
+| `/mistakes/:id` | 错题详情 | 卷面订正回放 + 标签 + 复习状态（只读） |
+| `/review` | 复习考核 | 到期三态（同类题作答·服务端判分 / 纸上自评 / 原题重做）+ 手动组卷 |
+| `/records` | 练习记录 | 同类题考核 / 变式加练两档回看（不进错题本） |
+
+规划中（未实现）：`/` 今日队列（P2-1/2-2）、`/dashboard` 看板（P2-5）、`/parent/**`（P2-4/2-5）、`/settings` 向导（P5-1）。
+
+已删除（P1-12）：`/capture`、`/grading/:id`、`/explain/:id` 及对应页面 / API 客户端。
 
 ## 目录约定
 
 ```
 wengu-web/
 ├─ src/
-│  ├─ pages/          # 上述路由对应页面
+│  ├─ pages/          # Import / Intake / Mistakes / MistakeDetail / Review / Records
 │  ├─ components/     # Mantine 组件封装 + KaTeX 数学渲染组件
-│  ├─ hooks/          # useCapture / useGradeConfirm / usePwaPush 等
-│  ├─ api/            # 后端调用封装
+│  ├─ hooks/          # 数据加载与轮询等
+│  ├─ api/            # 后端调用封装（endpoints.ts / types.ts）
 │  ├─ stores/         # 状态（推荐 Mantine context 或 Zustand，勿引 MobX/Redux）
 │  ├─ router/
 │  ├─ assets/
@@ -45,20 +46,17 @@ wengu-web/
 ```bash
 # 从仓库根跑
 make install-web        # npm ci
-make dev-web            # http://localhost:5173
+make dev-web            # http://localhost:5173（WENGU_API_PROXY 可改后端地址）
 ```
 
-当前为 P1-0 空壳：只显示 **wengu · 温故** 与一个 KaTeX 公式，用于验证构建与渲染链路；无业务路由。
+构建：`npm run build`（`tsc` strict + `vite build`）。
 
 ## 关键 UI 纪律
 
-- **回显总闸**：批改结果页必须**并排展示"系统识别到的题目 + 孩子的作答"**（AGENTS §5）；识别错孩子一眼看出来。
-- **`〔?〕` 占位高亮**：模型不确定的字段用占位，UI 标"待人工"色块。
-- **`【依赖图形】`**：这类题**不参与自动判分/复习**，只展示归因统计，UI 上明说。
-- **`unaudited` / `blind_verified: false`** 的 seed 数据（英语/物理）：知识点树上挂角标提示"社区数据、未审、参考用"。
-- **纯查询页绝不触发模型调用**：Dashboard / 错题本列表页 = 只读已有数据 + 任务状态。
-- **语气**：三段式讲解的引导文案温暖、鼓励，答错共情；**不上积分/徽章/连续打卡奖励**（AGENTS §6）。
-
-## 第一张工单
-
-**P1-0 Repo 骨架**：能编译、能显示 `wengu · 温故` 的空壳 + KaTeX 集成，能进 CI 冒烟即可。**不要提前堆业务页面**。
+- **核对页是唯一转正入口**：缺正答、含 `〔?〕` 的草稿禁用确认并给出原因；确认值不覆盖 agent 建议。
+- **题面安全**：考核卡片只消费服务端 `QuizQuestionView`，绝不展示 `answer / accept / explanation / verify`；
+  内联 SVG 只渲染服务端净化后的字符串。
+- **质量标签透传**：`unaudited` / `blind_verified: false` 的 seed 数据挂角标"社区数据、未审、参考用"。
+- **`【依赖图形】`**：这类题不参与系统判分，到期队列降级为纸上自评。
+- **纯查询页零模型调用**：错题本 / 练习记录 / 详情页只读已有数据。
+- **语气**：鼓励、共情；**不上积分/徽章/连续打卡奖励**（AGENTS §6）。

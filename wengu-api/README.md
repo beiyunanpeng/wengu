@@ -2,29 +2,28 @@
 
 **Python 3.11+ · FastAPI · SQLite（WAL + Alembic）**——本目录是 wengu 项目的后端。
 
-> **实现约束请严格遵守仓库根的 [`AGENTS.md`](../AGENTS.md)**：单实例单用户、模块化单体、无 Redis/Celery/外部 MQ、无 agent 编排框架、Prompt 版本化真源在 `../llm_prompts/`。
+> **实现约束请严格遵守仓库根的 [`AGENTS.md`](../AGENTS.md)**：单实例单用户、模块化单体、无 Redis/Celery/外部 MQ、无 agent 编排框架。
+> **v2.5 起内核零模型**：后端不调用任何云端 VLM/OCR/文本模型，也没有 provider 抽象；
+> 真实作业的识别、批改、讲解全部在系统外完成，外部 agent 的转录 JSON 经监听目录导入为草稿。
 
 ## 目录约定（详见 `../目录结构.md`）
 
 ```
 wengu-api/
 ├─ app/
-│  ├─ main.py                    # FastAPI 入口 + /health
-│  ├─ core/                      # config / database / security（本地 PIN）
+│  ├─ main.py                    # FastAPI 入口 + /health + inbox 监听生命周期
+│  ├─ core/                      # config / database / security（本地 PIN，预留）
 │  ├─ api/                       # 路由
 │  ├─ models/                    # SQLAlchemy
-│  ├─ schemas/                   # Pydantic（宽松解析 vs 严格校验分离）
-│  ├─ services/                  # 业务
-│  ├─ providers/                 # 按厂商拆文件：base/doubao/qwen_vl/tencent/mock
+│  ├─ schemas/                   # Pydantic（考核题面安全视图）
+│  ├─ services/                  # intake / inbox / grading / mistakes / review / quiz / bank
 │  ├─ judge/                     # judgeAnswer 规范化 + AST 白名单沙箱 verify
-│  ├─ jobs/                      # ai_jobs 表 + 进程内循环
-│  ├─ prompts/loader.py          # 从 ../llm_prompts/ 加载真源
 │  └─ seed/                      # seed 装载 + 题库内存索引（bank.py / svg.py）
-├─ migrations/                   # Alembic
-├─ scripts/                      # import_seed / import_questions / make_* / eval_* / smoke_providers
-├─ tests/                        # unit / integration / e2e / memory
+├─ migrations/                   # Alembic（head = 0013_drop_model_tables）
+├─ scripts/                      # import_seed / import_questions / export_topics_junior
+├─ tests/                        # unit / integration
 ├─ requirements.txt
-├─ .env.example                  # 密钥走 env；运行时可改参数走 config/app-config.json
+├─ .env.example                  # 零模型：通常无需任何 Key
 └─ Dockerfile
 ```
 
@@ -50,65 +49,42 @@ make downgrade D=base               # 回退到空库（保留空的 alembic_ver
 > 处理完归档到 `.processed/`（非法报文为 `.invalid.json`），停机期间文件不丢、重启补扫。
 > 健康检查返回：`{"status":"ok","service":"wengu-api","version":"0.0.0","database":"ok"}`。
 
-## 当前状态（P1-8）
+## 当前状态（v2.5 零模型 / P1-12）
 
-- 已完成：配置热加载、事件溯源 + 确定性重算、seed 装载、四家 provider 适配与成本护栏、
-  采集/导入/切题、结构化提取与质量闸门、批改分级闸、保守入本与两级标签、
-  **三段式讲解引擎**。
-- P1-5 批改约定：
-  - 客观题：**零模型调用**，由代码规范化比对（`app/judge/normalize.py`）。
-  - 过程题：`grade.md` 保守初判 + 可选 1–3 次采样；不一致或模型不确定 → `uncertain`。
-  - 开放题：只返回 `{"route": "explanation"}`，不建批改单、不进错题流，随后可调讲解端点。
-  - 标准答案取 `problem_bank` 引用或请求显式 `answer`；缺失 → 人工，不调模型。
-  - **Phase 0 边界表未回填：所有新单 `pending`，确认/申诉只追加版本，不自动建错题。**
-- P1-8 讲解约定：
-  - `POST /api/explanations`：`source_kind` = `mistake` / `problem_extraction` /
-    `ingestion_draft`，`mode` = `auto` / `guide` / `full`。默认按错因选模式；
-    引导 `hint_level` 1–3，完整讲解忽略层级。
-  - **不硬拦看答案**：默认引导的错题直接请求 `full` 时返回内容，但 `soft_gate=true`
-    并写事件；孩子先 `POST /api/explanations/attempts` 动手留痕后再看，`soft_gate=false`。
-  - 质量/泄漏闸门：完整讲解 ≥2 步 + 非空 answer；引导丢弃 answer 字段并遮蔽标准答案
-    与"答案是…"短语；`leak_flags` 只记代码，不回传讲解正文到审计。
-  - 讲解端点无 GET；事件 payload 只含模式/层级/策略/prompt 版本/provider 等元数据，
-    **不落题目、作答、标准答案或讲解正文**。
-- 主要端点：
-  - `POST /api/problem-bank/import` / `GET /api/problem-bank/items/{id}`
-  - `POST /api/gradings` / `GET /api/gradings/{id}`
-  - `POST /api/gradings/{id}/confirm` / `POST /api/gradings/{id}/appeal`（`base_version` 乐观锁）
-  - `POST /api/explanations` / `POST /api/explanations/attempts`
-  - `GET /api/mistakes` / `GET /api/mistakes/{id}` / `POST /api/mistakes/{id}/labels`
-  - `GET /api/imports/drafts` / `POST /api/imports/drafts/{draft_id}/confirm`
-    （核对页确认入本：缺正答、含 `〔?〕` → 422；主考点可空，无主考点存 NULL、只做原题重做自评）
-  - `GET /api/attempts?source=system_quiz|student_self|manual`（只读回看；不写入）
-  - `GET /api/practice-records`（变式/加练，独立于错题本与复习）
+- 主入本通道：外部 agent 整页拍 → 按 `../docs/templates/` 版本化模板转录已批改错题 →
+  `data/inbox/` 监听导入 → `ingestion_drafts` → **核对页人工确认** → 错题 + 首次复习排期。
+- 唯一写入路径不变：`services/intake.promote_draft` → `services/grading` 的
+  `append_user_decision` → `sync_mistake_for_verdict`；正答必填、含 `〔?〕` 一律拒转正；
+  `primary_topic_id` / `student_answer` 可空（无主考点只做原题重做自评）。
+- 系统内仅判**自造同类题考核**：运行时走 `judge/normalize.py`（NFKC / 多答案 / 有理数精确 /
+  坐标 / 单位别名），题库入库时 `verify` 过 AST 白名单沙箱；**禁用 Python 内置 `eval()`**。
+- 到期队列三态：`quiz`（可答题，服务端判分）/ `self_eval`（解答大题、依赖题图 → 纸上自评）/
+  `redo`（题库缺口 → 原题重做自评）；手动组卷按知识点 + 固定 seed 可重放。
+- 已退役（P1-12）：系统内视觉栈（采集上传 / OCR 切题 / VLM 提取）、`ai_gateway`、
+  provider 适配层、讲解服务、HTTP 模型判分端点、`model_runs` / `ai_jobs`（迁移 0013 DROP）。
 
-## 模型评测（真实模型，不进 CI）
+## 主要端点
 
-```bash
-# 过程题初判：4 道合成过程题 × 3 采样；只输出 JSON 合规/延迟/tokens/结论匹配
-venv/Scripts/python scripts/eval_grading.py --prefer-dotenv
+| 域 | 端点 |
+|---|---|
+| 健康 / seed | `GET /health`、`GET /api/seed/summary`、`GET /api/seed/topics` |
+| 导入 | `POST /api/imports`、`GET /api/imports/{batch_id}`、`GET /api/imports/inbox` |
+| 核对入本 | `GET /api/imports/drafts`、`GET /api/imports/{batch_id}/drafts`、`POST /api/imports/drafts/{draft_id}/confirm` |
+| 错题 / 标签 | `GET /api/mistakes`、`GET /api/mistakes/{id}`、`GET /api/mistakes/options`、`POST /api/mistakes/{id}/labels` |
+| 概念 | `GET /api/concepts`、`POST /api/concepts`、`POST /api/concepts/merge` |
+| 题库 | `POST /api/problem-bank/import`、`GET /api/problem-bank/items/{id}` |
+| 复习 | `GET /api/reviews/due`、`POST /api/reviews/{mistake_id}/quiz`、`POST /api/reviews/{mistake_id}/complete` |
+| 组卷 | `GET /api/quizzes/topics`、`GET /api/quizzes/paper`、`POST /api/quizzes/paper/submit` |
+| 练习记录 | `GET /api/attempts`、`DELETE /api/attempts`、`GET /api/practice-records`、`POST /api/practice-records`、`DELETE /api/practice-records` |
 
-# 三段式讲解：4 个合成案例 × 引导 1/3 级 + 完整讲解；只输出结构/泄漏/步数/答案命中/延迟/tokens
-venv/Scripts/python scripts/eval_explanation.py --prefer-dotenv
-```
-
-最近一次（2026-10-26，`explain_guide@1` + `explain_full@1`，
-`doubao-seed-2-1-lite-260915`）：结构合规 12/12、引导零泄漏 8/8、
-完整讲解 ≥2 步 4/4、答案命中 4/4、p50 33.0s、tokens in 10633 / out 27005。
-
-过程题最近一次（2026-10-25，`grade@1`，同模型）：
-JSON 合规 12/12、有效结论 4/4、p50 8.3s、tokens in 5616 / out 8590。
-合成题只验证链路与提示词稳定性，不代表真实手写识别率。
-
-## 第一张工单
-
-**P1-0 Repo 骨架**（见 `../TICKETS.md`）——已完成：FastAPI + SQLite + `/health` + 冒烟测试 + CI。
-**不要提前写业务逻辑**：`AGENTS.md` §2 明确 Phase 0 边界表未回填前禁止实现"错题自动入库"和"自动排复习"。
+所有 GET 均为纯查询，零模型调用（内核已无模型可调）。
 
 ## 关键纪律（不要绕过）
 
-- **Provider 抽象**：所有模型调用必须过 `app/providers/base.py::VisionProvider`；业务代码里**禁止直接 import 某家 SDK**。
-- **Prompt 版本化**：prompt 文本**绝不写在代码里**，全部走 `../llm_prompts/*.md`，启动加载、语义变更递增 frontmatter `version`；每次调用记录 `prompt_version` 进 `model_runs`。
-- **判分分工**：**运行时判卷** = `judge/normalize.py`（NFKC/多答案/有理数/坐标/单位）；**入库时核验** = `judge/verify_sandbox.py`（AST 白名单沙箱跑 `verify` Python 表达式）。**禁用 Python 内置 `eval()`**。
-- **事件溯源**：`learning_events` 表 append-only，UNIQUE 防重复；掌握度 / 复习排期 / 毕业状态**一律由事实推导、可整体重算、不存易变字段**。
-- **PII**：日志与 `model_runs` **不落题目全文、答案、文件 URL、密钥**；`evals/**/data/` 与 `Phase0-实测/` 全 gitignore。
+- **模型只提、代码才判**（作用域收缩为自造同类题）：判分只走 `judge/normalize.py`，
+  `verify` 只走 `judge/verify_sandbox.py`；禁止 `eval()`。
+- **核对页是唯一转正入口**：草稿不得静默转正、不得自动排复习；Skill / 定时任务只写草稿。
+- **事件溯源**：`learning_events` append-only，UNIQUE 防重复；掌握度 / 复习排期 / 毕业状态
+  一律由事实推导、可整体重算、不存易变字段。
+- **PII**：日志与事件 payload **不落题目全文、答案、文件 URL、密钥**；作答原文不入库
+  （`attempts.answer_text` 恒为 NULL）。

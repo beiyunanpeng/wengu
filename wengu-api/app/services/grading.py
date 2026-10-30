@@ -1,18 +1,15 @@
-"""P1-5 判分服务（v2.5：真实题不在系统内判，只判自造同类题）。
+"""P1-5 批改单持久化与确认/申诉版本服务（v2.5：真实题在系统外判）。
 
-纪律（AGENTS §5 / 设计文档 §16.B）：
-- 真实作业的批改/引导/解析全部外部完成；本模块不再做过程题模型初判，
-  也不再做多次采样一致性检查（整段已随 v2.5 退役）。
-- 客观题仍走确定性 judge_answer 规范化比对，零模型调用；不确定一律 uncertain。
-- 提取质量闸门未过 / 缺可信标准答案 / 占位 / 作答为空 → manual，不猜、不调模型。
+纪律（AGENTS §5 / 设计文档 §16）：
+- 本模块只做"核对页确认入本"的落库与版本追加，不做任何判分/模型调用；
+  系统自造同类题考核的判分在 `services/quiz.py` 走 `judge_answer`。
 - 建议值与确认值分离：grading_results 存逻辑单，grading_versions 只追加，
-  确认/申诉写 learning_events（幂等键含 grading_id + version）。
-- 所有新批改单 status=pending，不自动建错题/排复习（入本一律经核对页确认）。
+  确认写 learning_events（幂等键含 grading_id + version）。
+- 新批改单 status=pending，不自动建错题/排复习（入本一律经核对页确认）。
 """
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Literal
@@ -21,17 +18,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.judge.normalize import PLACEHOLDER, judge_answer
-from app.models import (
-    GradingResult,
-    GradingVersion,
-    IngestionDraft,
-    ProblemBankItem,
-    ProblemExtraction,
-)
+from app.models import GradingResult, GradingVersion
 from app.models.grading import (
-    SOURCE_INGESTION_DRAFT,
-    SOURCE_PROBLEM_EXTRACTION,
     STATUS_APPEALED,
     STATUS_CONFIRMED,
     STATUS_PENDING,
@@ -52,14 +40,6 @@ class SourceProblem:
     student_answer: str | None
     ready: bool
     manual_reason: str | None = None
-
-
-@dataclass(frozen=True)
-class Reference:
-    answer: str
-    acceptable: tuple[str, ...]
-    unordered: bool
-    bank_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -86,184 +66,6 @@ class ConfirmationDetails:
     confirmed_concept_ids: tuple[int, ...] = ()
     confirmed_error_cause: str | None = None
     review_subject: str | None = None
-
-
-class SourceNotFound(LookupError):
-    pass
-
-
-class ReferenceNotFound(LookupError):
-    pass
-
-
-def _manual(reason: str) -> Suggestion:
-    return Suggestion("uncertain", "code", None, reason)
-
-
-def _placeholder_in(*values: str | None) -> bool:
-    return any(PLACEHOLDER in value for value in values if value)
-
-
-def _draft_fields(raw: str) -> tuple[str, str]:
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError:
-        return "", ""
-    if not isinstance(data, dict):
-        return "", ""
-    problem_text = data.get("problem_text")
-    student_answer = data.get("student_answer")
-    return (
-        problem_text if isinstance(problem_text, str) else "",
-        student_answer if isinstance(student_answer, str) else "",
-    )
-
-
-async def read_source(
-    session: AsyncSession, source_kind: str, source_id: int
-) -> SourceProblem:
-    """读取待批改来源并执行提取质量闸门；不调模型、不落库。"""
-
-    if source_kind == SOURCE_PROBLEM_EXTRACTION:
-        row = await session.get(ProblemExtraction, source_id)
-        if row is None:
-            raise SourceNotFound("extraction 不存在")
-        if row.gate_status != "ready_for_grading":
-            reason = f"extraction_gate:{row.gate_status}"
-            return SourceProblem(
-                source_kind, source_id, row.problem_text, row.student_answer, False, reason
-            )
-        if _placeholder_in(row.problem_text, row.student_answer):
-            return SourceProblem(
-                source_kind, source_id, row.problem_text, row.student_answer, False, "placeholder"
-            )
-        if not (row.student_answer or "").strip():
-            return SourceProblem(
-                source_kind,
-                source_id,
-                row.problem_text,
-                row.student_answer,
-                False,
-                "student_answer_empty",
-            )
-        return SourceProblem(
-            source_kind, source_id, row.problem_text, row.student_answer, True, None
-        )
-
-    if source_kind == SOURCE_INGESTION_DRAFT:
-        row = await session.get(IngestionDraft, source_id)
-        if row is None:
-            raise SourceNotFound("draft 不存在")
-        problem_text, student_answer = _draft_fields(row.normalized_json)
-        if row.has_placeholder or _placeholder_in(problem_text, student_answer):
-            return SourceProblem(
-                source_kind, source_id, problem_text, student_answer, False, "placeholder"
-            )
-        if row.is_incomplete or not student_answer.strip():
-            return SourceProblem(
-                source_kind,
-                source_id,
-                problem_text,
-                student_answer,
-                False,
-                "student_answer_empty",
-            )
-        return SourceProblem(
-            source_kind, source_id, problem_text, student_answer, True, None
-        )
-
-    raise SourceNotFound(f"不支持的 source_kind: {source_kind}")
-
-
-def parse_acceptable(raw: str) -> tuple[str, ...]:
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError:
-        return ()
-    if not isinstance(data, list):
-        return ()
-    return tuple(item for item in data if isinstance(item, str))
-
-
-async def resolve_reference(
-    session: AsyncSession,
-    *,
-    problem_bank_id: int | None,
-    answer: str | None,
-    acceptable: list[str],
-    unordered: bool,
-) -> tuple[Reference | None, str | None]:
-    """解析可信标准答案；返回 (reference, manual_reason)，两者互斥。"""
-
-    if problem_bank_id is not None:
-        item = await session.get(ProblemBankItem, problem_bank_id)
-        if item is None:
-            raise ReferenceNotFound("problem_bank 条目不存在")
-        if not item.answer.strip() or PLACEHOLDER in item.answer:
-            return None, "reference_invalid"
-        return (
-            Reference(
-                answer=item.answer,
-                acceptable=parse_acceptable(item.acceptable_answers_json),
-                unordered=item.unordered,
-                bank_id=item.id,
-            ),
-            None,
-        )
-
-    if answer is None:
-        return None, "reference_missing"
-    if not answer.strip() or PLACEHOLDER in answer:
-        return None, "reference_invalid"
-    return (
-        Reference(
-            answer=answer,
-            acceptable=tuple(item for item in acceptable if item.strip()),
-            unordered=unordered,
-        ),
-        None,
-    )
-
-
-def objective_suggestion(
-    source: SourceProblem,
-    reference: Reference | None,
-    *,
-    reference_reason: str | None = None,
-) -> Suggestion:
-    """客观题：确定性比对，零模型调用。"""
-
-    if not source.ready:
-        return _manual(source.manual_reason or "extraction_not_ready")
-    if reference is None:
-        return _manual(reference_reason or "reference_missing")
-    judged = judge_answer(
-        source.student_answer,
-        reference.answer,
-        acceptable=reference.acceptable,
-        unordered=reference.unordered,
-    )
-    if judged.verdict == "uncertain":
-        return _manual(judged.reason)
-    return Suggestion(judged.verdict, "code", None, judged.reason)
-
-
-def process_suggestion(
-    source: SourceProblem,
-    reference: Reference | None,
-    *,
-    reference_reason: str | None = None,
-) -> Suggestion:
-    """过程题：v2.5 起系统内不判，一律转人工确认（真实题在卷面已批改）。
-
-    保留该分支只为兼容旧入口：不调模型、不做采样，直接落 uncertain。
-    """
-
-    if not source.ready:
-        return _manual(source.manual_reason or "extraction_not_ready")
-    if reference is None:
-        return _manual(reference_reason or "reference_missing")
-    return _manual("real_homework_external")
 
 
 async def get_by_source(
@@ -295,7 +97,6 @@ async def persist_grading(
     *,
     source: SourceProblem,
     question_type: QuestionType,
-    reference: Reference | None,
     suggestion: Suggestion,
 ) -> tuple[GradingResult, bool]:
     """幂等落库：同源已存在则返回旧单；竞态由 UNIQUE 兜底。"""
@@ -308,15 +109,13 @@ async def persist_grading(
     root = GradingResult(
         source_kind=source.source_kind,
         source_id=source.source_id,
-        problem_bank_id=reference.bank_id if reference else None,
+        problem_bank_id=None,
         question_type=question_type,
         problem_text=source.problem_text,
         student_answer=source.student_answer,
-        standard_answer=reference.answer if reference else None,
-        acceptable_answers_json=json.dumps(
-            list(reference.acceptable) if reference else [], ensure_ascii=False
-        ),
-        unordered=reference.unordered if reference else False,
+        standard_answer=None,
+        acceptable_answers_json="[]",
+        unordered=False,
         status=STATUS_PENDING,
         current_version=1,
         created_at=now,

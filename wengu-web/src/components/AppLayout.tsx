@@ -21,7 +21,7 @@ export default function AppLayout() {
             fw={700}
             size="lg"
             style={{ cursor: "pointer", whiteSpace: "nowrap" }}
-            onClick={() => navigate("/capture")}
+            onClick={() => navigate("/import")}
           >
             wengu · 温故
           </Text>

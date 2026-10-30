@@ -28,8 +28,6 @@ EXPECTED_TABLES = {
     "mistakes",
     "practice_records",
     "review_schedules",
-    "ai_jobs",
-    "model_runs",
     "user_role",
     "prerequisite_edges",
 }
@@ -178,16 +176,27 @@ def test_mistake_versions_append_only_guard(tmp_path) -> None:
 
 
 @pytest.mark.integration
-def test_model_runs_attempt_chain_columns(tmp_path) -> None:
-    """0010：尝试链三列 + 索引，可重复上下迁移。"""
+def test_p1_12_drops_model_tables_reversibly(tmp_path) -> None:
+    """0013：DROP model_runs / ai_jobs；down 重建空表（含尝试链列与索引）。"""
 
-    db_path = tmp_path / "attempts.db"
+    db_path = tmp_path / "drop-model-tables.db"
     config = _alembic_config(db_path)
-    command.upgrade(config, "head")
 
+    command.upgrade(config, "0012_attempts_mistake_nullable")
+    assert {"model_runs", "ai_jobs"} <= _tables(db_path)
+
+    command.upgrade(config, "head")
+    tables = _tables(db_path)
+    assert {"model_runs", "ai_jobs"}.isdisjoint(tables)
+    assert {"learning_events", "attempts", "grading_results"} <= tables
+
+    command.downgrade(config, "0012_attempts_mistake_nullable")
     engine = create_engine(f"sqlite:///{db_path.as_posix()}")
     try:
         with engine.connect() as connection:
+            assert {"model_runs", "ai_jobs"} <= set(
+                inspect(connection).get_table_names()
+            )
             columns = {
                 column["name"]
                 for column in inspect(connection).get_columns("model_runs")
@@ -196,39 +205,21 @@ def test_model_runs_attempt_chain_columns(tmp_path) -> None:
                 index["name"]
                 for index in inspect(connection).get_indexes("model_runs")
             }
+            job_uniques = {
+                constraint["name"]
+                for constraint in inspect(connection).get_unique_constraints("ai_jobs")
+            }
         assert {"attempt_group", "attempt_index", "error_kind"} <= columns
-        assert "ix_model_runs_attempt_group" in indexes
-    finally:
-        engine.dispose()
-
-    command.downgrade(config, "0009_review_schedules")
-    engine = create_engine(f"sqlite:///{db_path.as_posix()}")
-    try:
-        with engine.connect() as connection:
-            columns = {
-                column["name"]
-                for column in inspect(connection).get_columns("model_runs")
-            }
-            indexes = {
-                index["name"]
-                for index in inspect(connection).get_indexes("model_runs")
-            }
-        assert {"attempt_group", "attempt_index", "error_kind"}.isdisjoint(columns)
-        assert "ix_model_runs_attempt_group" not in indexes
+        assert {
+            "ix_model_runs_ai_job_id",
+            "ix_model_runs_attempt_group",
+        } <= indexes
+        assert "uq_ai_jobs_idempotency_key" in job_uniques
     finally:
         engine.dispose()
 
     command.upgrade(config, "head")
-    engine = create_engine(f"sqlite:///{db_path.as_posix()}")
-    try:
-        with engine.connect() as connection:
-            columns = {
-                column["name"]
-                for column in inspect(connection).get_columns("model_runs")
-            }
-        assert {"attempt_group", "attempt_index", "error_kind"} <= columns
-    finally:
-        engine.dispose()
+    assert {"model_runs", "ai_jobs"}.isdisjoint(_tables(db_path))
 
 
 @pytest.mark.integration

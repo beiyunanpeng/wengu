@@ -24,7 +24,6 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
 
-SOURCE_PROBLEM_EXTRACTION = "problem_extraction"
 SOURCE_INGESTION_DRAFT = "ingestion_draft"
 
 QUESTION_OBJECTIVE = "objective"

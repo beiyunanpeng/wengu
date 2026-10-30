@@ -1,21 +1,12 @@
 import { apiRequest, requestJson } from "./client";
 import type {
   AttemptListResponse,
-  CaptureCreated,
   CompleteReviewResponse,
   Concept,
   ConceptCreateResponse,
-  CreateGradingPayload,
-  CreateGradingResponse,
   DraftConfirmPayload,
   DraftConfirmResponse,
   DueReviewResponse,
-  ExplainMode,
-  ExplainSourceKind,
-  ExplanationAttemptResponse,
-  ExplanationResponse,
-  ExtractionBatch,
-  GradingDetail,
   ImportResult,
   InboxInfo,
   IntakeDraftListResponse,
@@ -25,92 +16,11 @@ import type {
   PaperSubmitAnswer,
   PaperSubmitResponse,
   PracticeListResponse,
-  QuestionType,
   QuizPaperResponse,
   QuizTopicListResponse,
   ReviewQuizResponse,
-  SliceResult,
   TopicListResponse,
 } from "./types";
-
-export function uploadCapture(file: File): Promise<CaptureCreated> {
-  const form = new FormData();
-  form.append("file", file);
-  return apiRequest<CaptureCreated>(
-    "/api/captures",
-    { method: "POST", body: form },
-    60_000,
-  );
-}
-
-export function sliceCapture(
-  captureId: number,
-  force = false,
-): Promise<SliceResult> {
-  const query = force ? "?force=true" : "";
-  return apiRequest<SliceResult>(
-    `/api/captures/${captureId}/slice${query}`,
-    { method: "POST" },
-    120_000,
-  );
-}
-
-export function extractCapture(
-  captureId: number,
-  force = false,
-): Promise<ExtractionBatch> {
-  const query = force ? "?force=true" : "";
-  return apiRequest<ExtractionBatch>(
-    `/api/captures/${captureId}/extract${query}`,
-    { method: "POST" },
-    300_000,
-  );
-}
-
-export function listExtractions(captureId: number): Promise<ExtractionBatch> {
-  return apiRequest<ExtractionBatch>(`/api/captures/${captureId}/extractions`);
-}
-
-export function createGrading(
-  payload: CreateGradingPayload,
-): Promise<CreateGradingResponse> {
-  return requestJson<CreateGradingResponse>("/api/gradings", "POST", payload, 180_000);
-}
-
-export function getGrading(gradingId: number): Promise<GradingDetail> {
-  return apiRequest<GradingDetail>(`/api/gradings/${gradingId}`);
-}
-
-export interface GradingDecisionPayload {
-  base_version: number;
-  verdict: "correct" | "wrong";
-  category_id?: string | null;
-  actor?: "student" | "parent";
-}
-
-export function confirmGrading(
-  gradingId: number,
-  payload: GradingDecisionPayload,
-): Promise<GradingDetail> {
-  return requestJson<GradingDetail>(
-    `/api/gradings/${gradingId}/confirm`,
-    "POST",
-    payload,
-    60_000,
-  );
-}
-
-export function appealGrading(
-  gradingId: number,
-  payload: GradingDecisionPayload & { reason?: string | null },
-): Promise<GradingDetail> {
-  return requestJson<GradingDetail>(
-    `/api/gradings/${gradingId}/appeal`,
-    "POST",
-    payload,
-    60_000,
-  );
-}
 
 export interface MistakeFilters {
   status?: "active" | "voided" | "all";
@@ -330,45 +240,6 @@ export function submitQuizPaper(payload: {
     ...payload,
   });
 }
-
-export interface CreateExplanationPayload {
-  source_kind: ExplainSourceKind;
-  source_id: number;
-  mode: ExplainMode;
-  hint_level: number;
-  request_id: string;
-}
-
-export function createExplanation(
-  payload: CreateExplanationPayload,
-): Promise<ExplanationResponse> {
-  return requestJson<ExplanationResponse>(
-    "/api/explanations",
-    "POST",
-    payload,
-    180_000,
-  );
-}
-
-export function recordExplanationAttempt(payload: {
-  source_kind: ExplainSourceKind;
-  source_id: number;
-  attempt_id: string;
-  mode: "guide" | "full";
-  hint_level: number;
-}): Promise<ExplanationAttemptResponse> {
-  return requestJson<ExplanationAttemptResponse>(
-    "/api/explanations/attempts",
-    "POST",
-    payload,
-  );
-}
-
-export const QUESTION_TYPE_LABELS: Record<QuestionType, string> = {
-  objective: "客观题",
-  process: "过程题",
-  open: "开放题",
-};
 
 export interface IntakeDraftFilters {
   status?: "draft" | "promoted" | "all";

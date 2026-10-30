@@ -277,21 +277,3 @@ async def test_watcher_loop_processes_file_and_stops(
         assert (
             await session.execute(select(func.count()).select_from(IngestionDraft))
         ).scalar_one() == 2
-
-
-@pytest.mark.integration
-async def test_import_never_calls_models(tmp_path: Path, inbox: Path, monkeypatch) -> None:
-    from app.services import ai_gateway
-
-    def _boom(*args, **kwargs):  # pragma: no cover - 被调用即失败
-        raise AssertionError("导入链路不允许触发模型调用")
-
-    monkeypatch.setattr(ai_gateway.AiGateway, "extract_problem", _boom)
-    monkeypatch.setattr(ai_gateway.AiGateway, "grade", _boom)
-    monkeypatch.setattr(ai_gateway.AiGateway, "solve_explain", _boom)
-
-    _, factory = _migrated(tmp_path)
-    _drop(inbox, "no-model.json", VALID_PAYLOAD)
-    async with factory() as session:
-        reports = await process_inbox_once(session, inbox)
-    assert reports[0].outcome == "imported"
