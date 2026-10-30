@@ -340,3 +340,95 @@ export interface PracticeListResponse {
   limit: number;
   offset: number;
 }
+
+export interface DashboardTopicWeakness {
+  topic_id: string;
+  name: string | null;
+  subject: string | null;
+  active_mistakes: number;
+}
+
+export interface DashboardSubjectWeakness {
+  subject: string;
+  active_mistakes: number;
+}
+
+export interface DashboardConceptMastery {
+  concept_id: number;
+  name: string;
+  category_id: string;
+  category_name: string | null;
+  mastery: number;
+}
+
+export interface DashboardCurvePoint {
+  date: string;
+  mastery: number;
+}
+
+export interface DashboardInventory {
+  active: number;
+  voided: number;
+  unassigned_active: number;
+}
+
+export interface DashboardMastery {
+  overall: number;
+  concepts: DashboardConceptMastery[];
+  curve: DashboardCurvePoint[];
+  curve_days: number;
+}
+
+export interface DashboardDue {
+  today: number;
+  overdue: number;
+  total: number;
+}
+
+export interface DashboardCompletion {
+  reviews_this_week: number;
+  graduated_total: number;
+  graduated_this_week: number;
+}
+
+export interface DashboardBankGapTopic {
+  topic_id: string;
+  name: string | null;
+  subject: string | null;
+  active_mistakes: number;
+  open_schedules: number;
+}
+
+export interface DashboardBankGap {
+  topics: DashboardBankGapTopic[];
+  unassigned_open: number;
+}
+
+export interface DashboardGovernance {
+  appeal_count: number;
+  appealed_gradings: number;
+  void_events: number;
+  reactivate_events: number;
+}
+
+export interface DashboardEventStats {
+  total_events: number;
+  by_type: Record<string, number>;
+  attempts_correct: number;
+  attempts_wrong: number;
+  attempt_accuracy: number | null;
+}
+
+export interface DashboardResponse {
+  today: string;
+  week_start: string;
+  inventory: DashboardInventory;
+  weak_topics: DashboardTopicWeakness[];
+  weak_subjects: DashboardSubjectWeakness[];
+  mastery: DashboardMastery;
+  due: DashboardDue;
+  completion: DashboardCompletion;
+  bank_gap: DashboardBankGap;
+  governance: DashboardGovernance;
+  event_stats: DashboardEventStats;
+}

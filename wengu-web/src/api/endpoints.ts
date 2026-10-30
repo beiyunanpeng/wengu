@@ -4,6 +4,7 @@ import type {
   CompleteReviewResponse,
   Concept,
   ConceptCreateResponse,
+  DashboardResponse,
   DraftConfirmPayload,
   DraftConfirmResponse,
   DueReviewResponse,
@@ -336,5 +337,21 @@ export function listPracticeRecords(
   params.set("offset", String(filters.offset ?? 0));
   return apiRequest<PracticeListResponse>(
     `/api/practice-records?${params.toString()}`,
+  );
+}
+
+export function getDashboard(
+  params: { today?: string; curveDays?: number } = {},
+): Promise<DashboardResponse> {
+  const search = new URLSearchParams();
+  if (params.today) {
+    search.set("today", params.today);
+  }
+  if (params.curveDays) {
+    search.set("curve_days", String(params.curveDays));
+  }
+  const query = search.toString();
+  return apiRequest<DashboardResponse>(
+    `/api/dashboard${query ? `?${query}` : ""}`,
   );
 }

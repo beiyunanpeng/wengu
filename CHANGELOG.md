@@ -16,6 +16,28 @@ Phase 1 只剩 P1-7b（前置回溯诊断）与受闸门阻塞的 P1-7c。
 
 ### Added
 
+- **P2-5 家长看板（观察复盘型，纯只读确定性统计）**（2026-10-30）：
+  新增 `GET /api/dashboard` 与前端 `/dashboard` 页（导航首项"看板"），**孩子与家长看同一份**。
+  - **口径**：全部从 `learning_events` / `attempts` / `review_schedules` / `grading_versions` 现算，
+    复用 `recompute.stats` / `mastery` / `is_graduated`；不读写派生缓存、不调任何模型/网络。
+  - **指标**：活跃/已作废错题存量 + 未挂考点数；按知识点/学科的薄弱分布（仅活跃错题、
+    按其已确认主考点计）；掌握度总览 + 逐 concept 明细 + 近 N 天（默认 30，上限 90）
+    掌握度曲线（按日重放事件前缀，均已确认 concept 取均值）；今日/逾期/合计到期数；
+    本周（周一起算）完成复习数 + 已毕业总数 + 本周毕业数；题库覆盖缺口
+    （活跃错题中仍有未完成排期、且主考点在 seed 题库零题 → `bank_gap` 清单）；
+    申诉数（`grading_versions.action="appealed"`）+ 涉及批改数；作废/撤销作废事件数；
+    事件统计（`recompute.stats` 原样透出）。
+  - **只读证据**：端点只有 `GET`；集成测试在请求期间 monkeypatch `socket.create_connection` /
+    `socket.connect` 抛错（证明无出网），并在请求前后比对 `learning_events` /
+    `mistakes` / `review_schedules` / `grading_versions` / `attempts` 行数不变。
+  - **一致性证据**：测试逐项断言看板数字 == `recompute.stats` / `mastery` / `is_graduated`
+    重算结果；空库返回全零且曲线为空（不伪造 0 曲线）。
+  - **前端**：单页只读卡片 + 内联 SVG 掌握度曲线（不新增图表依赖），无推送/锁屏/问责、
+    无积分/徽章、无任何写操作按钮。
+  - **验证**：`test_dashboard_api.py` 2 passed；全量 pytest 绿；`ruff check .` 绿；
+    `import app.main` 成功；`npm run build` 绿；临时库 + 真 uvicorn :8134 + Vite :5177
+    浏览器实跑，导航 6 项、3 张表、SVG 曲线与全部指标文案均正确，控制台无报错。
+
 - **P1-6 作废 / 撤销作废 HTTP 入口（补齐 P1-12 删除后的缺口）**（2026-10-30）：
   `POST /api/mistakes/{id}/void`、`POST /api/mistakes/{id}/unvoid`。
   作废只翻 `mistakes.status` 并追加 `mistake_voided` 事件（幂等键 `mistake:{id}:void`），

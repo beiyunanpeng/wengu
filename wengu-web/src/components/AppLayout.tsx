@@ -2,6 +2,7 @@ import { AppShell, Button, Container, Group, Text } from "@mantine/core";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 
 const NAV = [
+  { to: "/dashboard", label: "看板" },
   { to: "/import", label: "导入" },
   { to: "/intake", label: "核对" },
   { to: "/mistakes", label: "错题本" },

@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 
 import AppLayout from "./components/AppLayout";
+import DashboardPage from "./pages/DashboardPage";
 import ImportPage from "./pages/ImportPage";
 import IntakePage from "./pages/IntakePage";
 import MistakeDetailPage from "./pages/MistakeDetailPage";
@@ -13,6 +14,7 @@ export default function App() {
     <Routes>
       <Route element={<AppLayout />}>
         <Route index element={<Navigate to="/import" replace />} />
+        <Route path="dashboard" element={<DashboardPage />} />
         <Route path="import" element={<ImportPage />} />
         <Route path="intake" element={<IntakePage />} />
         <Route path="mistakes" element={<MistakesPage />} />
