@@ -1,83 +1,22 @@
-# wengu · 温故 | Evals 黄金集与持续回归方法论
+# wengu · 温故 | Evals 黄金集与持续回归方法论（已退役）
 
-> Phase 0 是**一次性摸底**（决定哪些题型准入），evals 是**持续回归防退化**（改 prompt / 换供应商 / 升 Schema / 导入外部数据必跑）。二者互补，不能互相替代。
+> **v2.5 / P1-12 状态**：wengu 内核已转**零模型**，系统内不再有 VLM/OCR/文本模型调用，
+> `evals/` 目录、`scripts/run_evals.py`、模型评测脚本与 `model_runs` 审计表均已删除。
+> 本文保留为历史方法论记录；与 `AGENTS.md` 顶部 v2.5 横幅、设计文档 §16 冲突时，以后者为准。
 
-## 与 Phase 0 的关系
+## 为什么退役
 
-|  | Phase 0 | Evals |
-|---|---|---|
-| 目的 | 决定哪些题型能"自动入库" | 保证改动后**旧能力不退化** |
-| 频率 | 一次性（数据扩样后可能重跑） | 每次改 prompt / 换供应商 / 升 Schema 必跑 |
-| 判据 | 分档阈值（0.95/0.95/0.90/0.05） | 相对基线的准确率、严重错误、延迟、费用变化 |
-| 通过判定 | 家长审 | **代码判定，不许 AI 自宣通过** |
+原 evals 体系服务于"模型在环"链路（改 prompt / 换供应商 / 升 Schema 必跑）。v2.5 后：
 
-**关键设计**：Phase 0 的实测样本脱敏后就是**初始黄金集**——第一天就该填 ≥30 条，不要立了结构没人填。
+- 真实作业的识别、批改、讲解全部在系统外完成（外部 agent + 卷面红笔），系统内没有 prompt 与供应商可回归。
+- 系统内仅剩**确定性内核**：`judgeAnswer` 归一化判分、AST 白名单沙箱 `verify`、题库/组卷/复习排期。
+  这些由 **pytest 单测 + 集成测试**直接守门（含 2803 题自答全对、干扰项判错、`verify` 全过沙箱、
+  固定种子 `replay` 一致），不需要"准确率基线"这种统计型评测。
+- 外部转录质量的前置闸门改为**数据契约 + 核对页人工确认**：缺正答、含 `〔?〕` 一律拒转正，
+  由 `tests/integration/test_imports_api.py` / `test_intake_api.py` 覆盖。
 
-## 目录结构（`evals/`）
+## 若将来重新引入模型
 
-```
-evals/
-├─ import/          # 豆包 JSON / 照片识别 → 结构化题目+作答 的解析准确率
-│  ├─ data/         # 数据文件 gitignore（PII）；schema.json 与 README.md 保留
-│  └─ schema.json
-├─ analysis/        # 错因归因（人工确认为金标）
-├─ generation/      # 组卷/变式题（约束 + 人工量表）
-└─ regressions/     # 历史 bug 案例（每次修完一个坏 case 就往这里丢一个）
-```
-
-## 命名规范
-
-- 数据文件：`<学科>-<序号>-<简述>.json`，如 `数学-012-有理数口算-潦草.json`
-- 每份样本必带元数据：`{ sample_id, subject, qtype, is_objective, source_date, provider_snapshot, prompt_version_snapshot, truth: {...} }`
-- **PII 保护**：真值不写学生姓名、学校、班级；只写题目文本 + 学生答案文本 + 对错 + 错因分类
-
-## 样本 schema（示例，`import/schema.json`）
-
-```json
-{
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "wengu evals import sample",
-  "type": "object",
-  "required": ["sample_id", "subject", "qtype", "is_objective", "truth"],
-  "properties": {
-    "sample_id": { "type": "string" },
-    "subject": { "enum": ["数学", "物理", "化学", "英语", "语文"] },
-    "qtype": { "type": "string" },
-    "is_objective": { "type": "integer", "enum": [0, 1] },
-    "legibility": { "enum": ["清晰", "一般", "潦草", "涂改", "混排", "反光"] },
-    "truth": {
-      "type": "object",
-      "required": ["question", "student_answer", "correct"],
-      "properties": {
-        "question": { "type": "string" },
-        "reference_answer": { "type": "string" },
-        "student_answer": { "type": "string" },
-        "correct": { "type": "boolean" },
-        "root_cause": { "type": "string" }
-      }
-    },
-    "expected_behavior": {
-      "type": "object",
-      "description": "如果 is_objective=0 或 legibility=潦草，模型应该给〔?〕占位并转人工；不是让它硬猜",
-      "properties": {
-        "should_placehold": { "type": "boolean" },
-        "should_route_to_human": { "type": "boolean" }
-      }
-    }
-  }
-}
-```
-
-## 跑分脚本约定（`wengu-api/scripts/run_evals.py`）
-
-- **每次运行必记**：provider / model / prompt_version / 每题结果 / 汇总指标 / 时间戳，写入 `model_runs` 审计表（不落 PII、不落题目全文）
-- **通过判定由代码写死**（如 `pass_if = acc >= baseline_acc - 0.02 and severe_err_delta <= 0`），**AI 不许自宣通过**
-- 输出：
-  - 汇总表：`{accuracy, severe_error_count, latency_p50, latency_p95, cost_cny}` × `baseline vs current`
-  - diff 报告：哪些样本变差、哪些变好、哪些是新失败案例（应打包塞进 `evals/regressions/`）
-- CI 里加：改 prompt / 换 provider 的 PR 必须附最新 evals diff
-
-## 与其他文档的关系
-
-- 触发条件与阈值见 `docs/methodology/phase0.md`；
-- 落到工程：设计文档 §5.2 批改分级闸、§5.4 复习调度；工单 `P0-2 evals 黄金集脚手架`、`P1-2 Provider 适配层` DoD 里的"跑 evals 回归"。
+（仅当明确回退零模型决策时）恢复原则：Phase 0 决定准入、evals 做持续回归；
+改 prompt / 换供应商 / 升 Schema 必跑；通过判定由代码写死，AI 不许自宣通过；
+样本脱敏、不落 PII。原方法论细节见 git 历史（`docs/methodology/evals.md` 的删除前版本）。

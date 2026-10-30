@@ -40,7 +40,7 @@
   3. `practice_records` 派生表分离（Kuro quiz / wrong-notebook `PracticeRecord`）
   4. AESGCM + scrypt + 每日独立 git commit + `git checkout` 回滚的备份模式（Kuro `services/cloud_backup.py`）
   5. `config/app-config.json` 热配置覆盖 .env（wrong-notebook）
-  6. Provider 文件按厂商拆组织（wrong-notebook `src/lib/ai/*-provider.ts` → wengu `providers/{doubao,qwen_vl,tencent,mock}.py`）
+  6. Provider 文件按厂商拆组织（wrong-notebook `src/lib/ai/*-provider.ts`）——**v2.5/P1-12 已随零模型决策退役**，仅作历史借鉴记录
   7. `ReviewSchedule` 行式独立表（wrong-notebook `schema.prisma`）
 - 均为**模式借鉴、Python 重写**，非源码复制；即使 MIT 允许直接搬，也保持独立实现以便审查。
 
@@ -48,19 +48,11 @@
 
 生产依赖的具体版本与许可证以 `wengu-api/requirements.txt` 与 `wengu-web/package.json` 为准。CI 应加 `pip-licenses` / `license-checker` 汇总，本文件人工维护顶层归属。
 
-### 5.1 OCR 运行时（P1-3b）
+### 5.1 OCR 运行时（已退役）
 
-切题预处理在本地 CPU 运行，**不联网**；Docker 镜像内置以下依赖：
-
-| 依赖 | 许可 | 用途 |
-| --- | --- | --- |
-| `rapidocr-onnxruntime` | Apache-2.0 | OCR 推理管线（随 wheel 内置 PaddleOCR PP-OCR 检测/识别模型，Apache-2.0） |
-| `onnxruntime` | MIT | ONNX 推理引擎 |
-| `opencv-python-headless` | Apache-2.0 | 图像预处理（容器内**强制使用 headless 版**，替换 rapidocr 声明的 GUI 版 `opencv-python`，避免 libGL/libxcb 依赖） |
-| `Pillow` | HPND | 读图与裁切 |
-| `numpy` / `shapely` / `pyclipper` / `PyYAML` | BSD-3-Clause / BSD-3-Clause / MIT / MIT | OCR 依赖链 |
-
-以上均为宽松许可，可随镜像分发；分发时保留本文件。
+P1-3b 曾在本地 CPU 运行 RapidOCR（`rapidocr-onnxruntime` / `onnxruntime` / `opencv-python-headless` /
+`Pillow` / `numpy` 等）做切片预处理。**v2.5 / P1-12 起系统内视觉栈整体删除**，上述依赖已从
+`wengu-api/requirements.txt` 与镜像中移除，不再随本仓库分发；此处仅保留历史归属记录。
 
 ---
 

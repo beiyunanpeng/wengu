@@ -1,9 +1,9 @@
 # wengu · 温故
 
-> 面向中国初中家庭的**自托管** AI 学习工作台：错题自动归集 → 错因/知识点分类 → 跨科复习调度 → 每日任务 → 家长复盘。
+> 面向中国初中家庭的**自托管** AI 学习工作台：已批改错题转录归集 → 错因/知识点分类 → 跨科复习调度 → 每日任务 → 家长复盘。
 > 不是又一个拍照答疑 App——那部分现成工具够好了。**wengu 做的是个性化错题闭环**，每个家庭部署自己的一份，数据不出家门。
 
-**A self-hosted AI learning workbench for Chinese junior-high families**: auto mistake capture → knowledge tagging → cross-subject spaced review → daily task queue → parent dashboard. Every family runs their own instance; data stays home.
+**A self-hosted AI learning workbench for Chinese junior-high families**: confirmed mistake intake → knowledge tagging → cross-subject spaced review → same-type quizzes → parent dashboard. Every family runs their own instance; data stays home.
 
 > 内部代号 StudyDesk。License = MIT（代码）；知识点树与题库 seed 数据来自 [`cn-math-taxonomy`](https://github.com/xiaoyang111222/cn-math-taxonomy)（CC BY-NC 4.0，**限个人非商用**），详见 [`THIRD-PARTY-NOTICES.md`](./THIRD-PARTY-NOTICES.md)。
 
@@ -11,11 +11,12 @@
 
 ## ✨ 核心闭环
 
-- 📸 **拍照答疑 & 作业批改**（双通道：手机拍照 → HTTP 秒传；豆包 JSON 导入兜底）
-- 📕 **错题自动归集**（批改判错的自动副产品，不设独立录入任务；错题表唯一写入路径）
-- 🏷️ **错因 AI 预填 + 孩子一键确认**（知识点 = 粗粒度预置 seed + 细粒度受控生长）
+- 📥 **卷面批改外移**（孩子在纸上红笔批改 + 订正；外部 agent 整页拍 → 按版本化模板转录 → `data/inbox/` 监听导入）
+- 📕 **错题归集**（核对页人工确认后才入本；错题表唯一写入路径，不设独立录入任务）
+- 🏷️ **错因建议 + 孩子确认**（外部 agent 给建议，确认值与建议值分来源存储；知识点 = 粗粒度预置 seed + 细粒度受控生长）
 - 🔁 **复习调度**（固定阶梯 + 掌握度自适应间隔 + 抗挫败三规则；FSRS 留接口）
-- 📖 **三段式讲解**（定位 → 引导 or 讲解 → 巩固；要答案须先动手，留痕不硬拦）
+- 📝 **同类题考核**（到期自动推题或家长手动组卷，答案钥匙来自题库，**代码判分**）
+- 📖 **卷面订正回放**（系统不生成讲解、不调模型；拿不准的题在系统外问豆包/家长）
 - 📅 **优先级日队列 + 番茄钟**（自动生成，课表/日历为约束层）
 - 👀 **观察复盘型家长看板**（孩子见同一份；两角色 + 本地 PIN，非遥控监控）
 
@@ -30,9 +31,8 @@
 | 后端 | Python 3.11+ · FastAPI · async · 模块化单体 |
 | 数据库 | SQLite + WAL · SQLAlchemy 2 · Alembic 迁移 |
 | 前端 | React 19 · Vite · TypeScript · Mantine · KaTeX · PWA |
-| 任务队列 | SQLite `ai_jobs` 表 + 进程内并发 1–2 循环（**不用 Redis/Celery**） |
-| 模型层 | 云多模态双供应商（**火山豆包为主 + 阿里 Qwen-VL 对照**），经 `VisionProvider` 适配层；按题型路由 |
-| 判分 | 客观题 = **模型只提取 + 代码 `judgeAnswer` 归一化比对**（运行时）；**AST 白名单沙箱跑 `verify`**（入库时） |
+| 内核 | **零模型**：后端不调用任何云端 VLM/OCR/文本模型，无 provider 抽象、无模型审计表 |
+| 判分 | 系统只判自造同类题：运行时 `judgeAnswer` 归一化比对；**AST 白名单沙箱跑 `verify`**（题库入库时） |
 | 部署 | Docker Compose 一键起；远程访问 Tailscale / Cloudflare Tunnel |
 | 分发 | 开源，**每个家长自托管自己的一份**（单用户实例） |
 
@@ -43,11 +43,11 @@
 ```bash
 git clone https://github.com/<你>/wengu.git
 cd wengu
-cp wengu-api/.env.example wengu-api/.env
-# 编辑 .env，填入你的豆包/阿里百炼 API Key（P1-0 空跑可先不填）
+cp wengu-api/.env.example wengu-api/.env   # 可选；v2.5 零模型通常无需任何 Key
 docker compose up -d --build --wait
 # 前端：http://localhost:5173
 # 后端健康检查：http://localhost:8000/health
+# 外部 agent 转录 JSON 投递目录：./data/inbox（宿主侧）
 ```
 
 > 若 `8000` 被系统保留（Windows Hyper-V 常见），改用：
@@ -75,17 +75,14 @@ Windows 上若 `make` 不在 PATH，重开终端或安装 [GNU Make](https://win
 
 - ✅ **P1-0 Repo 骨架**（2026-10-24）：FastAPI `/health` + SQLite WAL + Alembic 基线 + React 空壳（Mantine + KaTeX）+ Docker/CI；`docker compose up` 双服务 healthy 已实测。
 - ✅ **P1-1 数据模型 + 事件溯源/幂等 + seed 装载**：事实表、只追加 `learning_events`、确定性重算、`cn-math-taxonomy` 初中子集 seed 与教材包机制。
-- ✅ **P1-2 Provider 适配层 + 成本护栏**：豆包/Qwen/DeepSeek/mock、按题型路由、预算上限、三级缓存、`model_runs` 记账；四档真实模型连通实测。
-- ✅ **P1-3 / P1-3b 采集与切题**：拍照上传、豆包 JSON 兜底导入（sha256 去重）、本地 OCR 行聚类切单题；零锚点拒绝切分。
-- ✅ **P1-4 结构化提取 + 质量闸门**：VLM 提取题目/作答/完整性/置信度，确定性闸门拦 `〔?〕`/残题/空作答；整页兜底恒人工复核。
-- ✅ **P1-5 判分纪律（v2.5 收口）**（2026-10-29）：真实作业不在系统内判分/讲解（外部红笔批改 + 转录导入）；批改端点只回显题面并固定 `uncertain`，永不调模型。系统只判**自造同类题**：`judgeAnswer` 确定性归一化（NFKC、有理数精确、多答案分隔、坐标/单位别名/带分数/acceptableAnswers），运行时不 `eval`；`verify` 仅在题库入库时过 AST 白名单沙箱。
+- ✅ **P1-5 判分纪律（v2.5 收口）**（2026-10-29）：真实作业不在系统内判分/讲解（外部红笔批改 + 转录导入）。系统只判**自造同类题**：`judgeAnswer` 确定性归一化（NFKC、有理数精确、多答案分隔、坐标/单位别名/带分数/acceptableAnswers），运行时不 `eval`；`verify` 仅在题库入库时过 AST 白名单沙箱。
 - ✅ **P1-6 保守入本 + 两级标签 + 派生表**（2026-10-25）：只有孩子/家长确认或申诉 `wrong` 才建错题；`category` + `concept` 受控生长；`practice_records` 隔离；复习策略纯函数（不落库、不排期）。
 - ✅ **P1-7a 复习排期（用户触发，v2.5 考核优先）**（2026-10-29）：确认错题自动排首次复习、完成排下一次、连续答对毕业；到期队列按主考点推**同类题考核**（附题目/seed，不下发答案），该知识点无题则退回**原题重做（自评）**并标 `bank_gap`；覆盖偏薄（物理）仍出题只给提示；完成自评记 `student_self`、到期考核由服务端判 `system_quiz`，双来源计入掌握度（P1-11 起考核提交走独立 `/quiz` 端点）；状态从事件重放推导，幂等键防重复。
-- ✅ **P1-8 三段式讲解引擎**（2026-10-26）：定位 → 引导/讲解 → 巩固；按错因预选模式，引导 1–3 级不揭晓答案；"看完整讲解"不硬拦但留痕，答疑入口复用同一引擎；质量/答案泄漏闸门 + 元数据事件。
-- ✅ **P1-9 最小 Web UI（v2.5 五页）**（2026-10-29）：**导入**（inbox 路径/单批上限说明 + 家长手填最小表单）/ **核对**（题目·错答·正答三栏并排 + 错因确认 + 多知识点挂载 + 主考点 `primary_topic_id`；确认成功后"待确认 N 条"即时递减）/ **错题本** / **复习考核**（到期三态：同类题作答·服务端判分 / 纸上自评 / 原题重做，另有手动组卷）/ **讲解位**（默认收起，展开只回放卷面订正与标签，不调模型）。孩子与家长看同一份界面；数学 KaTeX 渲染。旧采集/批改/讲解页仍保留但不在导航，待 P1-12 随视觉栈一并退役。
+- ✅ **P1-9 最小 Web UI（v2.5 五页）**（2026-10-29）：**导入**（inbox 路径/单批上限说明 + 家长手填最小表单）/ **核对**（题目·错答·正答三栏并排 + 错因确认 + 多知识点挂载 + 主考点 `primary_topic_id`；确认成功后"待确认 N 条"即时递减）/ **错题本** / **复习考核**（到期三态：同类题作答·服务端判分 / 纸上自评 / 原题重做，另有手动组卷）/ **讲解位**（默认收起，展开只回放卷面订正与标签，不调模型）。孩子与家长看同一份界面；数学 KaTeX 渲染。旧采集/批改/讲解页已在 P1-12 随视觉栈一并删除。
 - ✅ **v2.5 批改外移 + 核对页入本（批次①②③）**（2026-10-29）：外部 agent 整页拍 → 按版本化模板转录已批改错题 → `data/inbox/` 监听导入 → **核对页三栏回显（题目/错答/正答）一键确认入本**；缺正答 / 占位符的草稿不能转正；主考点与错答可空（无主考点只做原题重做自评、不排同类题考核）；建议值与确认值分来源存储；新增"练习记录"页独立回看同类题考核与变式加练（不进错题本、不排复习）。
 - ✅ **P1-10 题库检索引擎**（2026-10-29）：`cn-math-taxonomy` 初中段 **2803 题**（数学 1407 / 英语 1028 / 物理 368）以 JSON 随仓库分发、运行时载入内存倒排（不进 SQLite）；`find_same_type(primary_topic_id, seed)` 同知识点 + mulberry32 固定种子取 1 题、可 `replay()`；无题知识点返回空并标 `bank_gap`（语文/化学），物理按学科总量标 `thin`；每题 `verify` 装载时过 AST 沙箱，纯数值矛盾拒载；题干/选项内联 SVG 白名单净化。
 - ✅ **P1-11 同类题考核闭环**（2026-10-29）：到期推考核 / 家长手动组卷（选知识点 → 出 1..N 题）；客观/短答在页面作答、**服务端 `judgeAnswer` 判分**后写 `attempts`（`source=system_quiz`），客户端 `correct` 一律忽略；解答大题/依赖题图降级"纸上做 → 自评"（`student_self`）；题面只下发题干/选项/题型/配图 + 质量标签，**绝不下发答案/解析/verify**；考核结果计入该知识点掌握度、可整表清空、**不新建错题本条目**。
+- ✅ **P1-12 零模型收口（删除票）**（2026-10-30）：整条"模型在环"旧链路退役——系统内视觉栈（采集上传 / OCR 切题 / VLM 提取）、`ai_gateway`、provider 适配层与 mock、讲解服务、HTTP 模型判分端点、`model_runs` / `ai_jobs`（迁移 **0013** DROP，可逆）、`llm_prompts/` 与只服务旧链路的评测脚本；前端删除采集 / 批改 / 讲解三页及其 API 类型。保留 `services/grading.py`（intake 依赖）、`judge/`、题库/组卷/复习/inbox/intake 全链。三绿 + 端到端实跑（导入 → 监听 → 核对入本 → 到期三态 → 手动组卷）通过。
 - ⏳ 下一张工单：**P0-1 样本扩容 + P0-2 黄金评测集**；随后 P1-7b 前置回溯诊断；**P1-7c 自动排复习仍受 Phase 0 闸门阻塞**。
 
 > 完整的工单状态、实测数字、阻塞项与下一步建议见 [`docs/STATUS.md`](./docs/STATUS.md)。
@@ -97,10 +94,9 @@ Windows 上若 `make` 不在 PATH，重开终端或安装 [GNU Make](https://win
 | [`AGENTS.md`](./AGENTS.md) | 给 AI 编码 agent 的**施工规约与缰绳**（硬约束/已砍清单/不可动设计决定/DoD） |
 | [`TICKETS.md`](./TICKETS.md) | 分 Phase 工单（P0-1 到 P5-5），每条含 目标·依赖·交付·DoD·禁止事项 |
 | [`docs/STATUS.md`](./docs/STATUS.md) | 开发计划与完成情况快照（工单状态、实测数字、阻塞与下一步） |
-| [`docs/specs/architecture/StudyDesk-设计说明文档-v2.md`](./docs/specs/architecture/StudyDesk-设计说明文档-v2.md) | **唯一事实来源**（v2.4）——16 轮拷问敲定的完整设计树 |
-| [`docs/methodology/phase0.md`](./docs/methodology/phase0.md) | Phase 0 实测方法论（手写识别 & 分题型判分） |
-| [`docs/methodology/evals.md`](./docs/methodology/evals.md) | evals 黄金集与持续回归方法论 |
-| [`llm_prompts/`](./llm_prompts/) | 提示词**版本化真源**（frontmatter `id`+`version`，改语义必递增） |
+| [`docs/specs/architecture/StudyDesk-设计说明文档-v2.md`](./docs/specs/architecture/StudyDesk-设计说明文档-v2.md) | **唯一事实来源**（v2.5，§16 为零模型改向定稿）——16 轮拷问敲定的完整设计树 |
+| [`docs/methodology/phase0.md`](./docs/methodology/phase0.md) | Phase 0 实测方法论（手写识别 & 分题型判分，历史记录） |
+| [`docs/templates/`](./docs/templates/) | 外部 agent 转录模板（frontmatter `id`+`version`，改语义必递增） |
 | [`THIRD-PARTY-NOTICES.md`](./THIRD-PARTY-NOTICES.md) | 第三方数据源归属（`cn-math-taxonomy` CC BY-NC 4.0） |
 
 ## ⚠️ 安全与合规

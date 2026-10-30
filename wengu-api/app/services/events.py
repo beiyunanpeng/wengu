@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import ImportBatch, LearningEvent, MistakeVersion, PhotoCapture
+from app.models import ImportBatch, LearningEvent, MistakeVersion
 
 
 def _utcnow() -> datetime:
@@ -85,29 +85,6 @@ async def create_import_batch(
     )
     conflict_where = select(ImportBatch).where(ImportBatch.sha256 == sha256)
     return await _insert_or_fetch(session, batch, conflict_where)
-
-
-async def create_photo_capture(
-    session: AsyncSession,
-    sha256: str,
-    *,
-    stored_path: str,
-    original_name: str | None = None,
-    source: str = "phone",
-    status: str = "pending",
-) -> tuple[PhotoCapture, bool]:
-    """sha256 去重：同一照片重传/重试/重启返回旧行（P1-3 幂等落库）。"""
-
-    capture = PhotoCapture(
-        sha256=sha256,
-        stored_path=stored_path,
-        original_name=original_name,
-        source=source,
-        status=status,
-        created_at=_utcnow(),
-    )
-    conflict_where = select(PhotoCapture).where(PhotoCapture.sha256 == sha256)
-    return await _insert_or_fetch(session, capture, conflict_where)
 
 
 async def append_mistake_version(

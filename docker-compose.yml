@@ -7,20 +7,15 @@ services:
     container_name: wengu-api
     env_file:
       - path: ./wengu-api/.env
-        required: false                  # P1-0 不需要密钥；家长填 .env 后自动生效
+        required: false                  # v2.5 零模型，通常无需任何密钥；家长如需覆盖路径再填
     environment:
       WENGU_ENV: ${WENGU_ENV:-prod}
       WENGU_DATA_DIR: /app/data
-      WENGU_UPLOADS_DIR: /app/data/uploads
       WENGU_DB_PATH: /app/data/wengu.db
-      WENGU_PROMPTS_DIR: /app/llm_prompts
       WENGU_SEEDS_DIR: /app/seeds
-      WENGU_APP_CONFIG_PATH: /app/config/app-config.json
     volumes:
-      - ./data:/app/data                # SQLite + uploads
-      - ./config:/app/config            # app-config.json 热配置（UI 可写）
+      - ./data:/app/data                # SQLite + inbox（外部 agent 转录 JSON）
       - ./seeds:/app/seeds:ro           # seed 包（data/ 随仓库分发；local/ 与 mappings/ 家长自建）
-      - ./llm_prompts:/app/llm_prompts:ro  # 提示词真源只读挂载
     ports:
       - "${WENGU_API_PORT:-8000}:8000"  # 8000 被系统保留时：WENGU_API_PORT=8100 docker compose up
     restart: unless-stopped
@@ -70,5 +65,5 @@ services:
 # 注：
 # 1) 公网暴露前必须自行加反向代理鉴权（Tailscale / Caddy basic auth / Nginx + OAuth）；
 #    wengu 默认按"本机 / 可信内网"设计，见 AGENTS.md §2.4。
-# 2) 数据全部在 ./data 目录下，备份/迁移 = 拷这一坨（含 wengu.db + uploads/）。
-# 3) 运行时热配置在 ./config/app-config.json；密钥仍在 wengu-api/.env。
+# 2) 数据全部在 ./data 目录下，备份/迁移 = 拷这一坨（含 wengu.db + inbox/）。
+# 3) v2.5 零模型：无需模型 Key；外部 agent 把转录 JSON 写进 ./data/inbox 即进入核对队列。

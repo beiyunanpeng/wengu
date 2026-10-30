@@ -5,7 +5,7 @@
 > 本文以下所有出现的 `Phase0-实测/` 路径，指代 wengu 仓库**外**的开发者工作区（家长本地实测数据、含 PII，不进仓库）；对应的仓库内方法论说明在 `docs/methodology/phase0.md`。
 > 你的角色是**干活**，人是**审核**。凡降低人审核成本的约定（小步、可跑、能回滚、有 DoD）都优先服从。
 
-> **🔴 v2.5 流程改向（2026-10-28，最高优先级，覆盖下文旧表述）**：**批改/引导/解析全部移出系统**——不管练习还是考试卷，都在**卷子上红笔批改+订正**（拿不准的题在系统外找豆包/家长讲解），卷面留"原题+划掉错答+订正正答"，再**拍照入库**。提取改由**外部 agent（千问办公/豆包/WorkBuddy）整页拍→按 `docs/templates/` 版本化模板转录已批改错题→监听目录导入→核对页人工确认**；**wengu 转为零模型**（不再调任何云端 VLM/OCR）。**删除系统内视觉栈**：`preprocess/ocr.py`、`services/slicer.py`、`services/extraction.py`、`api/captures.py`、`api/extractions.py`、`providers/{doubao,qwen_vl,tencent}`、成本护栏、`model_runs`、`llm_prompts/`（仅留 `providers/mock.py`）。§4/§5/§6 中与之冲突的旧条目**一律以设计文档 §16 为准**。wengu 唯一保留的判分场景 = **系统自造的"同类题考核"**（答案钥匙来自 seed 题库，走确定性 `judgeAnswer` + AST 沙箱 `verify`）；"**模型只提、代码才判**"纪律不删、只把作用域从"判真实作业"收缩为"判自造题"。
+> **🔴 v2.5 流程改向（2026-10-28，最高优先级，覆盖下文旧表述）**：**批改/引导/解析全部移出系统**——不管练习还是考试卷，都在**卷子上红笔批改+订正**（拿不准的题在系统外找豆包/家长讲解），卷面留"原题+划掉错答+订正正答"，再**拍照入库**。提取改由**外部 agent（千问办公/豆包/WorkBuddy）整页拍→按 `docs/templates/` 版本化模板转录已批改错题→监听目录导入→核对页人工确认**；**wengu 转为零模型**（不再调任何云端 VLM/OCR）。**删除系统内视觉栈**：`preprocess/ocr.py`、`services/slicer.py`、`services/extraction.py`、`api/captures.py`、`api/extractions.py`、`providers/` 整目录、成本护栏、`model_runs`、`llm_prompts/`（模板真源已迁 `docs/templates/`；P1-12 后无任何 importer，`providers/mock.py` 也不再保留）。§4/§5/§6 中与之冲突的旧条目**一律以设计文档 §16 为准**。wengu 唯一保留的判分场景 = **系统自造的"同类题考核"**（答案钥匙来自 seed 题库，走确定性 `judgeAnswer` + AST 沙箱 `verify`）；"**模型只提、代码才判**"纪律不删、只把作用域从"判真实作业"收缩为"判自造题"。
 
 ## 1. 项目一句话
 给自家初中生做、**开源供每个家庭自托管**的半自建 AI 学习工作台。核心闭环：**已批改错题转录入库 → 错因/知识点分类 → 跨科复习调度 → 出同类题考核 → 每日任务 → 家长复盘**。不是再做一个拍照答疑 App，也不在系统内判真实作业。**单实例 = 单家庭 = 单用户**；**不做 Hosting 多租户、不做公网账号体系、不商业化。**
@@ -35,7 +35,7 @@
 
 ## 4. 模型调用层（v2.5：wengu 转为零模型）
 - **wengu 后端不再调用任何云端模型**。批改/引导/解析/提取/错因归类**全部移出系统**：真实题在卷子上外部完成，转录由**外部 agent（千问办公/豆包/WorkBuddy）**承担。
-- **退役**：`VisionProvider`（`extract_problem/grade/solve_explain`）路由、`providers/{doubao,qwen_vl,tencent}.py`、**成本护栏**（每日批量上限/内容哈希缓存）、`model_runs`、`llm_prompts/*.md`。**仅保留 `providers/mock.py` 供测试**。原"至少两家供应商互备"护栏撤下（不再有在环云调用）。
+- **退役**：`VisionProvider`（`extract_problem/grade/solve_explain`）路由、`providers/` 整目录、**成本护栏**（每日批量上限/内容哈希缓存）、`model_runs`、`llm_prompts/*.md`。**P1-12 删网关后全仓已无 importer，`providers/mock.py` 也一并删除**。原"至少两家供应商互备"护栏撤下（不再有在环云调用）。
 - **保留并收缩作用域**："**模型只提、代码才判**"仍成立，但只作用于**系统自造的同类题考核**——判分走**确定性代码 `judgeAnswer`**（答案钥匙来自 seed 题库），**绝不让模型判分**。
 - **版本化真源从 `llm_prompts/` 平移到 `docs/templates/`**：外部提取模板（`doubao_transcribe_v1.md`）frontmatter `id`+`version`、改语义必递增版本、agent skill 只引用不内嵌。可选的"家长周报叙述"也由外部 agent 产出、以"来源=`ai`"入库、不进判分/排期链路。
 
