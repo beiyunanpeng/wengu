@@ -170,10 +170,33 @@ system_quiz 完成端点拒绝客户端直接传 correct（必须服务端判）
 ```
 前置条件（不满足就停下、别做本票）：批次②④⑥⑦ 全部实跑通过、端到端闭环在家用场景跑顺之后才开工。
 你在 wengu 仓库工作。开工前完整读：AGENTS.md（顶部 v2.5 横幅 / §4）+ 设计文档 §16 + TICKETS.md 的 P1-12。
-【全局纪律】一条 ticket = 一个 PR；交付附运行态证据。**本票是"删除票"，与前面各卡的"勿删旧栈"护栏相反——本票的活就是删。**
-【任务】删除：preprocess/ocr.py、services/slicer.py、services/extraction.py、api/captures.py、api/extractions.py、
-models/extraction.py；providers/{doubao,qwen_vl,tencent,failover,http,openai_vision}.py、成本护栏、model_runs、llm_prompts/；
-清路由与 DI 引用；更新 CHANGELOG + .env.example（去掉模型 Key 必填）。**保留 providers/mock.py 供测试。**
-【DoD】删后服务能起、/health 200、全测试绿、端到端不回归；单张可整体回滚。
-【禁止】在新入口（批次②④⑥⑦）未跑通前删；顺手删掉 mock.py；把删除范围扩到本票清单之外。
+【全局纪律】一条 ticket = 一个 PR；交付附运行态证据。本票是"删除票"——把"模型在环"的整条旧链路连同其前后端一起退役。
+【删除方法（先查引用再删，别照单硬删）】每个候选先 grep 全仓确认无存活 importer；删完必须三绿：
+`python -c "import app.main"` 成功、全量 pytest 绿、`npm run build` 绿。任一不过=删漏或删多。
+
+【后端删除清单（模型在环整链）】
+- 视觉/提取：preprocess/ocr.py、services/slicer.py、services/extraction.py、api/captures.py、api/extractions.py、models/extraction.py
+- 网关/审计/讲解端点：services/ai_gateway.py、services/model_audit.py、services/explanation.py、api/explanations.py、api/gradings.py
+  （api/gradings.py 是 HTTP 模型判分端点，删；但 **services/grading.py 是 intake 唯一写入路径依赖的确认/版本服务，必须保留**）
+- providers/ 整目录：doubao/qwen_vl/tencent/openai_vision/http/failover/registry/cache/text/base/mock ——
+  删完网关后 grep 确认无任何模块再 import providers，则整目录删除（wengu 已零模型，不需要 provider 抽象）；
+  若仍有测试引用某文件，只保留被引用者并在 PR 说明，否则不保留 mock。
+- llm_prompts/（模板已迁 docs/templates/）；scripts/smoke_providers.py、make_extraction_fixtures.py、
+  eval_slicing.py、eval_extraction.py、eval_grading.py、eval_explanation.py 等只服务旧链路的脚本及其测试。
+- 迁移 0013（可逆）：DROP model_runs、ai_jobs 两张已无用表（down 重建空表）；learning_events/attempts 等事实/派生表不动。
+- 可选清理：config.py 里失效的 provider/model/成本字段 + .env.example 模型 Key 必填项一并去掉。
+
+【前端删除清单（依赖被删端点的旧页）】
+- CapturePage.tsx、GradingPage.tsx、ExplainPage.tsx 及 App.tsx 中其路由、endpoints.ts/types.ts 里只服务这些页的条目、
+  AppLayout 残留入口。删后 `npm run build` 必须绿（批次⑦只是移出导航，本票彻底移除）。
+
+【必须保留（别删）】services/grading.py（intake 依赖）、judge/（judge_answer + verify_sandbox）、
+seed/bank.py + services/bank.py、services/quiz.py、services/review.py + recompute.py、
+api/imports.py + services/inbox.py + services/intake.py、api/reviews.py + api/quizzes.py + api/attempts.py；
+迁移 0011/0012 不动，0013 只做 DROP。
+
+【DoD】删后 `import app.main` 成功、/health 200、全量 pytest 绿、npm run build 绿、
+端到端（导入→监听→核对入本→到期三态→手动组卷）不回归；单张可整体回滚（含 0013 down）。
+【禁止】在新入口未跑通前删；删掉 intake 依赖的 services/grading.py 或 judge/bank/quiz/review/inbox/intake；
+把删除扩到本清单外的活跃功能；留一堆 import 已死的空模块不清（要么删净要么在 PR 里说明为何留）。
 ```
