@@ -33,6 +33,7 @@ from app.models import (
     ReviewSchedule,
 )
 from app.services.recompute import Event, is_graduated, mastery, stats
+from app.services.streak import summarize_streak
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -395,7 +396,23 @@ async def test_dashboard_is_read_only_deterministic_and_recomputable(tmp_path, m
         1 for mistake_id in mistake_ids if is_graduated(events, mistake_id)
     )
 
-    # 7) 端点只有 GET，没有写入/清空入口
+    # 7) 打卡与 streak.py 重算一致：今天 3 次复习作答 = 单日打卡
+    streak = summarize_streak(events, today)
+    assert payload["streak"] == {
+        "today_done": streak.today_done,
+        "current_streak": streak.current_streak,
+        "longest_streak": streak.longest_streak,
+        "learning_days_total": streak.learning_days_total,
+        "recent_days": [
+            {"date": day.date.isoformat(), "done": day.done} for day in streak.recent_days
+        ],
+    }
+    assert payload["streak"]["today_done"] is True
+    # 今天有 3 条复习作答（completed_on=today），必然点亮今日
+    assert payload["streak"]["recent_days"][-1] == {"date": today.isoformat(), "done": True}
+    assert payload["streak"]["current_streak"] >= 1
+
+    # 8) 端点只有 GET，没有写入/清空入口
     assert dashboard_router.routes
     for route in dashboard_router.routes:
         assert route.methods == {"GET"}
@@ -436,3 +453,12 @@ async def test_dashboard_empty_database(tmp_path) -> None:
         "curve_days": 30,
     }
     assert payload["event_stats"] == stats([])
+    # 空库：零打卡，但近 30 天窗口仍完整返回（末日 = 今天）
+    today = date.today()
+    assert payload["streak"]["today_done"] is False
+    assert payload["streak"]["current_streak"] == 0
+    assert payload["streak"]["longest_streak"] == 0
+    assert payload["streak"]["learning_days_total"] == 0
+    assert len(payload["streak"]["recent_days"]) == 30
+    assert payload["streak"]["recent_days"][-1] == {"date": today.isoformat(), "done": False}
+    assert all(day["done"] is False for day in payload["streak"]["recent_days"])

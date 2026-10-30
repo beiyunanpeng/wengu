@@ -16,7 +16,9 @@
   落在本周（周一起算）内；毕业总数用 `is_graduated` 从事实推导；
 - 题库缺口：活跃错题且存在未完成排期，按主考点检索 seed 题库为空即命中；
 - 申诉：`grading_versions.action="appealed"` 的追加版本数（append-only 事实）；
-- 作废：当前 voided 错题数 + 作废/撤销事件数（历史留痕，不洗数据）。
+- 作废：当前 voided 错题数 + 作废/撤销事件数（历史留痕，不洗数据）；
+- 打卡：`services.streak` 从同一批已加载事件现算（`completed_on` 优先），
+  streak 只做习惯展示、不入库、不参与任何学习效果结论。
 """
 
 from __future__ import annotations
@@ -50,6 +52,7 @@ from app.services.recompute import (
     mastery,
     stats,
 )
+from app.services.streak import StreakSummary, summarize_streak
 
 DEFAULT_CURVE_DAYS = 30
 MAX_CURVE_DAYS = 90
@@ -121,6 +124,7 @@ class DashboardSnapshot:
     void_events: int
     reactivate_events: int
     event_stats: dict[str, Any]
+    streak: StreakSummary
 
 
 def _payload(event: Event) -> dict[str, Any]:
@@ -466,4 +470,5 @@ async def build_dashboard(
         void_events=void_events,
         reactivate_events=reactivate_events,
         event_stats=stats(events),
+        streak=summarize_streak(events, today),
     )

@@ -1,5 +1,6 @@
 import {
   Alert,
+  Box,
   Card,
   Group,
   Loader,
@@ -18,6 +19,7 @@ import type {
   DashboardConceptMastery,
   DashboardCurvePoint,
   DashboardResponse,
+  DashboardStreak,
 } from "../api/types";
 
 const percent = (value: number) => `${Math.round(value * 100)}%`;
@@ -169,6 +171,91 @@ function ConceptTable({ concepts }: { concepts: DashboardConceptMastery[] }) {
   );
 }
 
+function StreakCalendar({ days }: { days: DashboardStreak["recent_days"] }) {
+  const doneCount = days.filter((day) => day.done).length;
+  return (
+    <Stack gap={4}>
+      <Group justify="space-between">
+        <Text size="xs" c="dimmed">
+          近 30 天
+        </Text>
+        <Text size="xs" c="dimmed">
+          点亮 {doneCount} 天
+        </Text>
+      </Group>
+      <Group
+        gap={4}
+        wrap="wrap"
+        role="img"
+        aria-label={`近 30 天打卡日历，已点亮 ${doneCount} 天`}
+      >
+        {days.map((day) => (
+          <Box
+            key={day.date}
+            title={`${day.date}${day.done ? " · 已打卡" : ""}`}
+            w={14}
+            h={14}
+            style={{
+              borderRadius: 3,
+              backgroundColor: day.done ? "#12b886" : "#e9ecef",
+            }}
+          />
+        ))}
+      </Group>
+    </Stack>
+  );
+}
+
+function StreakCard({ streak }: { streak: DashboardStreak }) {
+  const status = streak.today_done
+    ? "今天已打卡 ✓"
+    : streak.current_streak > 0
+      ? "今天还没打卡 · 连续纪录还留着"
+      : "今天还没打卡 · 随时可以开始";
+  return (
+    <Card withBorder padding="md">
+      <Stack gap="sm">
+        <Group justify="space-between" wrap="wrap">
+          <Text fw={600}>每日打卡</Text>
+          <Text size="sm" fw={600} c={streak.today_done ? "teal" : "dimmed"}>
+            {status}
+          </Text>
+        </Group>
+        <Group gap="xl">
+          <Stack gap={0}>
+            <Text size="xs" c="dimmed">
+              连续
+            </Text>
+            <Text size="lg" fw={700}>
+              {streak.current_streak} 天
+            </Text>
+          </Stack>
+          <Stack gap={0}>
+            <Text size="xs" c="dimmed">
+              最长连续
+            </Text>
+            <Text size="lg" fw={700}>
+              {streak.longest_streak} 天
+            </Text>
+          </Stack>
+          <Stack gap={0}>
+            <Text size="xs" c="dimmed">
+              累计学习
+            </Text>
+            <Text size="lg" fw={700}>
+              {streak.learning_days_total} 天
+            </Text>
+          </Stack>
+        </Group>
+        <StreakCalendar days={streak.recent_days} />
+        <Text size="xs" c="dimmed">
+          当天做过任意一道题就算打卡（答错也算）；它只记录“来了”，不代表掌握程度。
+        </Text>
+      </Stack>
+    </Card>
+  );
+}
+
 export default function DashboardPage() {
   const [data, setData] = useState<DashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -223,6 +310,8 @@ export default function DashboardPage() {
           只读确定性统计：孩子与家长看同一份，全部从事件事实现算，不调模型。
         </Text>
       </Stack>
+
+      <StreakCard streak={data.streak} />
 
       <SimpleGrid cols={{ base: 2, sm: 3, md: 6 }}>
         <MetricCard

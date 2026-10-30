@@ -102,6 +102,19 @@ class EventStatsView(BaseModel):
     attempt_accuracy: float | None
 
 
+class StreakDayView(BaseModel):
+    date: date
+    done: bool
+
+
+class StreakView(BaseModel):
+    today_done: bool
+    current_streak: int
+    longest_streak: int
+    learning_days_total: int
+    recent_days: list[StreakDayView]
+
+
 class DashboardResponse(BaseModel):
     today: date
     week_start: date
@@ -114,6 +127,7 @@ class DashboardResponse(BaseModel):
     bank_gap: BankGapView
     governance: GovernanceView
     event_stats: EventStatsView
+    streak: StreakView
 
 
 def _to_response(snapshot: DashboardSnapshot) -> DashboardResponse:
@@ -183,6 +197,13 @@ def _to_response(snapshot: DashboardSnapshot) -> DashboardResponse:
             reactivate_events=snapshot.reactivate_events,
         ),
         event_stats=EventStatsView(**snapshot.event_stats),
+        streak=StreakView(
+            today_done=snapshot.streak.today_done,
+            current_streak=snapshot.streak.current_streak,
+            longest_streak=snapshot.streak.longest_streak,
+            learning_days_total=snapshot.streak.learning_days_total,
+            recent_days=[StreakDayView(date=day.date, done=day.done) for day in snapshot.streak.recent_days],
+        ),
     )
 
 
