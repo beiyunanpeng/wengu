@@ -20,6 +20,7 @@ import type {
   QuizPaperResponse,
   QuizTopicListResponse,
   ReviewQuizResponse,
+  SessionStatus,
   TopicListResponse,
 } from "./types";
 
@@ -354,4 +355,20 @@ export function getDashboard(
   return apiRequest<DashboardResponse>(
     `/api/dashboard${query ? `?${query}` : ""}`,
   );
+}
+
+export function getSessionStatus(): Promise<SessionStatus> {
+  return apiRequest<SessionStatus>("/api/session/status");
+}
+
+export function setParentPin(pin: string): Promise<SessionStatus> {
+  return requestJson<SessionStatus>("/api/session/pin/set", "POST", { pin });
+}
+
+export function unlockParent(pin: string): Promise<SessionStatus> {
+  return requestJson<SessionStatus>("/api/session/unlock", "POST", { pin });
+}
+
+export function lockParent(): Promise<SessionStatus> {
+  return requestJson<SessionStatus>("/api/session/lock", "POST", {});
 }

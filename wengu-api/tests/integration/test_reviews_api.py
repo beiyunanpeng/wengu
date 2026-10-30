@@ -7,6 +7,8 @@ v2.5：错题经"外部转录 → 核对页确认"入本；系统内零模型调
 from __future__ import annotations
 
 import json
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
@@ -59,7 +61,8 @@ def _migrated(tmp_path: Path) -> async_sessionmaker:
     return async_sessionmaker(engine, expire_on_commit=False)
 
 
-def _client(factory: async_sessionmaker) -> AsyncClient:
+@asynccontextmanager
+async def _client(factory: async_sessionmaker) -> AsyncIterator[AsyncClient]:
     app = create_app()
 
     async def override_session():
@@ -67,7 +70,17 @@ def _client(factory: async_sessionmaker) -> AsyncClient:
             yield session
 
     app.dependency_overrides[get_session] = override_session
-    return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        # 手动组卷属家长区：统一先设 PIN 或解锁（孩子区端点不受影响）
+        status = await client.get("/api/session/status")
+        if status.json()["pin_set"]:
+            response = await client.post("/api/session/unlock", json={"pin": "2468"})
+        else:
+            response = await client.post("/api/session/pin/set", json={"pin": "2468"})
+        assert response.status_code == 200, response.text
+        yield client
 
 
 async def _seed_topic(

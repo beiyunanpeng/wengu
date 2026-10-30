@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.session import require_parent
 from app.core.database import get_session
 from app.models import Concept, KnowledgeSeed, Mistake, MistakeVersion
 from app.services.concepts import CategoryNotFound, ConceptConflict, resolve_concept_map
@@ -291,7 +292,11 @@ async def get_mistake_endpoint(
         return await _render_detail(session, mistake)
 
 
-@router.post("/api/mistakes/{mistake_id}/void", response_model=MistakeDetail)
+@router.post(
+    "/api/mistakes/{mistake_id}/void",
+    response_model=MistakeDetail,
+    dependencies=[Depends(require_parent)],
+)
 async def void_mistake_endpoint(
     mistake_id: int,
     payload: VoidRequest,
@@ -314,7 +319,11 @@ async def void_mistake_endpoint(
         return await _render_detail(session, mistake)
 
 
-@router.post("/api/mistakes/{mistake_id}/unvoid", response_model=MistakeDetail)
+@router.post(
+    "/api/mistakes/{mistake_id}/unvoid",
+    response_model=MistakeDetail,
+    dependencies=[Depends(require_parent)],
+)
 async def unvoid_mistake_endpoint(
     mistake_id: int,
     payload: UnvoidRequest,

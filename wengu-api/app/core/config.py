@@ -36,6 +36,9 @@ class Settings(BaseSettings):
         default=PROJECT_ROOT / "seeds", validation_alias="WENGU_SEEDS_DIR"
     )
     log_level: str = Field(default="info", validation_alias="WENGU_LOG_LEVEL")
+    session_secret: str | None = Field(
+        default=None, validation_alias="WENGU_SESSION_SECRET"
+    )
 
     @model_validator(mode="after")
     def _normalize_paths(self) -> Settings:

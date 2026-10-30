@@ -29,11 +29,13 @@ import {
 import type { Concept, ErrorCauseOption, MistakeDetail } from "../api/types";
 import CategoryPicker from "../components/CategoryPicker";
 import MathText from "../components/MathText";
+import { useParentSession } from "../parent/ParentSession";
 
 export default function MistakeDetailPage() {
   const params = useParams();
   const mistakeId = params.mistakeId ? Number(params.mistakeId) : null;
   const navigate = useNavigate();
+  const { unlocked: parentUnlocked } = useParentSession();
 
   const [detail, setDetail] = useState<MistakeDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -287,22 +289,28 @@ export default function MistakeDetailPage() {
           </Badge>
         </Group>
         <Group gap="xs">
-          {detail.status === "active" ? (
-            <Button
-              color="red"
-              variant="light"
-              onClick={() => setVoidOpen(true)}
-            >
-              作废错题
-            </Button>
+          {parentUnlocked ? (
+            detail.status === "active" ? (
+              <Button
+                color="red"
+                variant="light"
+                onClick={() => setVoidOpen(true)}
+              >
+                作废错题
+              </Button>
+            ) : (
+              <Button
+                variant="light"
+                onClick={() => void handleUnvoid()}
+                loading={statusBusy}
+              >
+                撤销作废
+              </Button>
+            )
           ) : (
-            <Button
-              variant="light"
-              onClick={() => void handleUnvoid()}
-              loading={statusBusy}
-            >
-              撤销作废
-            </Button>
+            <Text size="xs" c="dimmed">
+              作废/撤销需先在右上角「家长区」输入 PIN
+            </Text>
           )}
           <Button variant="subtle" onClick={() => navigate("/mistakes")}>
             返回错题本

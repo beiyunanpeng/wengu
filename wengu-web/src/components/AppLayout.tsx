@@ -1,6 +1,8 @@
 import { AppShell, Button, Container, Group, Text } from "@mantine/core";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 
+import ParentGate from "./ParentGate";
+
 const NAV = [
   { to: "/dashboard", label: "看板" },
   { to: "/import", label: "导入" },
@@ -41,6 +43,7 @@ export default function AppLayout() {
                 </Button>
               );
             })}
+            <ParentGate />
           </Group>
         </Group>
       </AppShell.Header>

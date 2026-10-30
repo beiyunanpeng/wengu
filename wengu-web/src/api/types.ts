@@ -432,3 +432,8 @@ export interface DashboardResponse {
   governance: DashboardGovernance;
   event_stats: DashboardEventStats;
 }
+
+export interface SessionStatus {
+  pin_set: boolean;
+  parent_unlocked: boolean;
+}
