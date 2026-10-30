@@ -1,9 +1,9 @@
 # STATUS.md — 开发计划与完成情况
 
-> 快照日期：2026-10-30（P2-5 家长看板交付后）
-> 分支 / HEAD：`main` / `b6ff167`（P2-5 改动尚未提交，工作区含本票变更）
-> 全量测试：**266 passed**（本机 2026-10-30，49.81s）；`ruff check .` 全绿；`npm run build` 绿
-> Alembic head：`0013_drop_model_tables`；业务表 19 张
+> 快照日期：2026-10-30（P2-4 两角色 + 本地家长 PIN 交付后）
+> 分支 / HEAD：`main` / `b6ff167`（P2-4 / P2-5 改动尚未提交，工作区含两票变更）
+> 全量测试：**287 passed**（本机 2026-10-30，60.10s）；`ruff check .` 全绿；`npm run build` 绿
+> Alembic head：`0014_parent_pin`；业务表 19 张
 
 本文件是**状态快照**，不替代以下事实源；冲突时以它们为准：
 
@@ -29,6 +29,9 @@
 - **P2-5 家长看板已交付**：`GET /api/dashboard` + 前端 `/dashboard`，纯只读确定性统计
   （错题存量、薄弱分布、掌握度曲线、到期/完成/毕业、`bank_gap`、申诉/作废计数），
   全部从事实现算、与 `recompute` 一致；端点只读、无模型/网络调用，孩子与家长看同一份。
+- **P2-4 两角色 + 本地家长 PIN 已交付**：孩子区免 PIN；作废/撤销错题、题库导入/审核、
+  手动组卷需在导航"家长区"解锁（scrypt 哈希 + HMAC 签名 cookie，12h，连续 5 次错误锁 60s）。
+  PIN **只防误入、不是安全边界**，不做登录/账号/多租户；公网暴露仍须鉴权隔离或 Tailscale。
 - **Phase 1 剩余**：P1-7b 前置回溯诊断（未开始）；P1-7c 自动排复习仍受 Phase 0 闸门阻塞。
 - **下一步**：P0-1 样本扩容（重新定义 v2.5 口径）+ P1-7b；P0-2 黄金集需按"系统内无模型"
   重新界定价值（见 §6）。
@@ -39,7 +42,7 @@
 |---|---|---|---|
 | Phase 0 | 摸底 + 回归基线 | 部分完成 | 首轮实测结论已在 `docs/methodology/phase0.md`；v2.5 后"识别瓶颈"由批改外移绕过，边界表不再是入本前置 |
 | Phase 1 | 核心闭环 | 进行中 | P1-0～P1-12 完成（模型在环旧链路已退役）；仅剩 P1-7b，P1-7c 阻塞 |
-| Phase 2 | 每日任务 + 家长看板 | 进行中 | P2-5 家长看板已完成（只读确定性统计）；日队列、番茄钟、课表、两角色、打卡、PDF 导出未开始 |
+| Phase 2 | 每日任务 + 家长看板 | 进行中 | P2-5 家长看板、P2-4 两角色 + 本地 PIN 已完成；日队列、番茄钟、课表、打卡、PDF 导出未开始 |
 | Phase 3 | 内容与扩展 | 未开始 | 真题库流水线、组卷扩展、英语背诵、听力默写、语文、信奥、长期计划 |
 | Phase 4 | 基础设施演进 | 未开始 | Tailscale、可移植部署、可选本地 GPU |
 | Phase 5 | 开源分发与打包 | 未启动（部分基线已有） | LICENSE / README / CHANGELOG / `.env.example` / 第三方署名已就位；首次运行向导、备份恢复、鉴权开关、教材包安装器未做 |
@@ -80,9 +83,9 @@
 ### 4.2 错题与标签
 
 - 错题唯一写入路径；`correct` 只作废不删历史。作废 / 撤销作废已有 HTTP 入口
-  （`POST /api/mistakes/{id}/void|unvoid`）：只翻 status + 追加 `mistake_voided` /
-  `mistake_reactivated` 事件，不删版本/事件；作废退出活跃列表与到期队列，撤销后未完成
-  排期自然重回队列；历史复习作答仍按现状计入掌握度。
+  （`POST /api/mistakes/{id}/void|unvoid`，**家长区解锁后可用**）：只翻 status + 追加
+  `mistake_voided` / `mistake_reactivated` 事件，不删版本/事件；作废退出活跃列表与到期队列，
+  撤销后未完成排期自然重回队列；历史复习作答仍按现状计入掌握度。
 - 两级标签：`category` 挂 `knowledge_seed`；`concept` 受控生长、别名归一、人工归并。
 - 标签建议值与确认值分离存储，冲突不静默覆盖。
 - `practice_records` 派生表：变式/加练不进错题、不排复习、不影响掌握度、可整表清空。
@@ -96,7 +99,20 @@
 - 手动组卷：按知识点出 1–20 题，固定 seed 可 `replay_paper`；客户端 `correct` 一律忽略。
 - 题面只下发题干/选项/题型/配图 + 质量标签，**绝不下发答案/解析/verify**。
 
-### 4.4 家长看板（P2-5，只读）
+### 4.4 两角色与本地家长 PIN（P2-4）
+
+- **孩子区免 PIN**：导入、核对确认、到期复习、考核作答/自评、错题本与看板只读全程可用。
+- **家长区**（`require_parent`）才需解锁：作废/撤销错题、题库导入/审核（`problem-bank`
+  import/items）、手动组卷（`GET /api/quizzes/paper`）。未解锁 / 无 cookie / 签名不符 → 403。
+- **流程**：导航右侧"家长区"入口；未设 PIN 时引导设置（4–8 位数字或 6–20 位字符），
+  已设则解锁；解锁后签发 HMAC-SHA256 签名 cookie（`wengu_parent`，TTL 12h，httponly/lax），
+  刷新保持；"锁定家长区"清除。PIN 以 `hashlib.scrypt` + 随机盐存 `user_role.pin_hash`，不存明文。
+- **限流**：同一来源连续解锁失败 ≥5 次锁 60s（进程内存计数，重启清零可接受），第 5 次即
+  429 + `Retry-After: 60`。密钥 `WENGU_SESSION_SECRET`；缺省首启生成 `data/.session_secret`。
+- **边界**：PIN 只防误入，不是安全边界；不做登录 / 账号 / 多租户；公网暴露仍须真鉴权与
+  隔离（P5-3）或走 Tailscale。当前无"改配置"端点，新增时须挂 `require_parent`。
+
+### 4.5 家长看板（P2-5，只读）
 
 - `GET /api/dashboard`：错题存量（活跃 / 已作废 / 未挂考点）、按知识点与学科的薄弱分布、
   掌握度总览 + 逐 concept 明细 + 近 N 天（默认 30，上限 90）曲线、今日/逾期/合计到期数、
@@ -108,18 +124,20 @@
 - 掌握度曲线按日重放事件前缀；无已确认 concept 时曲线为空（不伪造 0 曲线）。
 - 叙述性周报不在内核生成；如需，由外部 agent 产出、以"来源=ai"入库，绝不进判分/排期。
 
-### 4.5 前端（六页导航 + 错题详情）
+### 4.6 前端（六页导航 + 错题详情）
 
 - `/dashboard` 看板；`/import` 导入说明 + 家长手填最小表单；`/intake` 核对入本；
   `/mistakes` + `/:id` 错题本；`/review` 到期三态 + 手动组卷；`/records` 练习记录；
   数学 KaTeX 渲染，同源 `/api` 代理。看板曲线为内联 SVG，不引入图表库。
+- 导航右侧"家长区"入口：未设 PIN 首次引导设置，已设则解锁；解锁态存 cookie、刷新保持；
+  错题详情的作废/撤销、复习页的手动组卷仅在解锁后可见。
 - 纯查询页零模型调用（内核已无模型可调）；看板页无推送/锁屏/问责，无积分/徽章。
 
-### 4.6 基础设施
+### 4.7 基础设施
 
 - `learning_events` 只追加 + UNIQUE 幂等键 + UPDATE/DELETE 触发器。
 - 掌握度 / 毕业 / 统计由事实确定性重算；同源改判只取最高版本。
-- SQLite WAL + Alembic（head 0013）；迁移含备份/回退说明与迁移测试。
+- SQLite WAL + Alembic（head 0014）；迁移含备份/回退说明与迁移测试。
 - 日志/事件 payload 不落题目全文、答案、文件 URL、PII；`attempts.answer_text` 恒 NULL。
 
 ## 5. API 与数据现状
@@ -138,12 +156,18 @@
 | 组卷 | `GET /api/quizzes/topics`、`GET /api/quizzes/paper`、`POST /api/quizzes/paper/submit` |
 | 练习记录 | `GET /api/attempts`、`DELETE /api/attempts`、`GET/POST/DELETE /api/practice-records` |
 | 看板 | `GET /api/dashboard`（只读，可选 `today` / `curve_days` 1–90） |
+| 会话 / 家长 PIN | `GET /api/session/status`、`POST /api/session/pin/set`、`POST /api/session/unlock`、`POST /api/session/lock` |
+
+家长区（`require_parent`，未解锁 403）：`POST /api/mistakes/{id}/void|unvoid`、
+`POST /api/problem-bank/import`、`GET /api/problem-bank/items/{id}`、`GET /api/quizzes/paper`。
+其余端点（导入、核对确认、到期、考核提交/自评、错题/看板只读）孩子区免 PIN。
 
 已删除（P1-12）：`/api/captures*`、`/api/extractions*`、`/api/gradings*`、`/api/explanations*`。
 
 ### 5.2 数据库与 seed
 
-- Alembic head `0013_drop_model_tables`；19 张业务表。
+- Alembic head `0014_parent_pin`；19 张业务表。
+- `user_role` 由 `0014_parent_pin` 保证存在 `(role='parent', pin_hash=NULL)` 行；PIN 设置后存 scrypt 哈希。
 - `model_runs` / `ai_jobs` 已 DROP（0013，down 可重建空表）。
 - `photo_captures` / `photo_capture_items` / `problem_extractions` 表结构保留但**无写入方**
   （本票按清单只 DROP 两表；如需彻底清理另开工单）。
@@ -163,9 +187,9 @@
 | 毕业 / 复活复习周期 | 缺口 | 已毕业错题再次复活不自动开新周期 | 按产品口径决定是否重排 |
 | 主考点未确认 | 部分缓解 | 无主考点只做重做自评，不推同类题 | 核对页引导家长选主考点 |
 | 历史作废/申诉入口 | 部分恢复 | 作废 / 撤销作废已有 HTTP 入口与事件留痕；申诉改判仍未开 | 如需申诉改判，另开"错题状态修订"工单，不复活模型链 |
-| 鉴权 / 本地 PIN | 未做 | 仅适合本机/可信内网 | P5-3 可选 session 鉴权 + README 警告 |
+| 鉴权 / 本地 PIN | 部分完成 | P2-4 本地家长 PIN 已做（只防误入，非安全边界）；公网鉴权/隔离仍未做 | 公网暴露前走 P5-3 真鉴权或 Tailscale |
 | 化学 / 语文 seed | 未做 | 两科从空 seed 起步 | 家长按教材目录建章级粗粒度 seed |
-| Phase 2 剩余 | 未开始 | 日队列、番茄钟、课表、两角色、打卡、PDF 导出缺失（P2-5 看板已完成） | 按 TICKETS 顺序 |
+| Phase 2 剩余 | 未开始 | 日队列、番茄钟、课表、打卡、PDF 导出缺失（P2-4 两角色 / P2-5 看板已完成） | 按 TICKETS 顺序 |
 | Phase 3–5 | 未开始 | 真题库、组卷扩展、英语背诵、信奥、分发向导等缺失 | 按 TICKETS 顺序 |
 
 ## 7. 残留风险与技术债
@@ -180,7 +204,9 @@
    `problem_extractions` 旧表未删；`services/grading.py` 名字保留但只做确认/版本追加。
 6. **Docker Desktop + SQLite WAL 运维坑**：容器运行期间从宿主机读写挂载库会破坏 WAL/SHM；
    查库走 `docker exec`，备份前先停 API。
-7. **无鉴权 / 无本地 PIN**：公网暴露前必须先做鉴权与隔离或走 Tailscale。
+7. **本地 PIN 不是安全边界**：只防误入，公网暴露前必须先做真鉴权与隔离或走 Tailscale；
+   限流为进程内存计数（重启清零、多实例不共享），会话密钥缺省自动生成到 `data/.session_secret`
+   （多实例部署必须显式设置 `WENGU_SESSION_SECRET`）。
 8. **前端无自动化 E2E**：浏览器走查为手工实跑；`npm run build` 只保证类型与打包。
 9. **P1-12 运行态证据为临时库**：E2E 使用 `.e2e-data` 临时库与 8123 端口，跑完即删；
    容器全栈重建验收待下次部署窗口。
@@ -195,6 +221,7 @@
 - 变式/加练只进 `practice_records`，绝不进错题本、不排复习。
 - 不引入通用 agent 编排框架、Redis、外部 MQ、向量库、K8s；不默认 Postgres。
 - Phase 0 闸门：未经用户确认的自动入库/自动排复习不实现。
+- 两角色边界：孩子区免 PIN；家长区端点挂 `require_parent`；PIN 只防误入，不替代公网鉴权。
 
 ## 9. 下一步建议（按依赖与风险排序）
 
@@ -202,8 +229,8 @@
 2. **复习掌握度归因**：把已确认 concept 写入事实，让 mastery 不再恒 0.0。
 3. **外部转录质量实测（P0-1 新口径）**：用真实已批改卷跑模板，统计 `〔?〕` 率、漏题率、
    核对页修改率；据此迭代 `docs/templates/doubao_transcribe_v1.md` 版本。
-4. **Phase 2 剩余**：日队列 / 番茄钟 / 课表 / 两角色 / 打卡 / PDF 导出；P2-5 看板已完成。
-5. **P5-3 鉴权/本地 PIN** 与桌面备份恢复，随分发需求穿插。
+4. **Phase 2 剩余**：日队列 / 番茄钟 / 课表 / 打卡 / PDF 导出；P2-4 两角色、P2-5 看板已完成。
+5. **P5-3 公网鉴权**（本地 PIN 已做，但非安全边界）与桌面备份恢复，随分发需求穿插。
 
 ## 10. 后续阶段工单清单（均未开始）
 
@@ -216,7 +243,7 @@
 | P2-1 | 日队列自动生成：到期复习 + 固定背诵铺底、作业按 deadline 插入、硬事件抬权重 |
 | P2-2 | 番茄钟执行：对下一项计时，完成打点写 `learning_events` |
 | P2-3 | 课表/日历约束层：录入后喂 P2-1，不作为任务源主体 |
-| P2-4 | 两角色 + 本地 PIN：孩子默认视图，家长 PIN 解锁；不做公网账号体系 |
+| P2-4 | 已完成：两角色 + 本地 PIN。孩子区免 PIN；家长区（作废/组卷/题库审核）scrypt 哈希 + 签名 cookie 解锁；不做公网账号体系 |
 | P2-5 | 已完成：家长看板（观察复盘型），`GET /api/dashboard` 只读确定性统计，孩子见同一份；无模型/写路径 |
 | P2-6 | 极简打卡：streak + 掌握度曲线，从事实重算；不做积分/徽章 |
 | P2-7 | 错题 PDF 四区块导出（原题 + 作答 + 解析 + 批注），按知识点/章节组卷 |

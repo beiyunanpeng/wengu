@@ -17,6 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.session import require_parent
 from app.core.database import get_session
 from app.judge.normalize import PLACEHOLDER
 from app.judge.verify_sandbox import SandboxError, verify_answer
@@ -151,7 +152,11 @@ async def _fetch_existing(
     return {row.external_id: row for row in rows}
 
 
-@router.post("/api/problem-bank/import", response_model=BankImportReport)
+@router.post(
+    "/api/problem-bank/import",
+    response_model=BankImportReport,
+    dependencies=[Depends(require_parent)],
+)
 async def import_problem_bank(
     payload: ProblemBankImportRequest,
     session: AsyncSession = Depends(get_session),
@@ -309,7 +314,11 @@ async def import_problem_bank(
     )
 
 
-@router.get("/api/problem-bank/items/{item_id}", response_model=BankItemInfo)
+@router.get(
+    "/api/problem-bank/items/{item_id}",
+    response_model=BankItemInfo,
+    dependencies=[Depends(require_parent)],
+)
 async def get_problem_bank_item(
     item_id: int, session: AsyncSession = Depends(get_session)
 ) -> BankItemInfo:

@@ -16,6 +16,32 @@ Phase 1 只剩 P1-7b（前置回溯诊断）与受闸门阻塞的 P1-7c。
 
 ### Added
 
+- **P2-4 两角色 + 本地家长 PIN**（2026-10-30）：
+  孩子区免 PIN；仅"家长区"（作废/撤销错题、题库导入/审核、手动组卷）需解锁。
+  - **存储**：迁移 `0014_parent_pin` 确保 `user_role(role='parent', pin_hash=NULL)` 行（可逆，
+    downgrade 只删未设 PIN 的该行）；PIN 以 `hashlib.scrypt`（n=2^14/r=8/p=1，随机盐）存
+    `pin_hash`，格式 `scrypt$N$r$p$salt$hash`，**不存明文**。
+  - **会话**：`POST /api/session/unlock` 正确则签发 HMAC-SHA256 签名 cookie（`wengu_parent`，
+    TTL 12h，httponly/lax）；`POST /api/session/lock` 清除；`GET /api/session/status` 返回
+    `{pin_set, parent_unlocked}`；`POST /api/session/pin/set` 仅在未设置时开放，已设置需先解锁。
+    密钥取 `WENGU_SESSION_SECRET`，缺省首启生成随机值写入 `data/.session_secret`（不入库）。
+  - **限流**：同一来源连续解锁失败 ≥5 次锁 60s（进程内计数，重启清零可接受），第 5 次即 429
+    + `Retry-After: 60`。
+  - **门禁**：`require_parent` 依赖挂到 `POST /api/mistakes/{id}/void|unvoid`、
+    `POST /api/problem-bank/import`、`GET /api/problem-bank/items/{id}`、
+    `GET /api/quizzes/paper`；未解锁 / 无 cookie / cookie 签名不符 → 403。
+    导入、核对确认、到期复习、考核提交/自评、错题本与看板只读**全部不受影响**。
+  - **前端**：导航右侧"家长区"入口（未设 PIN 首次引导设置，已设则解锁；解锁后显示"已解锁"并可锁定）；
+    错题详情作废/撤销按钮仅在解锁后可见；复习页手动组卷在未解锁时替换为提示。
+    PIN 输入 / 错误 / 限流均走既有 `apiRequest` 错误通道。
+  - **边界**：PIN **不是安全边界，只防误入**；不做登录/账号/多租户；公网暴露仍须真鉴权与隔离
+    （P5-3）或走 Tailscale。当前没有"改配置"端点，故无对应门禁（新增时须挂 `require_parent`）。
+  - **验证**：新增 `tests/integration/test_session_api.py` 5 例（未设 PIN 时家长端点 403 + 孩子端点 200、
+    scrypt 非明文与重复设置需解锁、cookie 篡改/过期/锁定、5 次失败锁 60s、零网络调用）与
+    `tests/unit/test_session_policy.py` 16 例；既有 API 测试改为自动设置/解锁后访问被保护端点。
+    全量 pytest **287 passed**、`ruff check .` 绿、`import app.main` OK、`npm run build` 绿；
+    临时库 + uvicorn :8135 + Vite :5178 浏览器实跑：首次设置 PIN → 解锁 → 作废/组卷入口出现 →
+    刷新保持 → 锁定后入口消失、错误 PIN 提示"PIN 不正确"、5 次错误 429。
 - **P2-5 家长看板（观察复盘型，纯只读确定性统计）**（2026-10-30）：
   新增 `GET /api/dashboard` 与前端 `/dashboard` 页（导航首项"看板"），**孩子与家长看同一份**。
   - **口径**：全部从 `learning_events` / `attempts` / `review_schedules` / `grading_versions` 现算，

@@ -35,6 +35,7 @@ import ExplanationSlot from "../components/ExplanationSlot";
 import MathText from "../components/MathText";
 import QuizQuestionCard from "../components/QuizQuestionCard";
 import QuizTopicPicker from "../components/QuizTopicPicker";
+import { useParentSession } from "../parent/ParentSession";
 
 const TASK_LABELS: Record<ReviewTask, string> = {
   quiz: "同类题考核",
@@ -70,6 +71,7 @@ function taskInstruction(item: DueReviewItem): string {
 }
 
 export default function ReviewPage() {
+  const { unlocked: parentUnlocked } = useParentSession();
   const [due, setDue] = useState<DueReviewResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -360,7 +362,7 @@ export default function ReviewPage() {
 
       {!loading && !error && due && due.items.length === 0 && (
         <Alert color="blue" variant="light" title="今天没有到期复习">
-          到期时间按实际完成日起算。可以去导入页转录新错题，或在下方手动组卷练习。
+          到期时间按实际完成日起算。可以去导入页转录新错题；家长解锁后还可手动组卷练习。
         </Alert>
       )}
 
@@ -456,6 +458,13 @@ export default function ReviewPage() {
 
       <Divider my="sm" />
 
+      {!parentUnlocked && (
+        <Alert color="gray" variant="light" title="手动组卷属于家长操作">
+          在右上角「家长区」输入 PIN 解锁后可组卷；孩子的到期复习与考核不受影响。
+        </Alert>
+      )}
+
+      {parentUnlocked && (
       <Card withBorder>
         <Stack gap="sm">
           <Group justify="space-between" align="center" wrap="wrap">
@@ -617,6 +626,7 @@ export default function ReviewPage() {
           )}
         </Stack>
       </Card>
+      )}
     </Stack>
   );
 }

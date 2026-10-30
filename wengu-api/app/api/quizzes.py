@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.session import require_parent
 from app.core.database import get_session
 from app.schemas.quiz import QuizQuestionView, quiz_view
 from app.services.bank import get_bank, is_answerable
@@ -140,7 +141,11 @@ async def quiz_topics(
     )
 
 
-@router.get("/api/quizzes/paper", response_model=QuizPaperResponse)
+@router.get(
+    "/api/quizzes/paper",
+    response_model=QuizPaperResponse,
+    dependencies=[Depends(require_parent)],
+)
 async def quiz_paper(
     topic_id: str = Query(min_length=1, max_length=64),
     count: int = Query(default=3, ge=1, le=MAX_PAPER_COUNT),

@@ -13,6 +13,7 @@ services:
       WENGU_DATA_DIR: /app/data
       WENGU_DB_PATH: /app/data/wengu.db
       WENGU_SEEDS_DIR: /app/seeds
+      WENGU_SESSION_SECRET: ${WENGU_SESSION_SECRET:-}  # 家长区 cookie 签名密钥；空则首启生成到 data/.session_secret
     volumes:
       - ./data:/app/data                # SQLite + inbox（外部 agent 转录 JSON）
       - ./seeds:/app/seeds:ro           # seed 包（data/ 随仓库分发；local/ 与 mappings/ 家长自建）
