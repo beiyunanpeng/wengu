@@ -73,6 +73,28 @@ export function updateMistakeLabels(
   );
 }
 
+export function voidMistake(
+  mistakeId: number,
+  payload: { actor?: "student" | "parent"; reason?: string | null } = {},
+): Promise<MistakeDetail> {
+  return requestJson<MistakeDetail>(
+    `/api/mistakes/${mistakeId}/void`,
+    "POST",
+    payload,
+  );
+}
+
+export function unvoidMistake(
+  mistakeId: number,
+  payload: { actor?: "student" | "parent" } = {},
+): Promise<MistakeDetail> {
+  return requestJson<MistakeDetail>(
+    `/api/mistakes/${mistakeId}/unvoid`,
+    "POST",
+    payload,
+  );
+}
+
 export function searchTopics(
   q: string,
   limit = 20,

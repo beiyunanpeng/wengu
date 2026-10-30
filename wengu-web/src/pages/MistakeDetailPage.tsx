@@ -5,6 +5,7 @@ import {
   Card,
   Group,
   Loader,
+  Modal,
   MultiSelect,
   Select,
   Stack,
@@ -21,7 +22,9 @@ import {
   getMistake,
   getMistakeOptions,
   listConcepts,
+  unvoidMistake,
   updateMistakeLabels,
+  voidMistake,
 } from "../api/endpoints";
 import type { Concept, ErrorCauseOption, MistakeDetail } from "../api/types";
 import CategoryPicker from "../components/CategoryPicker";
@@ -43,6 +46,9 @@ export default function MistakeDetailPage() {
   const [newConceptName, setNewConceptName] = useState("");
   const [creating, setCreating] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [voidOpen, setVoidOpen] = useState(false);
+  const [voidReason, setVoidReason] = useState("");
+  const [statusBusy, setStatusBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -182,6 +188,45 @@ export default function MistakeDetailPage() {
     }
   }
 
+  async function handleVoid() {
+    if (!detail || statusBusy) {
+      return;
+    }
+    setStatusBusy(true);
+    setActionError(null);
+    setMessage(null);
+    try {
+      const updated = await voidMistake(detail.id, {
+        reason: voidReason.trim() || null,
+      });
+      applyDetail(updated);
+      setVoidOpen(false);
+      setVoidReason("");
+      setMessage("已作废：退出活跃列表与到期队列，历史版本与复习记录保留");
+    } catch (cause) {
+      setActionError(errorMessage(cause));
+    } finally {
+      setStatusBusy(false);
+    }
+  }
+
+  async function handleUnvoid() {
+    if (!detail || statusBusy) {
+      return;
+    }
+    setStatusBusy(true);
+    setActionError(null);
+    setMessage(null);
+    try {
+      applyDetail(await unvoidMistake(detail.id));
+      setMessage("已撤销作废；未完成排期到期后会重新进入复习队列");
+    } catch (cause) {
+      setActionError(errorMessage(cause));
+    } finally {
+      setStatusBusy(false);
+    }
+  }
+
   function adoptSuggestion() {
     if (!detail) {
       return;
@@ -241,9 +286,28 @@ export default function MistakeDetailPage() {
             {detail.status === "active" ? "进行中" : "已作废"}
           </Badge>
         </Group>
-        <Button variant="subtle" onClick={() => navigate("/mistakes")}>
-          返回错题本
-        </Button>
+        <Group gap="xs">
+          {detail.status === "active" ? (
+            <Button
+              color="red"
+              variant="light"
+              onClick={() => setVoidOpen(true)}
+            >
+              作废错题
+            </Button>
+          ) : (
+            <Button
+              variant="light"
+              onClick={() => void handleUnvoid()}
+              loading={statusBusy}
+            >
+              撤销作废
+            </Button>
+          )}
+          <Button variant="subtle" onClick={() => navigate("/mistakes")}>
+            返回错题本
+          </Button>
+        </Group>
       </Group>
 
       <Card withBorder>
@@ -313,6 +377,11 @@ export default function MistakeDetailPage() {
       <Card withBorder>
         <Stack gap="sm">
           <Text fw={600}>编辑标签</Text>
+          {detail.status !== "active" && (
+            <Alert color="gray" variant="light">
+              错题已作废：标签只读。撤销作废后可继续修改。
+            </Alert>
+          )}
           <CategoryPicker
             value={categoryId}
             onChange={(value) => {
@@ -374,7 +443,11 @@ export default function MistakeDetailPage() {
             </Alert>
           )}
           <Group>
-            <Button onClick={() => void saveLabels()} loading={saving}>
+            <Button
+              onClick={() => void saveLabels()}
+              loading={saving}
+              disabled={detail.status !== "active"}
+            >
               保存标签
             </Button>
             <Button variant="subtle" onClick={() => navigate("/review")}>
@@ -387,6 +460,37 @@ export default function MistakeDetailPage() {
           </Text>
         </Stack>
       </Card>
+
+      <Modal
+        opened={voidOpen}
+        onClose={() => setVoidOpen(false)}
+        title="作废错题"
+      >
+        <Stack gap="sm">
+          <Text size="sm">
+            作废后该错题退出错题本活跃列表与到期复习队列；历史版本、复习记录与事件全部保留，可随时撤销。
+          </Text>
+          <TextInput
+            label="作废原因（可选）"
+            value={voidReason}
+            maxLength={200}
+            onChange={(event) => setVoidReason(event.currentTarget.value)}
+            placeholder="例如：已当面讲通，不需要再复习"
+          />
+          <Group justify="flex-end">
+            <Button variant="subtle" onClick={() => setVoidOpen(false)}>
+              取消
+            </Button>
+            <Button
+              color="red"
+              onClick={() => void handleVoid()}
+              loading={statusBusy}
+            >
+              确认作废
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
     </Stack>
   );
 }

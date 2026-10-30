@@ -6,6 +6,7 @@ v2.5：真实题在系统外批改，错题只经"外部转录 → 核对页确�
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -264,6 +265,121 @@ async def test_intake_confirmation_creates_mistake_once(tmp_path) -> None:
         events = (await session.scalars(select(LearningEvent).order_by(LearningEvent.id))).all()
     assert [event.type for event in events] == ["review_scheduled", "attempt_wrong"]
     assert [event.mistake_id for event in events] == [mistake_id, mistake_id]
+
+
+@pytest.mark.integration
+async def test_void_and_unvoid_mistake_lifecycle(tmp_path) -> None:
+    """作废/撤销只翻 status + 追加事件：退出活跃列表与到期队列，历史全部留痕。"""
+
+    factory = _migrated(tmp_path)
+    await _seed_topic(factory)
+
+    async with _client(factory) as client:
+        body = await _create_mistake(client)
+        mistake_id = body["mistake_id"]
+        versions_before = await _count(factory, MistakeVersion)
+
+        async with factory() as session:
+            schedule = (
+                await session.execute(
+                    select(ReviewSchedule).where(
+                        ReviewSchedule.mistake_id == mistake_id
+                    )
+                )
+            ).scalar_one()
+        due_day = schedule.due_date.isoformat()
+
+        due_before = await client.get(
+            "/api/reviews/due", params={"today": due_day}
+        )
+        assert due_before.json()["total"] == 1
+
+        voided = await client.post(
+            f"/api/mistakes/{mistake_id}/void",
+            json={"actor": "parent", "reason": "已当面讲通，暂不复习"},
+        )
+        again = await client.post(
+            f"/api/mistakes/{mistake_id}/void", json={"actor": "student"}
+        )
+        active_list = await client.get("/api/mistakes?status=active")
+        all_list = await client.get("/api/mistakes?status=all")
+        due_after = await client.get(
+            "/api/reviews/due", params={"today": due_day}
+        )
+        detail = await client.get(f"/api/mistakes/{mistake_id}")
+        labels = await client.post(
+            f"/api/mistakes/{mistake_id}/labels",
+            json={"base_version": 1, "error_cause": "careless"},
+        )
+        missing = await client.post(
+            "/api/mistakes/9999/void", json={"actor": "student"}
+        )
+        bad_actor = await client.post(
+            f"/api/mistakes/{mistake_id}/void", json={"actor": "teacher"}
+        )
+
+        unvoided = await client.post(
+            f"/api/mistakes/{mistake_id}/unvoid", json={"actor": "student"}
+        )
+        again_unvoid = await client.post(
+            f"/api/mistakes/{mistake_id}/unvoid", json={"actor": "student"}
+        )
+        due_restored = await client.get(
+            "/api/reviews/due", params={"today": due_day}
+        )
+        bad_actor_unvoid = await client.post(
+            f"/api/mistakes/{mistake_id}/unvoid", json={"actor": "teacher"}
+        )
+        final_list = await client.get("/api/mistakes")
+
+    assert voided.status_code == 200, voided.text
+    assert voided.json()["status"] == "voided"
+    assert voided.json()["labels"]["category_id"] == "cnm_test_equation"
+    assert again.status_code == 200, again.text
+    assert again.json()["status"] == "voided"
+    assert active_list.json()["total"] == 0
+    assert all_list.json()["total"] == 1
+    assert all_list.json()["items"][0]["status"] == "voided"
+    assert due_after.json()["total"] == 0
+    assert detail.status_code == 200
+    assert detail.json()["status"] == "voided"
+    assert detail.json()["current_version"] == 1
+    assert detail.json()["problem_text"] == "一元一次方程：解方程 2x=4，注意移项"
+    assert labels.status_code == 409  # 已作废错题沿用"不能改标签"护栏
+    assert missing.status_code == 404
+    assert bad_actor.status_code == 409
+
+    assert unvoided.status_code == 200, unvoided.text
+    assert unvoided.json()["status"] == "active"
+    assert again_unvoid.status_code == 200, again_unvoid.text
+    assert again_unvoid.json()["status"] == "active"
+    assert bad_actor_unvoid.status_code == 409
+    assert due_restored.json()["total"] == 1
+    assert due_restored.json()["items"][0]["mistake_id"] == mistake_id
+    assert final_list.json()["total"] == 1
+
+    assert await _count(factory, MistakeVersion) == versions_before
+    async with factory() as session:
+        events = (
+            await session.scalars(
+                select(LearningEvent).order_by(LearningEvent.id)
+            )
+        ).all()
+    assert [event.type for event in events] == [
+        "review_scheduled",
+        "attempt_wrong",
+        "mistake_voided",
+        "mistake_reactivated",
+    ]
+    void_event = events[2]
+    assert void_event.idempotency_key == f"mistake:{mistake_id}:void"
+    assert void_event.actor == "parent"
+    payload = json.loads(void_event.payload)
+    assert payload["actor"] == "parent"
+    assert payload["reason"] == "已当面讲通，暂不复习"
+    assert payload["mistake_id"] == mistake_id
+    assert events[3].idempotency_key == f"mistake:{mistake_id}:reactivate"
+    assert events[3].actor == "student"
 
 
 @pytest.mark.integration
