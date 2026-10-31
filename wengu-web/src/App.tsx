@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 
 import AppLayout from "./components/AppLayout";
+import BankPage from "./pages/BankPage";
 import DashboardPage from "./pages/DashboardPage";
 import ImportPage from "./pages/ImportPage";
 import IntakePage from "./pages/IntakePage";
@@ -29,6 +30,7 @@ export default function App() {
           <Route path="review" element={<ReviewPage />} />
           <Route path="schedule" element={<SchedulePage />} />
           <Route path="records" element={<RecordsPage />} />
+          <Route path="bank" element={<BankPage />} />
           <Route path="*" element={<Navigate to="/import" replace />} />
         </Route>
       </Routes>

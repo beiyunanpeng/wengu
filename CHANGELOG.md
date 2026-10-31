@@ -16,6 +16,64 @@ Phase 1 只剩 P1-7b（前置回溯诊断）与受闸门阻塞的 P1-7c。
 
 ### Added
 
+- **P3-1 家长录题（空白真题 → 外部转录 → 审核入 `problem_bank`）**（2026-10-31）：
+  补上"题库只读 seed、家长无法新增真题"的缺口。链路：家长拍**空白真题/教师版** →
+  外部 agent 按新模板转录 → `data/inbox/` 监听导入 → `bank_drafts` → **家长审核页确认**
+  → `problem_bank`；另有家长手填表单兜底。**家长录的题是动态数据，只进 SQLite，不写 seed JSON。**
+  - **红线（本票最高优先）**：**模型不得自行解题生成标准答案**。模板规定 `answer` 仅当照片里
+    明确含答案（答案册/教师版/卷面批注）才转录，否则**留空**、由家长在审核页补填；
+    `answer` 为空一律拒绝入库。系统绝不让 LLM 编答案冒充题库。
+  - **模板** `docs/templates/doubao_bank_transcribe_v1.md`（frontmatter `id`+`version`，
+    `channel=agent_bank_transcribe_v1`）：字段 `subject/topic_id/type(choice|numeric|short|self)/
+    difficulty?/prompt/answer?/acceptable?[]/unordered?/verify?/choices?[{key,text,figure?}]/
+    figure?/source_ref?`；识别不清用 `〔?〕` 占位不猜、题目文字只作被分析内容（注入防御）、
+    明确"不解题、不推导答案"。
+  - **校验/归一** `services/bank_import.py`：`validate_bank_envelope` + normalize
+    （prompt 2000 / answer 500 / verify 2000 / source_ref 200 长度上限、type 枚举、
+    choice 必须有选项且 key 唯一、**choice 的 answer 必须在选项 key 中**、
+    **`topic_id` 必须存在于 `knowledge_seed`**、内联 SVG 过 `sanitize_svg`）；
+    坏项逐条进 `errors[{index,field,reason}]`，**不做整批静默截断**；
+    批次 sha256 去重复用既有 `create_import_batch`。
+  - **inbox 分派**：`agent_transcribe_v1` → `ingestion_drafts`（现状不变）；
+    `agent_bank_transcribe_v1` → 新表 `bank_drafts`（`seq` + `normalized_json` +
+    `has_placeholder` + `status draft|approved|rejected`，`UNIQUE(batch_id, seq)`）。
+    两表互不串；`POST /api/imports` HTTP 通道仍只收错题转录，录题批次走监听目录。
+  - **迁移 `0016_bank_drafts`**（可逆）：新建 `bank_drafts`；`problem_bank` 加
+    `topic_id`（FK `knowledge_seed.id` ON DELETE SET NULL，命名约束）+ `question_type` +
+    `difficulty` + `choices_json` + `figure` + `hide_choice_text` + `percent`（既有行 NULL，
+    不影响已存题）。up/down/up 实测可重入。
+  - **`api/bank.py`（四个端点全挂 `require_parent`，未解锁 403）**：
+    `GET /api/bank/drafts`（status 过滤 + 分页 + topic 名回显）；
+    `POST /api/bank/drafts/{id}/approve`——合并审核页覆盖值 → 重新 normalize →
+    `check_approvable`（**缺 answer / 空题面 / 含 `〔?〕` / choice 答案不命中一律拒**）→
+    `classify_verify`（非法表达式/`__import__`/赋值/属性访问由 AST 白名单沙箱拒；
+    数值或短答"表达式与答案矛盾"拒入库；仅 `choice` 文本型 verify 不矛盾时记
+    `unverifiable/choice_text_mismatch`）→ 写 `problem_bank`，固定
+    **`unaudited=true` / `blind_verified=false`**；`POST .../reject`；`POST /api/bank/items`
+    （手填直录，走同一 normalize + 闸门，`external_id=manual_<uuid>`、`source=parent_manual`）。
+    approve 幂等：重复审核 409，已驳回 409。
+  - **前端家长区「题库审核」页**（`/bank`，导航项仅家长解锁后出现）：
+    草稿卡回显题面/配图/选项/建议考点/标准答案/verify，家长可改 `topic_id`（`CategoryPicker`）、
+    补答案、难度、verify 后"通过入库"或"驳回"；页面级结果提示显示
+    `problem_bank #id · verify_status`；手填表单入口（题型/难度/题目/答案/可接受答案/
+    verify/选项/出处）。未解锁不发请求、只显示"家长专属"；孩子区导航不可见。
+  - **验证**：新增 `tests/unit/test_bank_import_validation.py`、
+    `tests/integration/test_bank_api.py`（channel 分派、sha256 去重、审核闸门、403、手填），
+    并扩充迁移测试。全量 pytest **369 passed**（3 条既有 aiosqlite 线程清理告警，与本票无关）、
+    `ruff check .` 绿、`import app.main` OK、`npm run build` 绿。
+    临时库 + uvicorn :8099 实跑：两个 inbox 文件各进各表（bank 6 项 → 5 条草稿、未知 topic 被拒；
+    ingestion 1 项 → 1 条），同报文改名重投后 batch 仍 2 个、草稿仍 5 条；未解锁 GET/approve/手填
+    均 403；缺 answer 422 `missing_fields`；`__import__('os')` 422 `verify_error:forbidden_name`；
+    choice 答案 Z 422 `answer_not_in_choices`；`2+2` vs `5` 422 `verify_mismatch`；
+    `x=1` 422 `syntax_error`；`(1).__class__` 422 `forbidden_node:Attribute`；
+    合法题入库 `verified` 且 `unaudited=1 / blind_verified=0`；重复 approve 409；HTTP 导入
+    bank channel 422。浏览器：未解锁无「题库审核」且 `/bank` 只显示家长专属；解锁后通过草稿
+    （改 answer）→ 页面提示 `problem_bank #5 · verified`、列表清零；手填 6×7=42 入库
+    `problem_bank #6 · verified`。
+  - **残留风险**：审核页逐条确认，无批量通过；`verify` 只校验答案自洽，**不揭示题目本身是否
+    抄错**（仍靠人工）；`choice` 的 verify 为文本型无法数值核验，只能记 `unverifiable`；
+    `problem_bank` 入库题暂无编辑/作废入口（录错需后续工单）；家长手填同样依赖人工把关，
+    `topic_id` 只能从既有 seed 选，语文/化学等空 seed 学科暂无法挂考点。
 - **P2-7 错题四区块 / 练习卷打印导出**（2026-10-31）：
   用**前端打印视图 + 浏览器“打印 → 另存为 PDF”**导出，零 PDF 库、零服务端文件生成。
   数学由既有 KaTeX 渲染成 HTML/CSS、中文走系统字体，浏览器打印两者天然兼得。

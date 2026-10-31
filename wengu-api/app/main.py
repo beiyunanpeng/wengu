@@ -11,6 +11,7 @@ from fastapi import FastAPI
 
 from app import __version__
 from app.api.attempts import router as attempts_router
+from app.api.bank import router as bank_router
 from app.api.concepts import router as concepts_router
 from app.api.dashboard import router as dashboard_router
 from app.api.health import router as health_router
@@ -77,6 +78,7 @@ def create_app() -> FastAPI:
     application.include_router(practice_router)
     application.include_router(attempts_router)
     application.include_router(problem_bank_router)
+    application.include_router(bank_router)
     application.include_router(reviews_router)
     application.include_router(quizzes_router)
     application.include_router(imports_router)

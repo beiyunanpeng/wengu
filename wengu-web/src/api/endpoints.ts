@@ -1,6 +1,11 @@
 import { apiRequest, requestJson } from "./client";
 import type {
   AttemptListResponse,
+  BankApproveResponse,
+  BankChoice,
+  BankDraftListResponse,
+  BankItemCreated,
+  BankRejectResponse,
   CalendarEvent,
   CalendarEventsResponse,
   CalendarKind,
@@ -327,6 +332,90 @@ export function confirmIntakeDraft(
     { actor: "student", question_type: "objective", ...payload },
     60_000,
   );
+}
+
+export interface BankDraftFilters {
+  status?: "draft" | "approved" | "rejected" | "all";
+  limit?: number;
+  offset?: number;
+}
+
+export function listBankDrafts(
+  filters: BankDraftFilters = {},
+): Promise<BankDraftListResponse> {
+  const params = new URLSearchParams();
+  params.set("status", filters.status ?? "draft");
+  params.set("limit", String(filters.limit ?? 50));
+  params.set("offset", String(filters.offset ?? 0));
+  return apiRequest<BankDraftListResponse>(
+    `/api/bank/drafts?${params.toString()}`,
+  );
+}
+
+export interface BankApprovePayload {
+  prompt?: string;
+  answer?: string;
+  acceptable?: string[];
+  unordered?: boolean;
+  verify?: string;
+  topic_id?: string;
+  difficulty?: string;
+  source_ref?: string;
+  choices?: BankChoice[];
+  figure?: string | null;
+  hide_choice_text?: boolean;
+  percent?: boolean;
+}
+
+export function approveBankDraft(
+  draftId: number,
+  payload: BankApprovePayload,
+): Promise<BankApproveResponse> {
+  return requestJson<BankApproveResponse>(
+    `/api/bank/drafts/${draftId}/approve`,
+    "POST",
+    payload,
+  );
+}
+
+export function rejectBankDraft(draftId: number): Promise<BankRejectResponse> {
+  return requestJson<BankRejectResponse>(
+    `/api/bank/drafts/${draftId}/reject`,
+    "POST",
+    {},
+  );
+}
+
+export interface BankManualItemPayload {
+  topic_id: string;
+  type: "choice" | "numeric" | "short" | "self";
+  difficulty?: string;
+  prompt: string;
+  answer: string;
+  acceptable?: string[];
+  unordered?: boolean;
+  verify?: string;
+  choices?: BankChoice[];
+  figure?: string | null;
+  source_ref?: string;
+  hide_choice_text?: boolean;
+  percent?: boolean;
+}
+
+export function createBankItem(
+  payload: BankManualItemPayload,
+): Promise<BankItemCreated> {
+  return requestJson<BankItemCreated>("/api/bank/items", "POST", {
+    difficulty: "",
+    acceptable: [],
+    unordered: false,
+    verify: "",
+    choices: [],
+    source_ref: "",
+    hide_choice_text: false,
+    percent: false,
+    ...payload,
+  });
 }
 
 export interface AttemptFilters {

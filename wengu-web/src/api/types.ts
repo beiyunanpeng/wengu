@@ -320,6 +320,60 @@ export interface DraftConfirmResponse {
   already_promoted: boolean;
 }
 
+export interface BankChoice {
+  key: string;
+  text: string;
+  figure?: string | null;
+}
+
+export interface BankDraft {
+  id: number;
+  batch_id: number;
+  filename: string | null;
+  seq: number;
+  status: string;
+  has_placeholder: boolean;
+  created_at: string;
+  topic_id: string;
+  topic_name: string | null;
+  subject: string;
+  type: string;
+  difficulty: string;
+  prompt: string;
+  answer: string;
+  acceptable: string[];
+  unordered: boolean;
+  verify: string;
+  choices: BankChoice[];
+  figure: string | null;
+  source_ref: string;
+}
+
+export interface BankDraftListResponse {
+  items: BankDraft[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface BankApproveResponse {
+  draft_id: number;
+  status: string;
+  problem_bank_id: number;
+  verify_status: string;
+}
+
+export interface BankRejectResponse {
+  draft_id: number;
+  status: string;
+}
+
+export interface BankItemCreated {
+  problem_bank_id: number;
+  external_id: string;
+  verify_status: string;
+}
+
 export interface AttemptInfo {
   id: number;
   mistake_id: number | null;

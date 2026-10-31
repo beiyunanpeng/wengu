@@ -26,7 +26,13 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.models import IngestionDraft
+from app.models import BankDraft, IngestionDraft, KnowledgeSeed
+from app.services.bank_import import (
+    BANK_CHANNEL,
+    dumps_bank_draft,
+    normalize_bank_items,
+    validate_bank_envelope,
+)
 from app.services.events import create_import_batch
 from app.services.ingestion import (
     MAX_BATCH_BODY_BYTES,
@@ -77,11 +83,17 @@ class IngestOutcome:
 
 
 async def ingest_raw_payload(
-    session: AsyncSession, raw: bytes, *, filename: str | None = None
+    session: AsyncSession,
+    raw: bytes,
+    *,
+    filename: str | None = None,
+    allow_bank: bool = False,
 ) -> IngestOutcome:
     """HTTP 导入与目录监听共用的落库核心：校验 → 去重 → batch + 草稿。
 
-    草稿只进 `ingestion_drafts`（status=draft），绝不自动转正。
+    `agent_transcribe_v1` 只进 `ingestion_drafts`；`agent_bank_transcribe_v1`
+    （P3-1 录题）只进 `bank_drafts`。两条通道按 envelope channel 分派，不串表。
+    草稿绝不自动转正。
     """
 
     if len(raw) > MAX_BATCH_BODY_BYTES:
@@ -90,6 +102,14 @@ async def ingest_raw_payload(
         payload: Any = json.loads(raw)
     except json.JSONDecodeError as exc:
         raise PayloadJsonError(f"JSON 解析失败: {exc.msg}") from None
+    if isinstance(payload, dict) and payload.get("channel") == BANK_CHANNEL:
+        if not allow_bank:
+            raise PayloadEnvelopeError(
+                f"{BANK_CHANNEL} 只支持监听目录导入，请把 JSON 放进 data/inbox"
+            )
+        return await _ingest_bank_payload(
+            session, payload, raw, filename=filename
+        )
     try:
         channel, items = validate_envelope(payload)
     except ValueError as exc:
@@ -124,6 +144,62 @@ async def ingest_raw_payload(
                 select(func.count())
                 .select_from(IngestionDraft)
                 .where(IngestionDraft.import_batch_id == batch.id)
+            )
+        ).scalar_one()
+    return IngestOutcome(
+        batch_id=batch.id,
+        status=batch.status,
+        duplicate=not created,
+        draft_count=draft_count,
+        accepted_count=len(result.drafts),
+        dropped_unknown_fields=result.dropped_unknown_fields,
+        errors=list(result.errors),
+    )
+
+
+async def _ingest_bank_payload(
+    session: AsyncSession,
+    payload: dict[str, Any],
+    raw: bytes,
+    *,
+    filename: str | None,
+) -> IngestOutcome:
+    """P3-1 录题通道：只写 bank_drafts；topic_id 必须存在于 knowledge_seed。"""
+
+    try:
+        items = validate_bank_envelope(payload)
+    except ValueError as exc:
+        raise PayloadEnvelopeError(str(exc)) from None
+
+    digest = hashlib.sha256(raw).hexdigest()
+    async with session.begin():
+        topic_rows = (
+            await session.execute(select(KnowledgeSeed.id, KnowledgeSeed.subject))
+        ).all()
+        topics = {topic_id: subject for topic_id, subject in topic_rows}
+        result = normalize_bank_items(items, topics)
+        if not result.drafts:
+            raise NoValidItemsError(result.errors)
+        batch, created = await create_import_batch(
+            session, BANK_CHANNEL, digest, filename=filename, item_count=len(result.drafts)
+        )
+        if created:
+            batch.status = "imported" if not result.errors else "partial"
+            for draft in result.drafts:
+                session.add(
+                    BankDraft(
+                        import_batch_id=batch.id,
+                        seq=draft["seq"],
+                        normalized_json=dumps_bank_draft(draft["normalized"]),
+                        has_placeholder=draft["has_placeholder"],
+                        created_at=datetime.now(UTC),
+                    )
+                )
+        draft_count = (
+            await session.execute(
+                select(func.count())
+                .select_from(BankDraft)
+                .where(BankDraft.import_batch_id == batch.id)
             )
         ).scalar_one()
     return IngestOutcome(
@@ -172,7 +248,9 @@ async def process_inbox_file(
 ) -> InboxFileReport:
     raw = await asyncio.to_thread(path.read_bytes)
     try:
-        outcome = await ingest_raw_payload(session, raw, filename=path.name)
+        outcome = await ingest_raw_payload(
+            session, raw, filename=path.name, allow_bank=True
+        )
     except PayloadTooLargeError as exc:
         report = InboxFileReport(path.name, "invalid", error_count=1)
         logger.warning("inbox 文件超限归档: %s（%s）", path.name, exc)

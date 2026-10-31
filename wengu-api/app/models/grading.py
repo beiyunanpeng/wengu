@@ -54,6 +54,26 @@ class ProblemBankItem(Base):
     source: Mapped[str] = mapped_column(Text, nullable=False, default="import")
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
+    # P3-1：家长录题动态字段（既有行进库时保持 NULL）
+    topic_id: Mapped[str | None] = mapped_column(
+        ForeignKey(
+            "knowledge_seed.id",
+            ondelete="SET NULL",
+            name="fk_problem_bank_topic_id",
+        ),
+        nullable=True,
+        index=True,
+    )
+    question_type: Mapped[str | None] = mapped_column(Text, nullable=True)
+    difficulty: Mapped[str | None] = mapped_column(Text, nullable=True)
+    choices_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    figure: Mapped[str | None] = mapped_column(Text, nullable=True)
+    hide_choice_text: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    percent: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    # 入库即"未经教师审核 + 未经二遍盲解复核"；UI 必须透传
+    unaudited: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    blind_verified: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+
 
 class GradingResult(Base):
     __tablename__ = "grading_results"
