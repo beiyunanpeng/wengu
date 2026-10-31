@@ -41,13 +41,13 @@ from app.models import (
     ReviewSchedule,
 )
 from app.models.mistakes import MISTAKE_ACTIVE
-from app.seed.bank import BankQuestion
+from app.seed.bank import BankQuestion, QuestionBank
 from app.services.bank import (
     AnswerMode,
     BankPick,
     Coverage,
     find_same_type,
-    get_bank,
+    get_runtime_bank,
 )
 from app.services.events import record_event
 from app.services.recompute import (
@@ -920,7 +920,7 @@ async def due_queue(
     配置 `exam_day_limit_factor` 放大（默认 1.5），仍受 200 收口，并标记
     `exam_today`；竞赛/请假/其它事件不放宽。排序、任务类型、thin/gap 不变。
 
-    v2.5 考核优先/重做兜底：按 `primary_topic_id` 检索 seed 题库——
+    v2.5 考核优先/重做兜底：按 `primary_topic_id` 检索运行时题池（seed + 已入库家长题）——
     命中出"同类题考核"，未命中（无主考点或该知识点 0 题）退回原题重做并标
     `bank_gap`。`coverage=thin` 只是覆盖偏薄提示，仍正常出题、不得当 gap。
     """
@@ -973,9 +973,10 @@ async def due_queue(
     ).all()
 
     items: list[DueReview] = []
+    bank = await get_runtime_bank(session)
     for schedule, mistake, version in rows:
         seed = quiz_seed(mistake.id, schedule.id)
-        pick = find_same_type(mistake.primary_topic_id, seed)
+        pick = find_same_type(mistake.primary_topic_id, seed, bank=bank)
         if pick.question is None:
             task: DueTask = "redo"
         elif pick.mode == "self_eval":
@@ -1023,11 +1024,11 @@ async def _attempt_event(
 
 
 def _recorded_quiz_result(
-    pick: BankPick, completion: CompleteResult
+    pick: BankPick, completion: CompleteResult, bank: QuestionBank
 ) -> ReviewQuizResult:
     if completion.quiz is None:
         raise ReviewQuizUnavailable("该排期已按原题重做完成，不能按考核回放")
-    recorded = get_bank().question(completion.quiz.question_id)
+    recorded = bank.question(completion.quiz.question_id)
     question = recorded or pick.question
     if question is None:
         raise ReviewQuizUnavailable("题库中已找不到该考核题")
@@ -1068,7 +1069,8 @@ async def submit_review_quiz(
         raise ReviewConflict("已作废错题不能完成复习")
     schedule = await _schedule_by_id(session, mistake_id, schedule_id)
     seed = quiz_seed(mistake.id, schedule.id)
-    pick = find_same_type(mistake.primary_topic_id, seed)
+    bank = await get_runtime_bank(session)
+    pick = find_same_type(mistake.primary_topic_id, seed, bank=bank)
 
     existing_event = await _attempt_event(session, schedule)
     if schedule.completed_at is not None or existing_event is not None:
@@ -1077,7 +1079,7 @@ async def submit_review_quiz(
         completion = await _completed_result(
             session, schedule=schedule, event=existing_event
         )
-        return _recorded_quiz_result(pick, completion)
+        return _recorded_quiz_result(pick, completion, bank)
 
     if pick.question is None:
         raise ReviewQuizUnavailable(
@@ -1135,10 +1137,10 @@ async def submit_review_quiz(
 
     # 并发重试可能命中已存在事件：以记录为准回放，不采用本次判分。
     if completion.quiz is not None and completion.quiz.question_id != pick.question.id:
-        return _recorded_quiz_result(pick, completion)
+        return _recorded_quiz_result(pick, completion, bank)
     question = pick.question
     if completion.quiz is not None:
-        question = get_bank().question(completion.quiz.question_id) or question
+        question = bank.question(completion.quiz.question_id) or question
     return ReviewQuizResult(
         completion=completion,
         question=question,

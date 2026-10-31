@@ -26,7 +26,7 @@ from app.seed.bank import BankQuestion
 from app.services.bank import (
     AnswerMode,
     PaperPick,
-    get_bank,
+    get_runtime_bank,
     paper_picks,
 )
 from app.services.events import record_event
@@ -92,10 +92,12 @@ class PaperSubmitResult:
         return sum(1 for item in self.items if item.status == "wrong")
 
 
-def build_paper(topic_id: str, seed: int, count: int) -> PaperPick:
-    """组卷快照（纯内存）；未知知识点在此拦下，避免空卷被当成题库缺口。"""
+async def build_paper(
+    session: AsyncSession, topic_id: str, seed: int, count: int
+) -> PaperPick:
+    """组卷快照；未知知识点在此拦下，避免空卷被当成题库缺口。"""
 
-    bank = get_bank()
+    bank = await get_runtime_bank(session)
     if topic_id not in bank.topics:
         raise QuizTopicNotFound("知识点不存在")
     return paper_picks(topic_id, seed, count, bank=bank)
@@ -218,7 +220,7 @@ async def submit_paper(
 
     if actor not in ("student", "parent"):
         raise QuizInvalid("只有 student/parent 可以提交考核")
-    paper = build_paper(topic_id, seed, count)
+    paper = await build_paper(session, topic_id, seed, count)
     by_id = {item.question.id: item for item in paper.items}
 
     seen: set[str] = set()

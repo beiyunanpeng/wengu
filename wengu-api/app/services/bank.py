@@ -5,18 +5,36 @@
 先取**可自动判分**的题（客观/数值/短答、且不依赖题图），没有才退回非可答题并标记
 `mode=self_eval`（纸上做 → 拍已批改 → 自评）。
 
+P3-1b：检索池 = seed JSON 只读主体 + SQLite `problem_bank` 已入库家长题的增量池
+（`get_runtime_bank`）。家长题只进 SQLite，绝不回写 seed JSON；合并后整体重算统计，
+审核通过/手填直录提交后失效缓存，下一条到期任务即可用新题。
+
 确定性纪律（AGENTS §5）：mulberry32 与上游 JS 逐位一致（uint32 语义），
 同样 `(topic_id, seed)` 在任意进程、任意装载顺序下命中同一题；`replay` / `replay_paper`
-重算并校验，数据热更新导致候选池变化时抛 `BankReplayError` 而不是静默换题。
+重算并校验，**池增长同样导致候选集合变化**，此时抛 `BankReplayError` 而不是静默换题。
 """
 
 from __future__ import annotations
 
+import json
+from collections import Counter
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
-from app.seed.bank import BankQuestion, QuestionBank, load_bank
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models import KnowledgeSeed, ProblemBankItem
+from app.seed.bank import (
+    QUESTION_TYPES,
+    BankChoice,
+    BankQuestion,
+    BankStats,
+    QuestionBank,
+    load_bank,
+)
+from app.seed.svg import sanitize_svg
 
 # 学科题量低于该阈值视为"覆盖薄"（§5 反虚假精确：样本不足不吹保证）。
 # 现状：数学 1407 / 英语 1028 正常，物理 368 薄；语文/化学无题 → gap。
@@ -96,21 +114,254 @@ class PaperPick:
         return sum(1 for item in self.items if item.mode == "self_eval")
 
 
-_CACHE: QuestionBank | None = None
+_SEED_CACHE: QuestionBank | None = None
+_RUNTIME_CACHE: QuestionBank | None = None
 
 
 def get_bank() -> QuestionBank:
-    """进程内单例索引（JSON 真源，首次调用装载；测试可用 reset_bank_cache）。"""
+    """仅 seed 题库的进程内索引（JSON 真源，首次调用装载；测试可用 reset_bank_cache）。"""
 
-    global _CACHE
-    if _CACHE is None:
-        _CACHE = load_bank()
-    return _CACHE
+    global _SEED_CACHE
+    if _SEED_CACHE is None:
+        _SEED_CACHE = load_bank()
+    return _SEED_CACHE
+
+
+async def get_runtime_bank(session: AsyncSession) -> QuestionBank:
+    """运行时检索池 = seed 只读主体 + `problem_bank` 已入库家长题的增量池。
+
+    家长题只写 SQLite，绝不回写 seed JSON；这里把 `problem_bank` 行映射成
+    `BankQuestion` 合并进内存索引，统计随之重算（`coverage/thin` 按新池判定）。
+    进程内缓存；审核通过 / 手填直录提交后调用 `reset_bank_cache()` 失效。
+    """
+
+    global _RUNTIME_CACHE
+    if _RUNTIME_CACHE is None:
+        _RUNTIME_CACHE = await _load_runtime_bank(session)
+    return _RUNTIME_CACHE
 
 
 def reset_bank_cache() -> None:
-    global _CACHE
-    _CACHE = None
+    global _SEED_CACHE, _RUNTIME_CACHE
+    _SEED_CACHE = None
+    _RUNTIME_CACHE = None
+
+
+async def _load_runtime_bank(session: AsyncSession) -> QuestionBank:
+    base = get_bank()
+    rows = (
+        await session.scalars(
+            select(ProblemBankItem)
+            .where(ProblemBankItem.topic_id.is_not(None))
+            .order_by(ProblemBankItem.id)
+        )
+    ).all()
+    if not rows:
+        return base
+
+    dropped = dict(base.stats.dropped)
+    dynamic: list[BankQuestion] = []
+    seen = set(base.by_id)
+    for row in rows:
+        question = _dynamic_question(row, seen, dropped)
+        if question is None:
+            continue
+        seen.add(question.id)
+        dynamic.append(question)
+
+    extra_topics: dict[str, dict[str, Any]] = {}
+    missing = sorted({question.topic_id for question in dynamic} - set(base.topics))
+    if missing:
+        seeds = (
+            await session.scalars(
+                select(KnowledgeSeed).where(KnowledgeSeed.id.in_(missing))
+            )
+        ).all()
+        extra_topics = {seed.id: _topic_meta_of(seed) for seed in seeds}
+
+    grouped: dict[str, list[BankQuestion]] = {
+        topic_id: list(items) for topic_id, items in base.by_topic.items()
+    }
+    for question in dynamic:
+        grouped.setdefault(question.topic_id, []).append(question)
+    by_topic = {
+        topic_id: tuple(sorted(items, key=lambda item: item.id))
+        for topic_id, items in grouped.items()
+    }
+    by_id = {**base.by_id, **{question.id: question for question in dynamic}}
+    topics = {**base.topics, **extra_topics}
+    return QuestionBank(
+        by_topic=by_topic,
+        by_id=by_id,
+        topics=topics,
+        stats=_compute_stats(by_topic, topics, dropped),
+    )
+
+
+def _dynamic_question(
+    row: ProblemBankItem, seen: set[str], dropped: dict[str, int]
+) -> BankQuestion | None:
+    """`problem_bank` 行 → BankQuestion；不可信输入校验不过即计入 dropped。"""
+
+    question_id = row.external_id
+    if not isinstance(question_id, str) or not question_id.strip():
+        _drop(dropped, "db_invalid_id")
+        return None
+    if question_id in seen:
+        _drop(dropped, "db_id_conflict")
+        return None
+
+    topic_id = row.topic_id
+    if not isinstance(topic_id, str) or not topic_id.strip():
+        _drop(dropped, "db_invalid_topic")
+        return None
+    question_type = row.question_type
+    if question_type not in QUESTION_TYPES:
+        _drop(dropped, "db_invalid_type")
+        return None
+    if not isinstance(row.problem_text, str) or not row.problem_text.strip():
+        _drop(dropped, "db_invalid_prompt")
+        return None
+    if not isinstance(row.answer, str) or not row.answer.strip():
+        _drop(dropped, "db_invalid_answer")
+        return None
+
+    accept = _json_strings(row.acceptable_answers_json)
+    if accept is None:
+        _drop(dropped, "db_invalid_accept")
+        return None
+    choices = _dynamic_choices(row.choices_json, dropped)
+    if choices is None:
+        return None
+    if question_type == "choice" and (
+        not choices or row.answer.strip() not in {choice.key for choice in choices}
+    ):
+        _drop(dropped, "db_answer_not_in_choices")
+        return None
+
+    verify = row.verify if isinstance(row.verify, str) and row.verify.strip() else None
+    verified = row.verify_status == "verified"
+    return BankQuestion(
+        id=question_id,
+        topic_id=topic_id,
+        subject=row.subject,
+        type=question_type,
+        difficulty=row.difficulty,
+        prompt=row.problem_text,
+        answer=row.answer,
+        accept=accept,
+        choices=choices,
+        unordered=bool(row.unordered),
+        hide_choice_text=bool(row.hide_choice_text),
+        figure=sanitize_svg(row.figure),
+        explanation="",
+        verify=verify,
+        verify_status="verified" if verified else "unverifiable",
+        verify_reason=None if verified else "db_unverified",
+        percent=bool(row.percent),
+        unaudited=True if row.unaudited is None else bool(row.unaudited),
+        blind_verified=bool(row.blind_verified),
+    )
+
+
+def _dynamic_choices(
+    raw: str | None, dropped: dict[str, int]
+) -> tuple[BankChoice, ...] | None:
+    if not raw:
+        return ()
+    try:
+        data = json.loads(raw)
+    except (TypeError, json.JSONDecodeError):
+        _drop(dropped, "db_invalid_choices")
+        return None
+    if not isinstance(data, list):
+        _drop(dropped, "db_invalid_choices")
+        return None
+    choices: list[BankChoice] = []
+    for item in data:
+        if not isinstance(item, dict):
+            _drop(dropped, "db_invalid_choices")
+            return None
+        key, text = item.get("key"), item.get("text")
+        if not isinstance(key, str) or not isinstance(text, str):
+            _drop(dropped, "db_invalid_choices")
+            return None
+        choices.append(
+            BankChoice(key=key, text=text, figure=sanitize_svg(item.get("figure")))
+        )
+    return tuple(choices)
+
+
+def _json_strings(raw: str | None) -> tuple[str, ...] | None:
+    if not raw:
+        return ()
+    try:
+        data = json.loads(raw)
+    except (TypeError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, list) or any(not isinstance(item, str) for item in data):
+        return None
+    return tuple(data)
+
+
+def _topic_meta_of(seed: KnowledgeSeed) -> dict[str, Any]:
+    return {
+        "id": seed.id,
+        "subject": seed.subject,
+        "name": seed.name,
+        "domain": seed.domain,
+        "grade": seed.grade,
+        "semester": seed.semester,
+        "chapter": seed.chapter,
+        "type": seed.type,
+        "unaudited": seed.unaudited,
+        "blind_verified": seed.blind_verified,
+    }
+
+
+def _compute_stats(
+    by_topic: dict[str, tuple[BankQuestion, ...]],
+    topics: dict[str, dict[str, Any]],
+    dropped: dict[str, int],
+) -> BankStats:
+    """按合并后的题池整体重算，保证 `coverage/thin` 与题目集合一致。"""
+
+    by_subject: Counter[str] = Counter()
+    by_type: Counter[str] = Counter()
+    verify_reasons: Counter[str] = Counter()
+    verified = unverifiable = figures = 0
+    for items in by_topic.values():
+        for question in items:
+            by_subject[question.subject] += 1
+            by_type[question.type] += 1
+            figures += _figure_count(question)
+            if question.verify_status == "verified":
+                verified += 1
+            else:
+                unverifiable += 1
+                verify_reasons[question.verify_reason or "unknown"] += 1
+    return BankStats(
+        total=sum(by_subject.values()),
+        by_subject=dict(sorted(by_subject.items())),
+        by_type=dict(sorted(by_type.items())),
+        topics_total=len(topics),
+        topics_with_questions=len(by_topic),
+        verified=verified,
+        unverifiable=unverifiable,
+        verify_reasons=dict(sorted(verify_reasons.items())),
+        dropped=dict(sorted(dropped.items())),
+        figures=figures,
+    )
+
+
+def _figure_count(question: BankQuestion) -> int:
+    return (1 if question.figure else 0) + sum(
+        1 for choice in question.choices if choice.figure
+    )
+
+
+def _drop(dropped: dict[str, int], reason: str) -> None:
+    dropped[reason] = dropped.get(reason, 0) + 1
 
 
 def mulberry32(seed: int) -> Iterator[float]:

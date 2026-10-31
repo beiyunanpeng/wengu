@@ -1,8 +1,8 @@
 # STATUS.md — 开发计划与完成情况
 
-> 快照日期：2026-10-31（P3-1 家长录题交付后）
-> 分支 / HEAD：`main` / `fbe7116`（P2-1～P2-7、P3-1 改动尚未提交，工作区含本票变更）
-> 全量测试：**369 passed**（本机 2026-10-31）；`ruff check .` 全绿；`npm run build` 绿
+> 快照日期：2026-10-31（P3-1b 家长题接入检索池交付后）
+> 分支 / HEAD：`main` / `981b2f0`（P3-1b 改动尚未提交，工作区含本票变更）
+> 全量测试：**371 passed**（本机 2026-10-31）；`ruff check .` 全绿；`npm run build` 绿
 > Alembic head：`0016_bank_drafts`；业务表 22 张（0016 新增 `bank_drafts` + `problem_bank` 补列）
 
 本文件是**状态快照**，不替代以下事实源；冲突时以它们为准：
@@ -34,6 +34,11 @@
   AST `verify` 沙箱（非法表达式、`__import__`、赋值、属性访问、纯数值矛盾全拒），
   固定标 `unaudited=true` / `blind_verified=false`。四个端点全挂 `require_parent`，
   孩子区导航不可见；迁移 `0016`（可逆）。
+- **P3-1b 家长题接入检索池已交付**：审核入库的 `problem_bank` 题现在与 seed 题库合并为
+  运行时题池，**参与到期考核与手动组卷**；seed 索引仍只读、家长题只存 SQLite。
+  approve/手填提交后清缓存，下一条到期任务即见新题；统计从合并题集重算，
+  `coverage`/`thin`/`bank_gap` 随池更新。`BankPick.pool_ids` 随池增长，旧记录在新池下
+  `replay` 显式抛 `BankReplayError`（绝不静默换题），旧记录仍可用只读 seed 池复现。
 - **P2-2 番茄钟执行已交付**：复习页每日队列第一项带**纯前端 25 分钟倒计时**，取消不打点，
   自然完成或手动“完成”才 `POST /api/pomodoros` 追加 `pomodoro_completed` 事件（幂等键按
   `started_at`，时长 5–120 钳制，错题可空）；看板与复习页头部显示今日番茄 / 本周专注，
@@ -75,7 +80,7 @@
 | Phase 0 | 摸底 + 回归基线 | 部分完成 | 首轮实测结论已在 `docs/methodology/phase0.md`；v2.5 后"识别瓶颈"由批改外移绕过，边界表不再是入本前置 |
 | Phase 1 | 核心闭环 | 进行中 | P1-0～P1-12 完成（模型在环旧链路已退役）；仅剩 P1-7b，P1-7c 阻塞 |
 | Phase 2 | 每日任务 + 家长看板 | 进行中 | P2-5 家长看板、P2-4 两角色 + 本地 PIN、P2-6 极简打卡、P2-1 日队列（本轮仅到期复习/考核）、P2-3 课表/日历约束层、P2-2 番茄钟执行、P2-7 打印导出已完成；日队列的背诵/作业/硬事件权重未开始 |
-| Phase 3 | 内容与扩展 | 进行中 | P3-1 家长录题（真题入库审核流水线）已完成；组卷加练、英语背诵、听力默写、语文、信奥、长期计划未开始 |
+| Phase 3 | 内容与扩展 | 进行中 | P3-1 家长录题（真题入库审核流水线）+ P3-1b 家长题接入检索池已完成；组卷加练、英语背诵、听力默写、语文、信奥、长期计划未开始 |
 | Phase 4 | 基础设施演进 | 未开始 | Tailscale、可移植部署、可选本地 GPU |
 | Phase 5 | 开源分发与打包 | 未启动（部分基线已有） | LICENSE / README / CHANGELOG / `.env.example` / 第三方署名已就位；首次运行向导、备份恢复、鉴权开关、教材包安装器未做 |
 
@@ -268,6 +273,34 @@
   草稿卡回显题面/配图/选项/建议考点/答案/verify，可改 `topic_id`、补答案、难度后通过；
   页面级提示显示 `problem_bank #id · verify_status`；手填表单复用同一校验。
 
+### 4.13 家长题接入同类题检索池（P3-1b）
+
+- **装载**：`services/bank.py` 的 seed 内存索引仍是**只读主体**；新增
+  `get_runtime_bank(session)` 把 `problem_bank` 中 `topic_id` 非空的已入库行与 seed 合并：
+  `external_id`→题 id，`problem_text/answer/acceptable_answers_json/choices_json/figure/
+  hide_choice_text/percent/unaudited/blind_verified` 逐列映射，`choices_json` 与配图 SVG
+  过 `sanitize_svg`。题型限 `QUESTION_TYPES`；非法行（id 冲突 / 未知 topic / 未知题型 /
+  空题面 / 空答案 / choice 不命中）逐行丢弃并计入 `stats.dropped`（`db_invalid_*`）。
+- **统计**：`_compute_stats` 从合并题集重建 `total/by_subject/by_type/topics_with_questions/
+  verified/unverifiable/figures/dropped`；`coverage`/`thin` 与看板 `bank_gap` 随池更新。
+  空 seed 学科补题后 topic 元数据回读 `knowledge_seed`（如化学补题即从 gap 转可考核）。
+- **缓存**：`get_bank()`（同步、seed only）与 `get_runtime_bank()` 各持进程内快照；
+  approve / 手填入库**提交成功后**调 `reset_bank_cache()`，下一条到期任务即用新题；
+  pytest autouse fixture 每用例重置，避免临时库串味。
+- **调用点**：练习记录、`/api/quizzes/topics|paper|paper/answers`、组卷
+  `build_paper/submit_paper`、看板 `_bank_gap`、到期队列与 `POST /api/reviews/{id}/quiz`
+  全部改读运行时池；`find_same_type`/`paper_picks` 未显式传 `bank` 时仍默认 seed 池。
+- **确定性**：`BankPick.pool_ids` 随池增长，旧记录在新池下 `replay` **显式抛
+  `BankReplayError`**（带 `recorded/replayed`），绝不静默换题；旧记录仍可用只读 seed 池复现。
+- **实测**：物理到期题池 4 → 6（seed `2654435762` 不变，题目 `cnp_001_q2` →
+  `bank_draft_2`），物理题数 368 → 370、合并总数 2806；化学补题前任务 `redo` +
+  看板 gap 命中，补题后转 `quiz`、`coverage=thin`、gap 清空且 `weak_topics` 保留；
+  旧 pick 在新池重放抛 `BankReplayError`；`seeds/data/questions.json` 字节未变。
+- **测试**：新增 `tests/integration/test_bank_runtime.py`（池增长 + 重放失败 + 卷面不泄漏
+  答案 + seed 文件不变；空 seed 学科补题后 gap 关闭、thin/weak_topics 口径不变）。
+- **残留**：运行时池是**进程内快照**，绕开 API 直接改库需重启/清缓存；多实例不共享
+  （单家庭单实例可接受）；家长题仍固定 `unaudited=true`，且仍无编辑/作废入口。
+
 ## 5. API 与数据现状
 
 ### 5.1 API 面
@@ -299,6 +332,9 @@
 
 已删除（P1-12）：`/api/captures*`、`/api/extractions*`、`/api/gradings*`、`/api/explanations*`。
 
+P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap）统一读**运行时题池**
+（只读 seed + 已入库 `problem_bank`），API 面无变化；approve/手填提交后本进程缓存失效。
+
 ### 5.2 数据库与 seed
 
 - Alembic head `0016_bank_drafts`；22 张业务表（0016 新增 `bank_drafts`，
@@ -313,7 +349,8 @@
   （本票按清单只 DROP 两表；如需彻底清理另开工单）。
 - seed：664 知识点（数学 315 / 英语 257 / 物理 92）+ 1018 先修边 + 2803 题
   （数学 1407 / 英语 1028 / 物理 368）；化学、语文空 seed 起步。
-  **P3-1 家长录题只进 SQLite `problem_bank`，不写 seed JSON**；seed 包仍随仓库只读分发。
+  **P3-1 家长录题只进 SQLite `problem_bank`，不写 seed JSON**；P3-1b 在运行时把
+  `problem_bank` 已入库行合并进检索池（seed 文件仍只读、随仓库分发）。
 - 运行时非密钥参数：`config/app-config.json`（gitignore，本机配置；示例见
   `config/app-config.example.json`）当前含 `daily_review_limit`（默认 10）与
   `exam_day_limit_factor`（默认 1.5），每请求现读、改文件热生效；缺失/非法回退默认。
@@ -324,7 +361,7 @@
 
 | 项 | 状态 | 影响 | 解锁条件 / 下一步 |
 |---|---|---|---|
-| 家长录题与组卷未打通 | 缺口 | P3-1 只完成"入库 + 审核"；`/api/quizzes/*` 仍只读取内存 seed 题库，家长新录的 `problem_bank` 题**暂不参与**到期考核与手动组卷 | P3-2 或后续"题库统一检索层"工单把 `problem_bank` 并入检索/组卷（须保持固定种子可重放与答案不下发） |
+| 家长录题与组卷未打通 | 已关闭（P3-1b） | 审核入库题已合并进运行时题池，参与到期考核与手动组卷；统计/coverage 随池重算 | 后续 P3-2 加练检索复用同一运行时池（仍须固定种子可重放、答案不下发） |
 | 入库题无编辑/作废 | 缺口 | 录错答案或分类后无法在系统内修订，只能直接改库（不得手改生产 SQLite） | 另开"题库条目修订/作废"工单，走事件留痕而非硬删 |
 | 录题审核逐条 | 部分缓解 | 草稿只能逐条通过/驳回，批量录入时家长操作成本高 | 观察真实使用量后决定是否做批量确认；不得改为无人确认自动入库 |
 | 空 seed 学科无法录题挂点 | 缺口 | `topic_id` 必须存在于 `knowledge_seed`，语文/化学暂无法挂知识点 | 先补教材 seed 包（P5-4），或后续允许"仅存题不挂点"的受控例外 |
@@ -376,10 +413,12 @@
     均由客户端上报（可信家庭场景，非防作弊），服务端只钳制 5–120 分钟；不足 5 分钟的手动
     完成会记为 5 分钟。看板按 payload `completed_on` 归日，缺失回退 `occurred_at`（UTC）日期；
     番茄只展示专注时长，**不得用于学习效果结论**。
-15. **家长录题只到"入库"为止**：P3-1 的 `problem_bank` 新题**尚未接入组卷/到期考核**
-    （检索层仍只读内存 seed 题库），也**没有编辑/作废入口**；录错只能后续工单修订。
-    审核页逐条确认、无批量通过；`verify` 只验证"答案自洽"，**无法发现题目文本抄错**，
-    仍需家长人工把关。`answer` 只能来自卷面/答案册或家长手填，**绝不由模型生成**；
+15. **家长录题已接入检索池，但仍无修订入口**：P3-1b 后审核入库题会参与到期考核与手动
+    组卷，题池增长会使旧 quiz 记录 `replay` 抛 `BankReplayError`（设计如此，绝不静默换题）；
+    运行时池是**进程内快照**，绕开 API 直接改库需重启/清缓存，多实例不共享
+    （单家庭单实例前提下可接受）。`problem_bank` 仍**没有编辑/作废入口**，录错只能后续
+    工单修订。审核页逐条确认、无批量通过；`verify` 只验证"答案自洽"，**无法发现题目文本
+    抄错**，仍需家长人工把关。`answer` 只能来自卷面/答案册或家长手填，**绝不由模型生成**；
     choice 的文本型 verify 无法数值核验，只能标 `unverifiable`。`topic_id` 必须命中既有
     seed，语文/化学空 seed 学科暂不能挂点。审核面全部挂 `require_parent`，但 PIN 仍
     只防误入、不是安全边界。
@@ -399,6 +438,9 @@
   缺答案拒入库；`verify` 必须过 AST 白名单沙箱（禁 `__import__`/赋值/属性访问）；
   `bank_drafts` 永不自动转正；入库固定 `unaudited=true`、`blind_verified=false`；
   家长题只进 SQLite `problem_bank`，**绝不写 seed JSON**；审核/手填端点挂 `require_parent`。
+- **题库 = 只读 seed + 动态合并**：运行时题池由 seed（只读）与已入库 `problem_bank` 合并；
+  选题仍走 mulberry32 固定种子，`pool_ids` 变化后旧 pick 重放必须显式失败
+  （`BankReplayError`），不得静默换题；答案钥匙永不下发孩子区。
 - 日志/事件不落题目全文、答案、文件 URL、个人信息、密钥。
 - 纯查询 GET 零模型调用；内核零模型（无 provider / SDK / 模型审计表）。
 - 变式/加练只进 `practice_records`，绝不进错题本、不排复习。
@@ -417,8 +459,8 @@
 
 ## 9. 下一步建议（按依赖与风险排序）
 
-1. **P3-2 主动加练变式**：按 category/错因/难度检索组卷进 `practice_records`；如需把
-   P3-1 的 `problem_bank` 新题纳入检索，先统一题库检索层（保持固定种子可重放、答案不下发）。
+1. **P3-2 主动加练变式**：按 category/错因/难度检索组卷进 `practice_records`；复用 P3-1b
+   的运行时题池（seed + 家长题），保持固定种子可重放、答案不下发。
 2. **P1-7b 前置回溯诊断**：`prerequisite_edges` 已装载，固定种子 `replay` 必须可重建。
 3. **复习掌握度归因**：把已确认 concept 写入事实，让 mastery 不再恒 0.0。
 4. **外部转录质量实测（P0-1 新口径）**：用真实已批改卷 / 空白真题跑两个模板，统计 `〔?〕` 率、
@@ -448,7 +490,7 @@
 
 | 工单 | 目标 |
 |---|---|
-| P3-1 | 已完成：家长录题（真题入库审核流水线）。外部转录 `agent_bank_transcribe_v1` → `bank_drafts` → 家长 `/bank` 逐条确认 → SQLite `problem_bank`；手填兜底；缺答案/choice 不命中/未知 topic/AST 沙箱拒/数值矛盾一律拒绝；固定 `unaudited`/`blind_verified`；迁移 0016。**模型不得生成答案；新题暂未接入组卷** |
+| P3-1 | 已完成：家长录题（真题入库审核流水线）。外部转录 `agent_bank_transcribe_v1` → `bank_drafts` → 家长 `/bank` 逐条确认 → SQLite `problem_bank`；手填兜底；缺答案/choice 不命中/未知 topic/AST 沙箱拒/数值矛盾一律拒绝；固定 `unaudited`/`blind_verified`；迁移 0016。**模型不得生成答案**；P3-1b 已把入库题合并进运行时检索池（到期考核/手动组卷），旧记录跨池 `replay` 显式抛 `BankReplayError` |
 | P3-2 | 组卷/加练：按 category/错因/难度检索真题组卷；禁止 LLM 凭空编题 |
 | P3-3 | 英语背诵：自评间隔重复（档③） |
 | P3-4 | 听力 + 默写：默写复用批改；听力用教材音频 + TTS；不做口语 ASR |

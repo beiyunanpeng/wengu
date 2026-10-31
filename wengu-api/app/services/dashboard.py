@@ -44,7 +44,7 @@ from app.models import (
     ReviewSchedule,
 )
 from app.models.mistakes import MISTAKE_ACTIVE, MISTAKE_VOIDED
-from app.services.bank import get_bank
+from app.services.bank import get_runtime_bank
 from app.services.mistakes import MISTAKE_REACTIVATED_EVENT, MISTAKE_VOIDED_EVENT
 from app.services.pomodoro import summarize_pomodoros
 from app.services.recompute import (
@@ -345,7 +345,7 @@ async def _bank_gap(
     active_topic_counts: Counter[str | None],
     topics: dict[str, KnowledgeSeed],
 ) -> tuple[tuple[BankGapTopic, ...], int]:
-    """活跃且未完成排期的主考点中，seed 题库零题的清单（due_queue 会退 redo）。"""
+    """活跃且未完成排期的主考点中，运行时题池零题的清单（due_queue 会退 redo）。"""
 
     open_topics = (
         (
@@ -364,7 +364,7 @@ async def _bank_gap(
     open_counts: Counter[str] = Counter(topic_id for topic_id in open_topics if topic_id)
     unassigned_open = sum(1 for topic_id in open_topics if not topic_id)
 
-    bank = get_bank()
+    bank = await get_runtime_bank(session)
     gaps: list[BankGapTopic] = []
     for topic_id, open_schedules in open_counts.items():
         if bank.questions_for(topic_id):
