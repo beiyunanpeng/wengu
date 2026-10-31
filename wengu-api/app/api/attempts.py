@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_session
 from app.models import Attempt, LearningEvent, MistakeVersion, ProblemBankItem, ReviewSchedule
-from app.services.bank import get_bank
+from app.services.bank import get_runtime_bank
 
 router = APIRouter(tags=["attempts"])
 
@@ -138,7 +138,7 @@ async def list_attempts(
             )
         ).all()
     }
-    bank = get_bank()
+    bank = await get_runtime_bank(session)
     question_ids: dict[int, str | None] = {}
     topic_ids: dict[int, str | None] = {}
     for row in rows:

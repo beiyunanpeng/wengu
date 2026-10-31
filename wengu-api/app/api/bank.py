@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.session import require_parent
 from app.core.database import get_session
 from app.models import BankDraft, ImportBatch, KnowledgeSeed, ProblemBankItem
+from app.services.bank import reset_bank_cache
 from app.services.bank_import import (
     BankVerifyError,
     check_approvable,
@@ -338,12 +339,14 @@ async def approve_bank_draft(
 
         draft.status = "approved"
         await session.flush()
-        return BankApproveResponse(
+        response = BankApproveResponse(
             draft_id=draft.id,
             status=draft.status,
             problem_bank_id=item.id,
             verify_status=verify_status,
         )
+    reset_bank_cache()
+    return response
 
 
 @router.post("/api/bank/drafts/{draft_id}/reject", response_model=BankRejectResponse)
@@ -395,8 +398,10 @@ async def create_bank_item(
         )
         session.add(item)
         await session.flush()
-        return BankItemCreated(
+        response = BankItemCreated(
             problem_bank_id=item.id,
             external_id=external_id,
             verify_status=verify_status,
         )
+    reset_bank_cache()
+    return response

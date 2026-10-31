@@ -16,6 +16,42 @@ Phase 1 只剩 P1-7b（前置回溯诊断）与受闸门阻塞的 P1-7c。
 
 ### Added
 
+- **P3-1b 家长题接入同类题检索池**（2026-10-31）：
+  补上 P3-1 遗留的"入库题只能看不能用"缺口——**审核入库的家长题现在参与到期考核与手动组卷**。
+  - **装载合并** `services/bank.py`：seed 内存索引仍是**只读主体**；新增
+    `get_runtime_bank(session)`，把 `problem_bank` 中 `topic_id` 非空的行按 id 合并成
+    运行时快照。字段映射：`external_id`→题 id、`problem_text/answer/
+    acceptable_answers_json/choices_json/figure/hide_choice_text/percent/
+    unaudited/blind_verified`；`choices_json` 与配图内联 SVG 过 `sanitize_svg`。
+    题型只收 `QUESTION_TYPES`；非法行（id 冲突/未知 topic/未知题型/空题面/空答案/
+    choice 不命中）逐行丢弃并计入 `stats.dropped`（`db_invalid_*`），**绝不静默改题**。
+  - **统计随池重算**：`_compute_stats` 从合并后的题集重建
+    `total/by_subject/by_type/topics_with_questions/verified/unverifiable/figures/dropped`，
+    因此物理补题后计数与 `coverage`/`thin` 判定**同步更新**；空 seed 学科（如化学）
+    补一道题即从 `bank_gap` 转为可考核（`topic_id` 元数据回读 `knowledge_seed`）。
+  - **缓存一致性**：`get_bank()`（同步、seed only）与 `get_runtime_bank(session)`
+    各自进程内快照；`reset_bank_cache()` 在 approve 与手填入库**提交成功后**调用，
+    下一条到期任务即用新题；pytest 自动 fixture 每用例前后重置，避免临时库串味。
+  - **调用点全部切到运行时池**：练习记录、`/api/quizzes/topics|paper|paper/answers`、
+    组卷 `build_paper/submit_paper`、看板 `_bank_gap`、到期队列与
+    `POST /api/reviews/{id}/quiz`。`find_same_type`/`paper_picks` 在未显式传 `bank`
+    时仍默认 seed 池（保持旧调用语义）。
+  - **确定性不破**：`BankPick.pool_ids` 随池增长而变化，旧记录在新池下 `replay`
+    **显式抛 `BankReplayError`**（消息带 `recorded=... replayed=...`），绝不静默换题；
+    旧记录仍可用只读 seed 池 `replay` 复现。
+  - **验证**：新增 `tests/integration/test_bank_runtime.py`（2 条：物理池 4→6 后同 seed
+    可稳定重放、旧 pick 抛 `BankReplayError`、卷面不下发答案、seed JSON 字节不变；
+    化学空 seed 补题后 `bank_gap` 关闭、`thin` 与 `weak_topics` 口径不变）。全量 pytest
+    **371 passed**、`ruff check .` 绿、`import app.main` OK、`npm run build` 绿。
+    临时库 + uvicorn 实跑：物理到期题池 **4 → 6**（seed `2654435762` 不变，
+    题目 `cnp_001_q2` → `bank_draft_2`），物理题数 **368 → 370**、合并总数 **2806**；
+    化学补题前任务 `redo` + 看板 `bank_gap` 命中，补题后转 `quiz`、`coverage=thin`、
+    gap 清空且 `weak_topics` 仍保留；旧 pick 在新池重放明确抛 `BankReplayError`；
+    `seeds/data/questions.json` 未被写入。
+  - **残留风险**：运行时池为**进程内快照**，绕开 API 直接改库需重启或手动清缓存；
+    approve 后刷新的是本进程缓存，多实例部署不共享（单家庭单实例前提下可接受）；
+    家长题仍固定 `unaudited=true`，且**仍无编辑/作废入口**。
+
 - **P3-1 家长录题（空白真题 → 外部转录 → 审核入 `problem_bank`）**（2026-10-31）：
   补上"题库只读 seed、家长无法新增真题"的缺口。链路：家长拍**空白真题/教师版** →
   外部 agent 按新模板转录 → `data/inbox/` 监听导入 → `bank_drafts` → **家长审核页确认**

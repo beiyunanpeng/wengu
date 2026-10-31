@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.session import require_parent
 from app.core.database import get_session
 from app.schemas.quiz import QuizQuestionView, quiz_view
-from app.services.bank import get_bank, is_answerable
+from app.services.bank import get_runtime_bank, is_answerable
 from app.services.quiz import (
     PaperAnswer,
     QuizDuplicateQuestion,
@@ -118,10 +118,11 @@ async def quiz_topics(
     q: str | None = Query(default=None, max_length=60),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
+    session: AsyncSession = Depends(get_session),
 ) -> QuizTopicListResponse:
-    """可组卷的知识点（内存题库，无 DB、无模型调用）。"""
+    """可组卷的知识点（seed 题库 + 已入库家长题，无模型调用）。"""
 
-    bank = get_bank()
+    bank = await get_runtime_bank(session)
     keyword = (q or "").strip()
     rows: list[QuizTopicInfo] = []
     for topic_id, meta in bank.topics.items():
@@ -164,12 +165,13 @@ async def quiz_paper(
     topic_id: str = Query(min_length=1, max_length=64),
     count: int = Query(default=3, ge=1, le=MAX_PAPER_COUNT),
     seed: int | None = Query(default=None, ge=0, le=MAX_SEED),
+    session: AsyncSession = Depends(get_session),
 ) -> QuizPaperResponse:
     """抽一张卷；不传 seed 时随机生成并回传，之后用同 seed 重放同一张卷。"""
 
     chosen = seed if seed is not None else secrets.randbits(32)
     try:
-        paper = build_paper(topic_id, chosen, count)
+        paper = await build_paper(session, topic_id, chosen, count)
     except QuizTopicNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from None
     return QuizPaperResponse(
@@ -202,6 +204,7 @@ async def quiz_paper_answers(
     topic_id: str = Query(min_length=1, max_length=64),
     count: int = Query(default=3, ge=1, le=MAX_PAPER_COUNT),
     seed: int = Query(ge=0, le=MAX_SEED),
+    session: AsyncSession = Depends(get_session),
 ) -> PaperAnswerKeyResponse:
     """家长答案钥匙：按同 topic/seed/count 重建同一张卷，只回正答与可接受别名。
 
@@ -210,7 +213,7 @@ async def quiz_paper_answers(
     """
 
     try:
-        paper = build_paper(topic_id, seed, count)
+        paper = await build_paper(session, topic_id, seed, count)
     except QuizTopicNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from None
     return PaperAnswerKeyResponse(
