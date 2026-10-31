@@ -19,6 +19,7 @@ import type {
   MistakeOptions,
   PaperSubmitAnswer,
   PaperSubmitResponse,
+  PaperAnswerKeyResponse,
   PomodoroResponse,
   PracticeListResponse,
   QuizPaperResponse,
@@ -267,6 +268,20 @@ export function getQuizPaper(filters: {
   }
   return apiRequest<QuizPaperResponse>(
     `/api/quizzes/paper?${params.toString()}`,
+  );
+}
+
+export function getPaperAnswers(filters: {
+  topicId: string;
+  count: number;
+  seed: number;
+}): Promise<PaperAnswerKeyResponse> {
+  const params = new URLSearchParams();
+  params.set("topic_id", filters.topicId);
+  params.set("count", String(filters.count));
+  params.set("seed", String(filters.seed));
+  return apiRequest<PaperAnswerKeyResponse>(
+    `/api/quizzes/paper/answers?${params.toString()}`,
   );
 }
 

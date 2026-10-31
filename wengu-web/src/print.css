@@ -1,0 +1,306 @@
+/* 打印视图：屏幕上是 A4 白纸预览，打印时隐藏工具栏并按 A4 分页。 */
+
+.print-shell {
+  min-height: 100vh;
+  background: #eef0f3;
+  color: #111;
+  font-family:
+    "Noto Sans SC", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+}
+
+.print-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 16px;
+  background: #fff;
+  border-bottom: 1px solid #d6d9de;
+}
+
+.print-toolbar-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.print-toolbar-title strong {
+  font-size: 15px;
+}
+
+.print-toolbar-title span {
+  font-size: 12px;
+  color: #5b6270;
+}
+
+.print-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.print-actions button {
+  border: 1px solid #adb3bd;
+  background: #fff;
+  color: #111;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.print-actions button.primary {
+  background: #1c4ed8;
+  border-color: #1c4ed8;
+  color: #fff;
+}
+
+.print-actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.print-sheet {
+  width: min(210mm, 100%);
+  margin: 16px auto 48px;
+  padding: 14mm 14mm 18mm;
+  background: #fff;
+  box-shadow: 0 2px 14px rgb(15 23 42 / 12%);
+  box-sizing: border-box;
+}
+
+.print-doc-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 6px;
+  border-bottom: 2px solid #111;
+  margin-bottom: 14px;
+}
+
+.print-doc-title {
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.3;
+}
+
+.print-meta {
+  font-size: 12px;
+  color: #555;
+  line-height: 1.6;
+}
+
+.print-doc-head > .print-meta {
+  flex: none;
+  white-space: nowrap;
+}
+
+.print-group {
+  margin-top: 18px;
+}
+
+.print-group-title {
+  margin: 0 0 8px;
+  padding-left: 8px;
+  border-left: 4px solid #333;
+  font-size: 16px;
+  line-height: 1.4;
+}
+
+.print-group-title span {
+  font-size: 12px;
+  font-weight: 400;
+  color: #666;
+}
+
+.print-block,
+.print-question {
+  padding: 10px 12px;
+  margin: 10px 0;
+  border: 1px solid #b8bdc6;
+  border-radius: 4px;
+}
+
+.print-block-head,
+.print-question-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  color: #666;
+  margin-bottom: 6px;
+}
+
+.print-section {
+  margin-top: 8px;
+}
+
+.print-section h3 {
+  margin: 0 0 3px;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: #333;
+}
+
+.print-answer {
+  padding: 6px 8px;
+  border: 1px dashed #b8bdc6;
+  border-radius: 3px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.print-answer.wrong {
+  background: #fff5f5;
+  color: #a11;
+}
+
+.print-answer.correct {
+  background: #f0fff4;
+  color: #116329;
+}
+
+.print-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.print-tag {
+  padding: 1px 8px;
+  border: 1px solid #b8bdc6;
+  border-radius: 999px;
+  font-size: 11px;
+}
+
+.print-prompt {
+  font-size: 14px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.print-choices {
+  margin: 6px 0 0;
+  padding-left: 0;
+  list-style: none;
+}
+
+.print-choices li {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 3px 0;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.print-choice-key {
+  flex: none;
+  font-weight: 700;
+}
+
+.print-note {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: #666;
+}
+
+.print-empty,
+.print-error {
+  padding: 40px 0;
+  text-align: center;
+  color: #555;
+}
+
+.print-error {
+  color: #a11;
+}
+
+.print-answer-page {
+  margin-top: 24px;
+}
+
+.print-answer-page h2 {
+  margin: 0 0 4px;
+  font-size: 18px;
+}
+
+.print-answer-list {
+  margin: 12px 0 0;
+  padding-left: 20px;
+}
+
+.print-answer-list li {
+  margin: 0 0 10px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.print-answer-list .print-note {
+  margin-top: 2px;
+}
+
+@media print {
+  @page {
+    size: A4;
+    margin: 14mm 14mm 16mm;
+  }
+
+  html,
+  body {
+    background: #fff !important;
+  }
+
+  .print-shell {
+    min-height: auto;
+    background: #fff;
+  }
+
+  .print-toolbar {
+    display: none !important;
+  }
+
+  .print-sheet {
+    width: auto;
+    margin: 0;
+    padding: 0;
+    box-shadow: none;
+  }
+
+  .print-group + .print-group {
+    break-before: page;
+    page-break-before: always;
+  }
+
+  .print-block,
+  .print-question {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .print-answer-page {
+    break-before: page;
+    page-break-before: always;
+  }
+
+  .print-doc-head {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+
+  .katex {
+    font-size: 1em;
+  }
+
+  .katex-display {
+    overflow: visible;
+  }
+}

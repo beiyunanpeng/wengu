@@ -211,6 +211,52 @@ async def test_quiz_topics_and_paper_are_deterministic_and_answer_free(tmp_path)
 
 
 @pytest.mark.integration
+async def test_paper_answer_key_is_parent_only_and_matches_bank(tmp_path) -> None:
+    factory = _migrated(tmp_path)
+
+    async with _client(factory) as client:
+        paper = await _paper(client, count=2, seed=7)
+        response = await client.get(
+            "/api/quizzes/paper/answers",
+            params={"topic_id": "cnm_001", "count": 2, "seed": 7},
+        )
+        assert response.status_code == 200, response.text
+        keys = response.json()
+        assert keys["topic_id"] == "cnm_001"
+        assert keys["seed"] == 7
+        assert [item["question_id"] for item in keys["items"]] == [
+            item["question_id"] for item in paper["items"]
+        ]
+        assert all("explanation" not in item for item in keys["items"])
+        assert all("verify" not in item for item in keys["items"])
+
+        bank = get_bank()
+        for key, item in zip(keys["items"], paper["items"], strict=True):
+            question = bank.question(item["question_id"])
+            assert question is not None
+            assert key["answer"] == question.answer
+            assert key["acceptable_answers"] == list(question.accept)
+            assert key["mode"] == item["mode"]
+
+        # 孩子侧组卷响应仍无答案字段
+        _assert_no_answer_keys(paper)
+
+        missing = await client.get(
+            "/api/quizzes/paper/answers",
+            params={"topic_id": "cnm_999999", "count": 2, "seed": 7},
+        )
+        assert missing.status_code == 404
+
+        locked = await client.post("/api/session/lock")
+        assert locked.status_code == 200
+        forbidden = await client.get(
+            "/api/quizzes/paper/answers",
+            params={"topic_id": "cnm_001", "count": 2, "seed": 7},
+        )
+        assert forbidden.status_code == 403
+
+
+@pytest.mark.integration
 async def test_paper_submit_is_server_judged_and_counts_toward_mastery(tmp_path) -> None:
     factory = _migrated(tmp_path)
     await _seed_topic(factory)

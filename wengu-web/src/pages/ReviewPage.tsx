@@ -13,6 +13,7 @@ import {
   Title,
 } from "@mantine/core";
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import { errorMessage } from "../api/client";
 import {
@@ -75,6 +76,7 @@ function taskInstruction(item: DueReviewItem): string {
 }
 
 export default function ReviewPage() {
+  const navigate = useNavigate();
   const { unlocked: parentUnlocked } = useParentSession();
   const [due, setDue] = useState<DueReviewResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -606,6 +608,19 @@ export default function ReviewPage() {
                   <Badge color="orange" variant="light">
                     题库不足，只出 {paper.items.length} 题
                   </Badge>
+                )}
+                {paper.items.length > 0 && !paper.bank_gap && (
+                  <Button
+                    size="compact-sm"
+                    variant="light"
+                    onClick={() =>
+                      navigate(
+                        `/print/paper?topic_id=${encodeURIComponent(paper.topic_id)}&count=${paper.count}&seed=${paper.seed}`,
+                      )
+                    }
+                  >
+                    导出练习卷
+                  </Button>
                 )}
               </Group>
               {paper.bank_gap || paper.items.length === 0 ? (

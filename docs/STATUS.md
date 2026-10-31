@@ -1,9 +1,9 @@
 # STATUS.md — 开发计划与完成情况
 
-> 快照日期：2026-10-31（P2-2 番茄钟执行交付后）
-> 分支 / HEAD：`main` / `fbe7116`（P2-2 改动尚未提交，工作区含本票变更）
-> 全量测试：**350 passed**（本机 2026-10-31，61.06s）；`ruff check .` 全绿；`npm run build` 绿
-> Alembic head：`0015_timetable_calendar`；业务表 21 张（P2-2 无迁移）
+> 快照日期：2026-10-31（P2-7 打印导出交付后）
+> 分支 / HEAD：`main` / `fbe7116`（P2-1～P2-7 改动尚未提交，工作区含本票变更）
+> 全量测试：**351 passed**（本机 2026-10-31，62.29s）；`ruff check .` 全绿；`npm run build` 绿
+> Alembic head：`0015_timetable_calendar`；业务表 21 张（P2-7 无迁移）
 
 本文件是**状态快照**，不替代以下事实源；冲突时以它们为准：
 
@@ -32,6 +32,10 @@
   `GET /api/dashboard` 新增 `pomodoros_today`、`focus_minutes_this_week`。
   **不规划、不排程、不自动连跑、无后台计时/通知**；番茄**不计入掌握度、不计入打卡 streak、
   不进错题本、不完成复习任务**。无新表、无迁移（head 仍 `0015`）。
+- **P2-7 打印导出已交付**：错题本“导出打印”与复习页组卷“导出练习卷”进入**无导航壳打印视图**，
+  浏览器“打印 → 另存为 PDF”（零 PDF 库、零服务端文件）。错题按知识点页组输出四区块
+  （原题 / 作答 / 正答 / 错因批注，KaTeX），支持知识点/错因/日期筛选；练习卷默认不含答案，
+  家长答案页走 `require_parent` 单独分页、可不打印。唯一后端增量是家长答案钥匙端点；无迁移。
 - **P2-5 家长看板已交付**：`GET /api/dashboard` + 前端 `/dashboard`，纯只读确定性统计
   （错题存量、薄弱分布、掌握度曲线、到期/完成/毕业、`bank_gap`、申诉/作废计数），
   全部从事实现算、与 `recompute` 一致；端点只读、无模型/网络调用，孩子与家长看同一份。
@@ -63,7 +67,7 @@
 |---|---|---|---|
 | Phase 0 | 摸底 + 回归基线 | 部分完成 | 首轮实测结论已在 `docs/methodology/phase0.md`；v2.5 后"识别瓶颈"由批改外移绕过，边界表不再是入本前置 |
 | Phase 1 | 核心闭环 | 进行中 | P1-0～P1-12 完成（模型在环旧链路已退役）；仅剩 P1-7b，P1-7c 阻塞 |
-| Phase 2 | 每日任务 + 家长看板 | 进行中 | P2-5 家长看板、P2-4 两角色 + 本地 PIN、P2-6 极简打卡、P2-1 日队列（本轮仅到期复习/考核）、P2-3 课表/日历约束层、P2-2 番茄钟执行已完成；日队列的背诵/作业/硬事件权重、PDF 导出未开始 |
+| Phase 2 | 每日任务 + 家长看板 | 进行中 | P2-5 家长看板、P2-4 两角色 + 本地 PIN、P2-6 极简打卡、P2-1 日队列（本轮仅到期复习/考核）、P2-3 课表/日历约束层、P2-2 番茄钟执行、P2-7 打印导出已完成；日队列的背诵/作业/硬事件权重未开始 |
 | Phase 3 | 内容与扩展 | 未开始 | 真题库流水线、组卷扩展、英语背诵、听力默写、语文、信奥、长期计划 |
 | Phase 4 | 基础设施演进 | 未开始 | Tailscale、可移植部署、可选本地 GPU |
 | Phase 5 | 开源分发与打包 | 未启动（部分基线已有） | LICENSE / README / CHANGELOG / `.env.example` / 第三方署名已就位；首次运行向导、备份恢复、鉴权开关、教材包安装器未做 |
@@ -171,6 +175,7 @@
 - `/dashboard` 看板；`/import` 导入说明 + 家长手填最小表单；`/intake` 核对入本；
   `/mistakes` + `/:id` 错题本；`/review` 到期三态 + 今日进度/顺延提示 + 手工组卷；
   `/schedule` 课表/日历（家长解锁可增删，未解锁只读）；`/records` 练习记录；
+  `/print/mistakes`、`/print/paper` 打印视图（AppLayout 之外，无导航壳）；
   数学 KaTeX 渲染，同源 `/api` 代理。看板曲线为内联 SVG，不引入图表库。
 - 导航右侧"家长区"入口：未设 PIN 首次引导设置，已设则解锁；解锁态存 cookie、刷新保持；
   错题详情的作废/撤销、复习页的手动组卷、课表/日历的增删仅在解锁后可见。
@@ -211,6 +216,26 @@
 - **边界**：番茄事件**不计入掌握度、不计入 P2-6 streak、不进错题本、不完成复习任务**；
   刷新/关页即弃，无后台计时、无通知推送、无自动开始下一个。
 
+### 4.11 打印导出（P2-7）
+
+- **路由（AppLayout 外，无导航壳）**：`/print/mistakes?category_id=&error_cause=&from=&to=`
+  与 `/print/paper?topic_id=&count=&seed=`；屏显 A4 白纸预览 + “打印 / 另存为 PDF”/“返回”。
+- **错题四区块**：调 `GET /api/mistakes`（`status=active`）分页拉全量，日期在**前端按本地自然日**
+  过滤（既有接口无日期参数，本票未改后端）；按 `category_id` 聚合“知识点页组”，未挂知识点排最后；
+  每题四区块：原题（KaTeX）/ 孩子作答 / 订正正答 / 错因批注（确认错因 + 知识点 + 细标签）。
+  空结果显示“当前筛选下没有错题”并禁用打印。入口：错题本“导出打印”携带当前筛选。
+- **练习卷**：调 `GET /api/quizzes/paper`，只渲染题干/选项/配图，**默认 DOM 无答案/解析/verify**；
+  未带 seed 时把服务端返回的 seed 写回 URL，保证刷新/重印同卷。入口：复习页组卷成功区
+  “导出练习卷”携带 `topic_id/count/seed`。
+- **家长答案页**：默认关闭，点击后才调 `GET /api/quizzes/paper/answers`（`require_parent`，
+  同 `topic_id/count/seed` 重建同卷，只回正答 + 可接受别名，不含 `explanation`/`verify`）；
+  渲染在卷末并**强制另起一页**，家长可只打印卷面。该端点是本票唯一后端增量：练习卷接口按
+  安全设计永不下发答案，且 seed 题 id 为字符串、无法用整型 `problem-bank/items/{id}` 取答，
+  前端确实拿不到该字段。
+- **打印样式**：`@page A4` + 14mm 边距；打印时隐藏工具栏；知识点页组 `break-before: page`、
+  题卡 `break-inside: avoid`、答案页 `break-before: page`。实测：错题页 4 组 → 4 页；
+  练习卷默认 1 页、开答案页 2 页；Chrome 阅读器打开正常。
+
 ## 5. API 与数据现状
 
 ### 5.1 API 面
@@ -227,21 +252,22 @@
 | 课表 | `GET /api/timetable`、`POST /api/timetable/slots`、`DELETE /api/timetable/slots/{id}` |
 | 日历 | `GET /api/calendar/events?from=&to=`（缺省今天起 30 天）、`POST /api/calendar/events`、`DELETE /api/calendar/events/{id}` |
 | 番茄 | `POST /api/pomodoros`（追加 `pomodoro_completed`，201 `{id, duration_minutes}`；孩子区免 PIN） |
-| 组卷 | `GET /api/quizzes/topics`、`GET /api/quizzes/paper`、`POST /api/quizzes/paper/submit` |
+| 组卷 | `GET /api/quizzes/topics`、`GET /api/quizzes/paper`、`GET /api/quizzes/paper/answers`（家长答案钥匙：同卷只回正答 + 可接受别名，不含解析/verify）、`POST /api/quizzes/paper/submit` |
 | 练习记录 | `GET /api/attempts`、`DELETE /api/attempts`、`GET/POST/DELETE /api/practice-records` |
 | 看板 | `GET /api/dashboard`（只读，可选 `today` / `curve_days` 1–90；响应含 `streak`、`pomodoros_today`、`focus_minutes_this_week`） |
 | 会话 / 家长 PIN | `GET /api/session/status`、`POST /api/session/pin/set`、`POST /api/session/unlock`、`POST /api/session/lock` |
 
 家长区（`require_parent`，未解锁 403）：`POST /api/mistakes/{id}/void|unvoid`、
 `POST /api/problem-bank/import`、`GET /api/problem-bank/items/{id}`、`GET /api/quizzes/paper`、
-`POST/DELETE /api/timetable/slots*`、`POST/DELETE /api/calendar/events*`。
+`GET /api/quizzes/paper/answers`、`POST/DELETE /api/timetable/slots*`、
+`POST/DELETE /api/calendar/events*`。
 其余端点（导入、核对确认、到期、考核提交/自评、错题/看板/课表/日历只读）孩子区免 PIN。
 
 已删除（P1-12）：`/api/captures*`、`/api/extractions*`、`/api/gradings*`、`/api/explanations*`。
 
 ### 5.2 数据库与 seed
 
-- Alembic head `0015_timetable_calendar`；21 张业务表（P2-2 不建表、走 `learning_events`）。
+- Alembic head `0015_timetable_calendar`；21 张业务表（P2-2 / P2-7 不建表；P2-7 仅新增家长答案钥匙读端点）。
 - `user_role` 由 `0014_parent_pin` 保证存在 `(role='parent', pin_hash=NULL)` 行；PIN 设置后存 scrypt 哈希。
 - `model_runs` / `ai_jobs` 已 DROP（0013，down 可重建空表）。
 - `photo_captures` / `photo_capture_items` / `problem_extractions` 表结构保留但**无写入方**
@@ -268,7 +294,7 @@
 | 历史作废/申诉入口 | 部分恢复 | 作废 / 撤销作废已有 HTTP 入口与事件留痕；申诉改判仍未开 | 如需申诉改判，另开"错题状态修订"工单，不复活模型链 |
 | 鉴权 / 本地 PIN | 部分完成 | P2-4 本地家长 PIN 已做（只防误入，非安全边界）；公网鉴权/隔离仍未做 | 公网暴露前走 P5-3 真鉴权或 Tailscale |
 | 化学 / 语文 seed | 未做 | 两科从空 seed 起步 | 家长按教材目录建章级粗粒度 seed |
-| Phase 2 剩余 | 部分完成 | PDF 导出缺失；课表/日历只做约束层（不排课、不生成任务）；日队列仅完成“到期复习/考核”组织，背诵铺底 / 作业 deadline / 硬事件抬权重未做（依赖 P3）；番茄钟已完成（纯前端计时 + 事件打点） | 按 TICKETS 顺序 |
+| Phase 2 剩余 | 部分完成 | 打印导出已随 P2-7 补齐（前端打印视图，非服务端 PDF 文件）；课表/日历只做约束层（不排课、不生成任务）；日队列仅完成“到期复习/考核”组织，背诵铺底 / 作业 deadline / 硬事件抬权重未做（依赖 P3）；番茄钟已完成（纯前端计时 + 事件打点） | 按 TICKETS 顺序 |
 | Phase 3–5 | 未开始 | 真题库、组卷扩展、英语背诵、信奥、分发向导等缺失 | 按 TICKETS 顺序 |
 
 ## 7. 残留风险与技术债
@@ -306,6 +332,12 @@
     均由客户端上报（可信家庭场景，非防作弊），服务端只钳制 5–120 分钟；不足 5 分钟的手动
     完成会记为 5 分钟。看板按 payload `completed_on` 归日，缺失回退 `occurred_at`（UTC）日期；
     番茄只展示专注时长，**不得用于学习效果结论**。
+15. **打印导出依赖浏览器**：PDF 由“打印 → 另存为 PDF”生成，分页/页边距由 Chrome/Edge 打印
+    引擎决定（已实测 A4），Firefox/移动端可能有差异；不产出服务端 PDF 文件（邮件附件等场景
+    留待真需求）。错题日期筛选在**前端**分页拉全量后过滤，家庭规模可接受，量大时应下推到后端
+    索引。答案页仅靠 `require_parent` 与“默认不渲染”防误入，**不是安全边界**；家长若在打印
+    时同时勾选答案页，需自行确认不在孩子卷面里。筛选项仅覆盖知识点/错因/日期，未做章节级
+    或跨学科聚合。
 
 ## 8. 工程不变量（已落地，后续不得回退）
 
