@@ -1,6 +1,7 @@
-# Qoder 施工计划 · v2.5 核心闭环（8 批次合订版，每卡可直接复制）
+# Qoder 施工计划 · v2.5（MVP 8 批 + P2 存档，每卡可直接复制）
 
 > **本文件是唯一有效的批次工单**——每张卡都已内联"读哪些文件 + 全局护栏 + 验收口径"，**复制整段贴给 Qoder 即可，无需再补任何上下文**。（聊天记录里的旧版含已作废的 `primary_concept_id` 写法，别用。）
+> 结构：**上半部 = MVP 八批**（批次①~⑧，已全部合并）；**下半部 = P2 批次存档**（补票 B + P2-5/4/6/1/3/2/7，PR#9–#16 已全部合并，保留决策/边界/红线供追溯与重建）。
 > 依据：`TICKETS.md`（v2.5）+ 设计文档 §16 + `AGENTS.md` 顶部 v2.5 横幅 + 真实 `app/models/*` 读码校准。冲突以设计文档 §16 为准。
 > 统一口径（全卡一致）：主考点列 = `primary_topic_id`（FK `knowledge_seed.id`，如 `cnm_042`）；作答来源 = `attempts.source ∈ {student_self, system_quiz, manual}`；闭环同类题考核复用 `attempts`、**不建 `quiz_attempts`**；主动加练变式走 `practice_records`；导入通道 `channel="agent_transcribe_v1"`（兼容旧 `doubao_json`）。
 > 顺序：①→②→③→④→⑤→⑥→⑦→（家用跑顺）→⑧。每批一个 PR，人审"实际 diff 范围 + 运行态证据 + DoD"三件事，全绿再进下一批。
@@ -199,4 +200,127 @@ api/imports.py + services/inbox.py + services/intake.py、api/reviews.py + api/q
 端到端（导入→监听→核对入本→到期三态→手动组卷）不回归；单张可整体回滚（含 0013 down）。
 【禁止】在新入口未跑通前删；删掉 intake 依赖的 services/grading.py 或 judge/bank/quiz/review/inbox/intake；
 把删除扩到本清单外的活跃功能；留一堆 import 已死的空模块不清（要么删净要么在 PR 里说明为何留）。
+```
+
+---
+
+# P2 批次存档（已合并：补票 B + PR#10–#16）
+
+> 以下 8 张是 P2 阶段实际投给 Qoder 并已通过四重验证（静态审读 / 沙箱外实跑 / CI / 浏览器冒烟）
+> squash 合并的工单存档，保留决策、边界、红线与 DoD 要点，供追溯与重建；**不是待办**。
+> 交付节奏与 MVP 相同：一 ticket = 一 PR = 一个 squash 提交。
+
+## 补票 B —— 错题作废/撤销入口（PR#9）
+
+```
+决策：primary_topic_id 与 student_answer 转正可选（B 定案）；错答留空（整题没做）也算错题。
+【任务】services/mistakes.py 新增 void_mistake / unvoid_mistake：只翻 Mistake.status +
+追加 mistake_voided / mistake_reactivated 事件（幂等键 mistake:{id}:void / :reactivate），
+不建/不删 mistake_versions；作废不回溯洗掌握度（默认 a）。
+新增 MistakeStateConflict 使"已作废改标签"从 422 细分为 409（catch 顺序先于 MistakeConflict）。
+api/mistakes.py：POST /api/mistakes/{id}/void（actor、reason≤200）、/unvoid（actor）；404/409。
+前端 MistakeDetailPage：作废（可选原因 Modal）/撤销作废，仅家长解锁后可见。
+【DoD】作废→退出活跃列表与到期队列；重复作废幂等；撤销→到期恢复；voided 改标签 409；历史版本/事件留存。
+```
+
+## P2-5 —— 家长看板（PR#10）
+
+```
+【任务】纯只读确定性统计，全部从 learning_events/mistakes/review_schedules/grading_versions 现算，
+掌握度/统计复用 recompute（勿重造）；掌握度曲线逐日回放事件前缀（默认 30 天、上限 90），
+无已确认 concept 返回空曲线而非假 0；薄弱分布按 primary_topic_id；到期/逾期、本周复习/毕业、
+bank_gap、申诉/作废计数。
+api/dashboard.py：GET /api/dashboard?today=&curve_days=，事务只读、无写、无模型/网络调用。
+前端 DashboardPage：导航首项"看板"；曲线用内联 SVG（不加图表依赖）；无推送/锁屏/问责、无积分、无写按钮。
+【DoD】测试断言：patch socket 证不出网；请求前后五表行数不变；逐项 == recompute 重算；空库全零。
+【禁止】实时催/锁屏/问责；积分徽章；看板页触发模型调用；新建写库路径。
+```
+
+## P2-4 —— 两角色 + 本地 PIN（PR#11）
+
+```
+决策（已拍板）：Q1-A PIN 只挡家长区；Q2-A PIN scrypt 哈希存 user_role(role='parent')，首次进家长区引导设置；
+Q3 PIN 不是安全边界（公网须真鉴权/Tailscale，写进注释与 README）；Q4-A 签名 cookie，不引入登录/账号体系。
+【任务】迁移 0014 确保 parent 行存在（downgrade 只删未设 PIN 行）。
+services/session.py：PIN 4–8 位数字/6–20 位字符；hashlib.scrypt+随机盐（scrypt$N$r$p$salt$hash，
+参数随哈希存）；hmac.compare_digest；HMAC-SHA256 签名 cookie（TTL 12h，httponly+samesite=lax）；
+按来源内存限流（连续错 5 次锁 60s）；密钥 env → Settings → data/.session_secret（首启生成、0600）。
+api/session.py：GET status / POST pin/set（已设须先解锁）/ unlock（409 未设、401 错、429 限流）/ lock；
+require_parent 依赖 → 403。
+门禁：mistakes void/unvoid、problem_bank import/items、GET /api/quizzes/paper；孩子区全程免 PIN。
+前端：ParentSession 上下文 + ParentGate 导航入口；作废/组卷 UI 仅解锁后可见。
+【DoD】未设 PIN→家长端点 403；pin_hash 非明文；错误 5 次→429+Retry-After；cookie 篡改→403；
+孩子端点不受影响；lock 后重新 403。
+```
+
+## P2-6 —— 极简打卡（PR#12）
+
+```
+决策：打卡=从事实推导，不是手动按钮（完成作答即"当日已打卡"）；答错也续签（打卡只反映"来了"，
+与掌握度解耦）；streak 绝不入库、每次现算；并入 P2-5 看板，不新建页/端点。
+【任务】services/streak.py：summarize_streak(events, today) 纯函数——学习日取 payload.completed_on
+（缺失/非法回退 occurred_at，不拿 UTC 拼本地日）；锚定=今天有→从今天倒数、今天没有但昨天有→从昨天倒数
+（仍不算断）、连续两天没有才归零；输出 今日状态/连续/最长/累计/近30天 recent_days；set+sorted 顺序无关。
+dashboard 快照增 streak 字段（复用已加载事件，不二次查库、不重造曲线）。
+前端看板"每日打卡"卡：今日 ✓/未打卡、连续/最长/累计、30 天点亮条；无签到按钮。
+【禁止】手动签到/写库；streak 入库；积分徽章；用 streak 下学习结论。
+```
+
+## P2-1 —— 最小日队列（PR#13）
+
+```
+边界（严格不做）：背诵铺底、作业 deadline、月考/硬事件抬权重——依赖 P2-3 与 P3，越界即退回。
+本轮只做三件事：优先级排序、每日上限+顺延、今日完成进度。
+【任务】core/runtime_config.py（新）：每次调用现读 config/app-config.json（gitignore），
+daily_review_limit 缺失/非法回退 10、硬上限 200、WENGU_APP_CONFIG 供测试；app-config.example.json 样例。
+due_queue 返回 DueQueue（items/due_total/today_completed/daily_limit/returned）：
+排序=逾期(due_date 升序)→今日、同组 mistake_id→schedule id；超上限项不返回只计数；
+today_completed 从事件现算（kind=review 且 completed_on==today）。
+api/reviews/due 响应加四字段；前端"今日任务 x/y 完成"+ 顺延提示（"明天还在，不会丢"）。
+【禁止】时间块排课；把顺延做成惩罚/消失；引入新依赖。
+```
+
+## P2-3 —— 课表/日历约束层（PR#14）
+
+```
+决策：Q1-A 两张表（timetable_slots 周循环 + calendar_events 单次）；Q2-A 写操作挂 require_parent；
+Q3=(a)+(b)：仅展示 + 考试日当日放宽上限；明确不做 (c) 按考试科目↔知识点重排（防过度工程）。
+【任务】迁移 0015：timetable_slots（weekday 1–7/period 1–12/UNIQUE(weekday,period)）+
+calendar_events（kind CHECK exam/competition/leave/other + date 索引），DOWN 可回退。
+api/schedule.py：课表/日历 CRUD——写挂 require_parent，读免 PIN；越界 422、重复节次 409。
+唯一队列改动：due_queue 检测 date==today AND kind='exam' → cap=min(round(cap×exam_day_limit_factor),200)
+（factor 默认 1.5、热改生效、非法回退），DueQueue 增 exam_today；排序/任务类型/thin/gap 不动。
+前端：SchedulePage（家长解锁可增删、锁定只读）+ ScheduleBrief（复习页/看板头部：今日课程+未来7天硬事件，
+排除请假）；复习页考试日显示"上限已临时放宽到 N"横幅。
+【禁止】自动排课/时间块；科目↔知识点映射；冲突检测；把课表当任务源。
+```
+
+## P2-2 —— 番茄钟（PR#15）
+
+```
+定位：计时器不是规划器。纯前端倒计时 + 完成打点入 learning_events；不规划、不排程、不自动连跑。
+口径：pomodoro_completed 是新事实事件，只用于看板展示专注时长——不计入掌握度、不计入 streak、不进错题本
+（构造性保证：streak/mastery 只认 attempt_* 事件类型）。
+【任务】services/pomodoro.py：record_pomodoro（幂等键 pomodoro:{started_at秒}、duration 服务端钳制 5–120、
+mistake_id 可空、不写 attempts/不建表）+ summarize_pomodoros 纯函数。
+api/pomodoro.py：POST /api/pomodoros→201；StrictInt 拒布尔/字符串；非法 422、错题不存在 404；无迁移。
+dashboard 增 pomodoros_today / focus_minutes_this_week（从事件现算）。
+前端 PomodoroTimer（25 分钟，取消不打点、不后台、不通知、不连跑）+ 队列首项挂计时器 + 看板两张卡。
+【禁止】时间块排课；自动开始下一个；后台计时/通知；番茄计入掌握度或 streak。
+```
+
+## P2-7 —— 错题/练习卷导出打印（PR#16）
+
+```
+方案（已定勿改）：前端打印视图 + 浏览器"打印→另存为 PDF"——零新依赖、零 PDF 库、零服务端文件。
+理由：错题含数学公式（前端已有 KaTeX）+ 中文（系统字体），reportlab/fpdf2 反而要另解 LaTeX 与打包字体。
+【任务】/print/mistakes?category_id=&error_cause=&from=&to=：四区块（原题 KaTeX/孩子作答/订正正答/
+错因批注），按知识点分组、未挂考点最后；空结果提示+打印禁用；入口在错题本带当前筛选。
+/print/paper?topic_id=&count=&seed=：练习卷默认 DOM 无答案；无 seed 回写 URL 重印同卷；
+末页"家长答案页"默认关、点击才加载、强制单独分页。print.css：@page A4、组 break-before:page、
+题卡 break-inside:avoid。
+唯一后端新增（工单例外条款内）：GET /api/quizzes/paper/answers 挂 require_parent，只回正答+可接受别名，
+不含 explanation/verify（组卷题 id 是字符串，整型 problem-bank 端点取不到）。
+【红线】练习卷默认视图绝不渲染答案；答案页仅家长解锁后可得。
+【禁止】引入 PDF 生成库；服务端产文件；在既有端点里塞答案字段。
 ```
