@@ -74,6 +74,18 @@ class ProblemBankItem(Base):
     unaudited: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     blind_verified: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 
+    # P3-1c：软作废（不物理删除）；作废题退出运行时检索池，历史事实不改写
+    status: Mapped[str] = mapped_column(
+        Text, nullable=False, default="active", server_default="active"
+    )
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('active', 'voided')", name="ck_problem_bank_status"
+        ),
+    )
+
 
 class GradingResult(Base):
     __tablename__ = "grading_results"

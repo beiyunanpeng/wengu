@@ -7,6 +7,8 @@
 - 入库固定 `unaudited=true` / `blind_verified=false`，供 UI 透传"未经教师审核"；
 - 手填直录与队列确认走同一 `normalize → check_approvable → classify_verify` 闸门。
 
+P3-1c：已入库题可编辑/软作废（status active|voided），**不做物理删除**。
+编辑合并后重跑同一套闸门；作废题退出运行时检索池，但历史 attempts/事件不改写。
 家长题是动态数据，只写 SQLite `problem_bank`，绝不写 seed JSON（seed 只读）。
 """
 
@@ -126,6 +128,62 @@ class BankItemCreated(BaseModel):
     verify_status: str
 
 
+class BankItemInfo(BaseModel):
+    """家长区已入库题目视图：可见答案/verify，孩子区无此入口。"""
+
+    id: int
+    external_id: str
+    topic_id: str | None
+    topic_name: str | None
+    subject: str
+    type: str | None
+    difficulty: str | None
+    prompt: str
+    answer: str
+    acceptable: list[str]
+    unordered: bool
+    verify: str
+    verify_status: str
+    choices: list[dict[str, Any]]
+    figure: str | None
+    hide_choice_text: bool
+    percent: bool
+    status: str
+    source: str
+    unaudited: bool
+    blind_verified: bool
+    created_at: datetime
+    updated_at: datetime | None
+
+
+class BankItemList(BaseModel):
+    items: list[BankItemInfo]
+    total: int
+    limit: int
+    offset: int
+
+
+class BankItemEditRequest(BaseModel):
+    """编辑覆盖项；只合并显式提交的字段（figure 显式 null 表示清空）。"""
+
+    prompt: str | None = Field(default=None, max_length=4000)
+    answer: str | None = Field(default=None, max_length=1000)
+    acceptable: list[str] | None = Field(default=None, max_length=50)
+    unordered: bool | None = None
+    verify: str | None = Field(default=None, max_length=4000)
+    topic_id: str | None = Field(default=None, max_length=64)
+    type: str | None = Field(default=None, max_length=16)
+    difficulty: str | None = Field(default=None, max_length=40)
+    choices: list[dict[str, Any]] | None = Field(default=None, max_length=20)
+    figure: str | None = None
+
+
+class BankItemStatusResponse(BaseModel):
+    problem_bank_id: int
+    status: str
+    updated_at: datetime | None
+
+
 def _errors_payload(errors: list[ItemError]) -> list[dict[str, Any]]:
     return [asdict(item) for item in errors]
 
@@ -201,6 +259,108 @@ def _build_bank_item(
         percent=normalized["percent"],
         unaudited=True,
         blind_verified=False,
+    )
+
+
+def _json_list(raw: str | None) -> list[Any]:
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except (TypeError, json.JSONDecodeError):
+        return []
+    return data if isinstance(data, list) else []
+
+
+def _row_raw(row: ProblemBankItem) -> dict[str, Any]:
+    """已入库行 → 归一化输入；编辑时先还原再合并覆盖值。"""
+
+    return {
+        "topic_id": row.topic_id or "",
+        "subject": row.subject,
+        "type": row.question_type or "",
+        "prompt": row.problem_text,
+        "answer": row.answer,
+        "acceptable": [
+            item
+            for item in _json_list(row.acceptable_answers_json)
+            if isinstance(item, str)
+        ],
+        "unordered": bool(row.unordered),
+        "verify": row.verify or "",
+        "choices": [
+            item for item in _json_list(row.choices_json) if isinstance(item, dict)
+        ],
+        "figure": row.figure,
+        "difficulty": row.difficulty or "",
+        "hide_choice_text": bool(row.hide_choice_text),
+        "percent": bool(row.percent),
+    }
+
+
+def _apply_normalized(
+    row: ProblemBankItem, normalized: dict[str, Any], verify_status: str
+) -> None:
+    choices = normalized.get("choices") or []
+    row.subject = normalized["subject"]
+    row.problem_text = normalized["prompt"]
+    row.answer = normalized["answer"]
+    row.acceptable_answers_json = json.dumps(
+        normalized["acceptable"], ensure_ascii=False
+    )
+    row.unordered = normalized["unordered"]
+    row.verify = normalized["verify"]
+    row.verify_status = verify_status
+    row.topic_id = normalized["topic_id"]
+    row.question_type = normalized["type"]
+    row.difficulty = normalized["difficulty"] or None
+    row.choices_json = (
+        json.dumps(choices, ensure_ascii=False, sort_keys=True) if choices else None
+    )
+    row.figure = normalized["figure"]
+    row.hide_choice_text = normalized["hide_choice_text"]
+    row.percent = normalized["percent"]
+
+
+def _item_info(row: ProblemBankItem, topic_name: str | None) -> BankItemInfo:
+    return BankItemInfo(
+        id=row.id,
+        external_id=row.external_id,
+        topic_id=row.topic_id,
+        topic_name=topic_name,
+        subject=row.subject,
+        type=row.question_type,
+        difficulty=row.difficulty,
+        prompt=row.problem_text,
+        answer=row.answer,
+        acceptable=[
+            item
+            for item in _json_list(row.acceptable_answers_json)
+            if isinstance(item, str)
+        ],
+        unordered=bool(row.unordered),
+        verify=row.verify,
+        verify_status=row.verify_status,
+        choices=[
+            item for item in _json_list(row.choices_json) if isinstance(item, dict)
+        ],
+        figure=row.figure,
+        hide_choice_text=bool(row.hide_choice_text),
+        percent=bool(row.percent),
+        status=row.status,
+        source=row.source,
+        unaudited=bool(row.unaudited),
+        blind_verified=bool(row.blind_verified),
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+async def _topic_name(session: AsyncSession, topic_id: str | None) -> str | None:
+    if not topic_id:
+        return None
+    return await session.scalar(
+        select(KnowledgeSeed.name).where(KnowledgeSeed.id == topic_id)
     )
 
 
@@ -405,3 +565,147 @@ async def create_bank_item(
         )
     reset_bank_cache()
     return response
+
+
+@router.get("/api/bank/items", response_model=BankItemList)
+async def list_bank_items(
+    status: Literal["active", "voided", "all"] = "active",
+    topic_id: str | None = Query(default=None, max_length=64),
+    subject: str | None = Query(default=None, max_length=20),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    session: AsyncSession = Depends(get_session),
+) -> BankItemList:
+    """已入库题列表（家长区，含答案）；默认只看 active，按 id 倒序。"""
+
+    conditions = []
+    if status != "all":
+        conditions.append(ProblemBankItem.status == status)
+    if topic_id and topic_id.strip():
+        conditions.append(ProblemBankItem.topic_id == topic_id.strip())
+    if subject and subject.strip():
+        conditions.append(ProblemBankItem.subject == subject.strip())
+
+    total = (
+        await session.execute(
+            select(func.count()).select_from(ProblemBankItem).where(*conditions)
+        )
+    ).scalar_one()
+    rows = (
+        await session.scalars(
+            select(ProblemBankItem)
+            .where(*conditions)
+            .order_by(ProblemBankItem.id.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+    ).all()
+    topic_ids = {row.topic_id for row in rows if row.topic_id}
+    topic_names: dict[str, str] = {}
+    if topic_ids:
+        topic_names = {
+            topic_id: name
+            for topic_id, name in (
+                await session.execute(
+                    select(KnowledgeSeed.id, KnowledgeSeed.name).where(
+                        KnowledgeSeed.id.in_(topic_ids)
+                    )
+                )
+            ).all()
+        }
+    return BankItemList(
+        items=[_item_info(row, topic_names.get(row.topic_id or "")) for row in rows],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.patch("/api/bank/items/{item_id}", response_model=BankItemInfo)
+async def update_bank_item(
+    item_id: int,
+    payload: BankItemEditRequest,
+    session: AsyncSession = Depends(get_session),
+) -> BankItemInfo:
+    """编辑已入库题：合并覆盖值后重跑 normalize → check_approvable → classify_verify。
+
+    `external_id` 不变，历史 attempts/事件与判分不回溯；verify_status 按新内容重算。
+    """
+
+    async with session.begin():
+        row = await session.get(ProblemBankItem, item_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="题库条目不存在")
+
+        overrides = payload.model_dump(exclude_unset=True)
+        if not overrides:
+            raise HTTPException(
+                status_code=422,
+                detail={"message": "没有可更新的字段", "code": "no_fields"},
+            )
+        merged = _row_raw(row)
+        for key, value in overrides.items():
+            if key == "figure" or value is not None:
+                merged[key] = value
+
+        normalized, errors = await _normalize_against_seed(session, merged)
+        if errors or normalized is None:
+            raise _gate_error("编辑字段校验未通过", "normalize_failed", errors)
+
+        gate_errors = check_approvable(normalized)
+        if gate_errors:
+            raise _gate_error("编辑后必填项未通过审核", "missing_fields", gate_errors)
+
+        try:
+            verify_status, _ = classify_verify(normalized)
+        except BankVerifyError as exc:
+            raise _verify_error(exc) from None
+
+        _apply_normalized(row, normalized, verify_status)
+        row.updated_at = datetime.now(UTC)
+        await session.flush()
+        # SQLite 不保存时区：重新读回，保证响应与后续 GET 的 updated_at 序列化一致
+        await session.refresh(row)
+        response = _item_info(row, await _topic_name(session, row.topic_id))
+    reset_bank_cache()
+    return response
+
+
+async def _set_item_status(
+    session: AsyncSession, item_id: int, target: str
+) -> BankItemStatusResponse:
+    """软作废/撤销：只翻 status + updated_at，重复调用幂等（不改历史事实）。"""
+
+    changed = False
+    async with session.begin():
+        row = await session.get(ProblemBankItem, item_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="题库条目不存在")
+        if row.status != target:
+            row.status = target
+            row.updated_at = datetime.now(UTC)
+            changed = True
+            await session.flush()
+            await session.refresh(row)
+        response = BankItemStatusResponse(
+            problem_bank_id=row.id,
+            status=row.status,
+            updated_at=row.updated_at,
+        )
+    if changed:
+        reset_bank_cache()
+    return response
+
+
+@router.post("/api/bank/items/{item_id}/void", response_model=BankItemStatusResponse)
+async def void_bank_item(
+    item_id: int, session: AsyncSession = Depends(get_session)
+) -> BankItemStatusResponse:
+    return await _set_item_status(session, item_id, "voided")
+
+
+@router.post("/api/bank/items/{item_id}/unvoid", response_model=BankItemStatusResponse)
+async def unvoid_bank_item(
+    item_id: int, session: AsyncSession = Depends(get_session)
+) -> BankItemStatusResponse:
+    return await _set_item_status(session, item_id, "active")

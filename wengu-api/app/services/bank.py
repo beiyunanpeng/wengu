@@ -9,9 +9,15 @@ P3-1b：检索池 = seed JSON 只读主体 + SQLite `problem_bank` 已入库家�
 （`get_runtime_bank`）。家长题只进 SQLite，绝不回写 seed JSON；合并后整体重算统计，
 审核通过/手填直录提交后失效缓存，下一条到期任务即可用新题。
 
+P3-1c：`problem_bank` 软作废（`status='voided'`）——只退出运行时检索池，**不物理删除、
+不改写历史**（attempts/events 是 append-only 事实）。家长编辑题面/答案时 id 不变，
+`external_id` 也不变，因此历史 attempts 的判分依据不受影响。
+
 确定性纪律（AGENTS §5）：mulberry32 与上游 JS 逐位一致（uint32 语义），
 同样 `(topic_id, seed)` 在任意进程、任意装载顺序下命中同一题；`replay` / `replay_paper`
-重算并校验，**池增长同样导致候选集合变化**，此时抛 `BankReplayError` 而不是静默换题。
+重算并校验，**池增长/作废同样导致候选集合变化**，此时抛 `BankReplayError` 而不是静默换题。
+内容修订不算换题：`replay` 按身份（topic/seed/pool_ids/index/question_id/coverage/mode）
+比较，同一 id 的题面改写仍可重放（不回溯历史内容）。
 """
 
 from __future__ import annotations
@@ -152,7 +158,10 @@ async def _load_runtime_bank(session: AsyncSession) -> QuestionBank:
     rows = (
         await session.scalars(
             select(ProblemBankItem)
-            .where(ProblemBankItem.topic_id.is_not(None))
+            .where(
+                ProblemBankItem.topic_id.is_not(None),
+                ProblemBankItem.status == "active",
+            )
             .order_by(ProblemBankItem.id)
         )
     ).all()
@@ -430,15 +439,32 @@ def find_same_type(
 
 
 def replay(pick: BankPick, *, bank: QuestionBank | None = None) -> BankPick:
-    """按记录重算同一选择；不一致直接失败（确定性回归/申诉用）。"""
+    """按记录重算同一选择；不一致直接失败（确定性回归/申诉用）。
+
+    P3-1c：同题内容可被家长修订（id 不变），历史 quiz 记录不得因题面/答案编辑而
+    失效。因此这里按**身份**校验（topic/seed/pool_ids/index/question_id/coverage/mode），
+    不比较 `BankQuestion` 内容；作废导致 pool 变化仍抛 `BankReplayError`。
+    """
 
     again = find_same_type(pick.topic_id, pick.seed, bank=bank)
-    if again != pick:
+    if not _same_pick_identity(pick, again):
         raise BankReplayError(
             f"重放不一致：topic={pick.topic_id!r} seed={pick.seed} "
             f"recorded={pick.question_id!r} replayed={again.question_id!r}"
         )
     return again
+
+
+def _same_pick_identity(recorded: BankPick, replayed: BankPick) -> bool:
+    return (
+        recorded.topic_id == replayed.topic_id
+        and recorded.seed == replayed.seed
+        and recorded.question_id == replayed.question_id
+        and recorded.pool_ids == replayed.pool_ids
+        and recorded.index == replayed.index
+        and recorded.coverage == replayed.coverage
+        and recorded.mode == replayed.mode
+    )
 
 
 def _shuffled(items: Sequence[BankQuestion], seed: int) -> list[BankQuestion]:
@@ -506,13 +532,29 @@ def paper_picks(
 
 
 def replay_paper(paper: PaperPick, *, bank: QuestionBank | None = None) -> PaperPick:
-    """按记录重算同一张卷；不一致直接失败。"""
+    """按记录重算同一张卷；不一致直接失败。
+
+    P3-1c 同 `replay`：按身份（题 id 顺序/模式/池大小）比较，内容修订不回溯。
+    """
 
     again = paper_picks(paper.topic_id, paper.seed, paper.requested, bank=bank)
-    if again != paper:
+    if not _same_paper_identity(paper, again):
         raise BankReplayError(
             f"组卷重放不一致：topic={paper.topic_id!r} seed={paper.seed} "
             f"count={paper.requested} recorded={[i.question.id for i in paper.items]!r} "
             f"replayed={[i.question.id for i in again.items]!r}"
         )
     return again
+
+
+def _same_paper_identity(recorded: PaperPick, replayed: PaperPick) -> bool:
+    return (
+        recorded.topic_id == replayed.topic_id
+        and recorded.seed == replayed.seed
+        and recorded.requested == replayed.requested
+        and recorded.coverage == replayed.coverage
+        and recorded.answerable_total == replayed.answerable_total
+        and recorded.pool_total == replayed.pool_total
+        and tuple((item.question.id, item.mode) for item in recorded.items)
+        == tuple((item.question.id, item.mode) for item in replayed.items)
+    )
