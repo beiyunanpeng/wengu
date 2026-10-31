@@ -355,6 +355,113 @@ def test_p3_1_bank_drafts_and_problem_bank_columns(tmp_path) -> None:
 
 
 @pytest.mark.integration
+def test_p3_1c_bank_item_lifecycle_up_down_up(tmp_path) -> None:
+    """0017：problem_bank 加 status/updated_at；旧行回填 active，软作废枚举可逆。"""
+
+    db_path = tmp_path / "bank-lifecycle.db"
+    config = _alembic_config(db_path)
+    command.upgrade(config, "0016_bank_drafts")
+
+    engine = create_engine(f"sqlite:///{db_path.as_posix()}")
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO problem_bank (external_id, subject, problem_text,"
+                    " answer, verify, created_at)"
+                    " VALUES ('legacy-1', '数学', '1+1=?', '2', '1+1',"
+                    " CURRENT_TIMESTAMP)"
+                )
+            )
+    finally:
+        engine.dispose()
+
+    command.upgrade(config, "head")
+    engine = create_engine(f"sqlite:///{db_path.as_posix()}")
+    try:
+        with engine.connect() as connection:
+            inspector = inspect(connection)
+            columns = {
+                column["name"]: column["nullable"]
+                for column in inspector.get_columns("problem_bank")
+            }
+            checks = {
+                constraint["name"]
+                for constraint in inspector.get_check_constraints("problem_bank")
+            }
+            legacy = connection.execute(
+                text(
+                    "SELECT status, updated_at FROM problem_bank"
+                    " WHERE external_id = 'legacy-1'"
+                )
+            ).one()
+        assert columns["status"] is False
+        assert columns["updated_at"] is True
+        assert "ck_problem_bank_status" in checks
+        assert tuple(legacy) == ("active", None)
+
+        with engine.begin() as connection:
+            connection.execute(
+                text("UPDATE problem_bank SET status = 'voided' WHERE external_id = 'legacy-1'")
+            )
+            assert (
+                connection.scalar(
+                    text(
+                        "SELECT status FROM problem_bank WHERE external_id = 'legacy-1'"
+                    )
+                )
+                == "voided"
+            )
+            with pytest.raises(sqlalchemy.exc.IntegrityError, match="CHECK"):
+                connection.execute(
+                    text("UPDATE problem_bank SET status = 'deleted' WHERE external_id = 'legacy-1'")
+                )
+    finally:
+        engine.dispose()
+
+    command.downgrade(config, "0016_bank_drafts")
+    engine = create_engine(f"sqlite:///{db_path.as_posix()}")
+    try:
+        with engine.connect() as connection:
+            inspector = inspect(connection)
+            columns = {
+                column["name"] for column in inspector.get_columns("problem_bank")
+            }
+            checks = {
+                constraint["name"]
+                for constraint in inspector.get_check_constraints("problem_bank")
+            }
+            remaining = connection.execute(
+                text(
+                    "SELECT subject, problem_text, answer FROM problem_bank"
+                    " WHERE external_id = 'legacy-1'"
+                )
+            ).one()
+        assert {"status", "updated_at"}.isdisjoint(columns)
+        assert "ck_problem_bank_status" not in checks
+        assert tuple(remaining) == ("数学", "1+1=?", "2")
+    finally:
+        engine.dispose()
+
+    command.upgrade(config, "head")
+    engine = create_engine(f"sqlite:///{db_path.as_posix()}")
+    try:
+        with engine.connect() as connection:
+            columns = {
+                column["name"] for column in inspect(connection).get_columns("problem_bank")
+            }
+            status = connection.scalar(
+                text(
+                    "SELECT status FROM problem_bank WHERE external_id = 'legacy-1'"
+                )
+            )
+        assert {"status", "updated_at"} <= columns
+        assert status == "active"
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.integration
 def test_grading_versions_append_only_guard(tmp_path) -> None:
     db_path = tmp_path / "grading-guard.db"
     command.upgrade(_alembic_config(db_path), "head")

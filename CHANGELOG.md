@@ -16,6 +16,54 @@ Phase 1 只剩 P1-7b（前置回溯诊断）与受闸门阻塞的 P1-7c。
 
 ### Added
 
+- **P3-1c 题库条目修订与软作废**（2026-10-31）：
+  补上 P3-1/1b 遗留的"入库题无编辑/作废入口"缺口。题库修订 = **编辑 + 软作废**
+  （`status ∈ {active, voided}`），**不做物理删除**，与错题本同一哲学。
+  - **迁移 0017（可逆）** `problem_bank` 加 `status TEXT NOT NULL server_default 'active'`
+    （CHECK `status IN ('active','voided')`）+ `updated_at DATETIME NULL`；既有行回填
+    `active`；down 先 drop CHECK 再 drop 两列，旧行内容保留；幂等 up/down/up 可重入。
+  - **运行时池只合并 `status='active'`**：`services/bank.py::_load_runtime_bank` 查询条件
+    增加 `status == "active"`，**作废题即刻退出检索池**；unvoid 后需 `reset_bank_cache()`
+    才回池（两个状态端点均调用）。
+  - **重放按身份判定**：`replay` 用 `_same_pick_identity`（topic/seed/question_id/pool_ids/
+    index/coverage/mode），`replay_paper` 新增 `_same_paper_identity`（题 id + mode +
+    coverage + 池大小）。**编辑不改 `external_id`，内容修订不回溯**；旧 quiz 只要题 id 仍在池中
+    即视为同题，卷子照常重放，不会因题面修订而报错；作废后题 id 离开池 → 重放仍显式抛
+    `BankReplayError`。
+  - **API（沿用路由级 `require_parent`，未解锁 403）**：`GET /api/bank/items`
+    （`status=active|voided|all`、`topic_id`、`subject`、`limit/offset`，按 id 倒序，
+    返回题面/答案/verify/verify_status/标签）、`PATCH /api/bank/items/{id}`
+    （编辑 prompt/answer/acceptable/unordered/verify/choices/figure/topic_id/type/difficulty，
+    **合并后重跑同一套闸门** `normalize_bank_item` → `check_approvable` →
+    `classify_verify`；`{}` → 422 `no_fields`；缺 answer/`〔?〕` → `missing_fields`；
+    choice answer 不在 key → `normalize_failed` + `answer_not_in_choices`；
+    AST 沙箱注入 → `verify_error:forbidden_name|forbidden_node`；纯数值矛盾 →
+    `verify_mismatch`；成功响应含重算的 `verify_status` 与新 `updated_at`）、
+    `POST /api/bank/items/{id}/void|unvoid`（翻 status + `updated_at` + 清缓存，**幂等**，
+    仅状态实际变化时写 `updated_at`）。
+  - **前端 `/bank`**：新增「已入库题目（可修订）」区——状态筛选（在用/已作废/全部）+
+    考点筛选 + 刷新 + 总数；行内「编辑」复用审核表单（预填并回填原题选项图），走同一校验；
+    「作废/撤销作废」按钮；作废态卡片显示红色「已退出考核出题」提示与「已作废」徽章。
+  - **确定性口径**：编辑不改 `external_id` → 历史 attempts/事件/排期不回溯；作废/编辑后
+    **新抽题即用新池**；旧 quiz 记录重放按 `pool_ids`/题 id 判定（id 仍在则视为同题）。
+  - **验证**：新增 `tests/integration/test_bank_lifecycle.py`（4 条：闸门重跑 + 稳定错误码 +
+    合法编辑重算 `verify_status`；void/unvoid 移出/回池 + 幂等 + 5000 seeds 不命中 + replay 抛错；
+    编辑/作废前后 `attempts`/`learning_events`/`review_schedules` 三表全列快照**完全相等**；
+    未解锁全 403）；`test_migrations.py` 增 0017 up/down/up 可重入 + CHECK 拒绝非法值。
+    全量 pytest **376 passed**、`ruff check .` 绿、`import app.main` OK、`npm run build` 绿。
+    临时库 + uvicorn 实跑：锁定态 GET/PATCH/void/unvoid 全 403；`__import__('os')`/赋值/
+    属性访问 → 422 沙箱码，answer 11 vs `5*2` → `verify_mismatch`，合法编辑 200 且
+    `verify_status=verified`、`external_id` 不变；void 后同 topic 到期题量 6→5、重复 void
+    幂等，unvoid 恢复 6 且幂等；编辑+作废+撤销前后 `attempts` 1/1、`events` 3/3、
+    `schedules` 2/2 且行内容完全一致；`seeds/data/questions.json` sha256 未变。
+    浏览器走查：无效 verify 保存 → 「未通过闸门 / verify 表达式未通过安全沙箱」；
+    改回 `18/3` → 「problem_bank #2 已更新 · verify_status=verified」；作废 → 「已作废」徽章 +
+    「已退出考核出题」红条；撤销 → 「已恢复，重新进入考核出题池」，列表回到 2 条。
+  - **残留风险**：`GET /api/attempts` 的 `problem_text` 是**读取时 join 当前题面**，
+    编辑题目文本后旧尝试的展示文本会随新题面变化（**attempts 行本身未被改写**，
+    判分与统计不受影响）；如需"当时题面快照"应另开工单。运行时池仍是进程内快照，
+    多实例不共享（单家庭单实例可接受）。
+
 - **P3-1b 家长题接入同类题检索池**（2026-10-31）：
   补上 P3-1 遗留的"入库题只能看不能用"缺口——**审核入库的家长题现在参与到期考核与手动组卷**。
   - **装载合并** `services/bank.py`：seed 内存索引仍是**只读主体**；新增

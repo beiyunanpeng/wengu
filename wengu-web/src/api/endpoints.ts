@@ -5,6 +5,10 @@ import type {
   BankChoice,
   BankDraftListResponse,
   BankItemCreated,
+  BankItemEditPayload,
+  BankItemInfo,
+  BankItemListResponse,
+  BankItemStatusResponse,
   BankRejectResponse,
   CalendarEvent,
   CalendarEventsResponse,
@@ -416,6 +420,59 @@ export function createBankItem(
     percent: false,
     ...payload,
   });
+}
+
+export interface BankItemFilters {
+  status?: "active" | "voided" | "all";
+  topic_id?: string;
+  subject?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export function listBankItems(
+  filters: BankItemFilters = {},
+): Promise<BankItemListResponse> {
+  const params = new URLSearchParams();
+  params.set("status", filters.status ?? "active");
+  params.set("limit", String(filters.limit ?? 100));
+  params.set("offset", String(filters.offset ?? 0));
+  if (filters.topic_id) {
+    params.set("topic_id", filters.topic_id);
+  }
+  if (filters.subject) {
+    params.set("subject", filters.subject);
+  }
+  return apiRequest<BankItemListResponse>(
+    `/api/bank/items?${params.toString()}`,
+  );
+}
+
+export function updateBankItem(
+  itemId: number,
+  payload: BankItemEditPayload,
+): Promise<BankItemInfo> {
+  return requestJson<BankItemInfo>(`/api/bank/items/${itemId}`, "PATCH", payload);
+}
+
+export function voidBankItem(
+  itemId: number,
+): Promise<BankItemStatusResponse> {
+  return requestJson<BankItemStatusResponse>(
+    `/api/bank/items/${itemId}/void`,
+    "POST",
+    {},
+  );
+}
+
+export function unvoidBankItem(
+  itemId: number,
+): Promise<BankItemStatusResponse> {
+  return requestJson<BankItemStatusResponse>(
+    `/api/bank/items/${itemId}/unvoid`,
+    "POST",
+    {},
+  );
 }
 
 export interface AttemptFilters {

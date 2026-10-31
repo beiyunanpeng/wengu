@@ -374,6 +374,58 @@ export interface BankItemCreated {
   verify_status: string;
 }
 
+export interface BankItemInfo {
+  id: number;
+  external_id: string;
+  topic_id: string | null;
+  topic_name: string | null;
+  subject: string;
+  type: string | null;
+  difficulty: string | null;
+  prompt: string;
+  answer: string;
+  acceptable: string[];
+  unordered: boolean;
+  verify: string;
+  verify_status: string;
+  choices: BankChoice[];
+  figure: string | null;
+  hide_choice_text: boolean;
+  percent: boolean;
+  status: "active" | "voided";
+  source: string;
+  unaudited: boolean;
+  blind_verified: boolean;
+  created_at: string;
+  updated_at: string | null;
+}
+
+export interface BankItemListResponse {
+  items: BankItemInfo[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface BankItemEditPayload {
+  prompt?: string;
+  answer?: string;
+  acceptable?: string[];
+  unordered?: boolean;
+  verify?: string;
+  topic_id?: string;
+  type?: "choice" | "numeric" | "short" | "self";
+  difficulty?: string;
+  choices?: BankChoice[];
+  figure?: string | null;
+}
+
+export interface BankItemStatusResponse {
+  problem_bank_id: number;
+  status: "active" | "voided";
+  updated_at: string | null;
+}
+
 export interface AttemptInfo {
   id: number;
   mistake_id: number | null;
