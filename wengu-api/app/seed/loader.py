@@ -94,12 +94,19 @@ async def load_seed(
 
 
 def local_seed_files(seeds_dir: Path, data_dir: Path) -> list[Path]:
-    """本地 seed 文件优先级：开发机 `seeds/local` → 运行时 `<data_dir>/seeds_local`。"""
+    """本地 seed 文件优先级：开发机 `seeds/local` → 运行时 `<data_dir>/seeds_local`。
+
+    下划线开头的文件（如 `_id_counters.json`）是运行期簿记，不是 topics 数组，必须跳过。
+    """
 
     files: list[Path] = []
     for directory in (Path(seeds_dir) / "local", Path(data_dir) / "seeds_local"):
         if directory.is_dir():
-            files.extend(sorted(directory.glob("*.json")))
+            files.extend(
+                path
+                for path in sorted(directory.glob("*.json"))
+                if not path.name.startswith("_")
+            )
     return files
 
 
@@ -173,10 +180,13 @@ def write_local_topics(path: Path, entries: list[dict[str, Any]]) -> None:
 _ID_SEQUENCE = re.compile(r"^(.+?)(\d+)$")
 
 
-def next_local_id(prefix: str, taken_ids: set[str]) -> str:
-    """按学科前缀 + 递增序号生成 id（cnl_001…），跳过已占用序号。"""
+def next_local_id(prefix: str, taken_ids: set[str], issued: int = 0) -> str:
+    """按学科前缀 + 递增序号生成 id（cnl_001…），跳过已占用序号。
 
-    highest = 0
+    `issued` 是已发放过的最大序号（计数器），永远只增不减：删除过的 id 不会回收。
+    """
+
+    highest = max(0, issued)
     for topic_id in taken_ids:
         match = _ID_SEQUENCE.match(topic_id)
         if match and match.group(1) == prefix:

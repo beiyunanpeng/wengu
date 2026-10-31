@@ -19,6 +19,7 @@ from sqlalchemy import (
     Integer,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -100,10 +101,20 @@ class PracticeRecord(Base):
     problem_text: Mapped[str] = mapped_column(Text, nullable=False)
     student_answer: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_correct: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    # 加练分组信息；历史行保持 NULL，不参与幂等判定。
+    topic_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    seed: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    dedup_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
     __table_args__ = (
         CheckConstraint("kind IN ('variant', 'extra')", name="ck_practice_records_kind"),
         Index("ix_practice_records_source_mistake_id", "source_mistake_id"),
         Index("ix_practice_records_created_at", "created_at"),
+        Index(
+            "uq_practice_records_dedup_key",
+            "dedup_key",
+            unique=True,
+            sqlite_where=text("dedup_key IS NOT NULL"),
+        ),
     )

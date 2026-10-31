@@ -404,6 +404,162 @@ async def test_practice_submit_writes_only_practice_records_and_clears(
 
 
 @pytest.mark.integration
+async def test_practice_submit_is_idempotent_per_topic_seed_question(
+    tmp_path,
+) -> None:
+    """同 (topic, seed, question) 重复提交不新增行、reused=true；不同 seed 各自一行。"""
+
+    factory = _migrated(tmp_path)
+    await _seed_topic(factory)
+
+    async with _client(factory) as client:
+        mistake_id = await _create_mistake(client)
+        facts_before = await _facts(factory)
+        dashboard_before = await _dashboard(client)
+        due_before = await _due(client)
+
+        started = await client.post(
+            "/api/practice/start",
+            json={"mistake_id": mistake_id, "count": 2, "seed": 7},
+        )
+        assert started.status_code == 200, started.text
+        paper = started.json()
+        bank = get_bank()
+        items = []
+        for view in paper["items"]:
+            question = bank.question(view["question_id"])
+            assert question is not None
+            items.append({"question_id": question.id, "answer": question.answer})
+
+        payload = {
+            "topic_id": paper["topic_id"],
+            "seed": 7,
+            "count": 2,
+            "mistake_id": mistake_id,
+            "items": items,
+        }
+        first = await client.post("/api/practice/submit", json=payload)
+        assert first.status_code == 200, first.text
+        first_body = first.json()
+        assert [item["status"] for item in first_body["items"]] == [
+            "correct",
+            "correct",
+        ]
+        assert all(item["reused"] is False for item in first_body["items"])
+        first_ids = [item["practice_record_id"] for item in first_body["items"]]
+        assert await _count(factory, PracticeRecord) == 2
+
+        second = await client.post("/api/practice/submit", json=payload)
+        assert second.status_code == 200, second.text
+        second_body = second.json()
+        assert all(item["reused"] is True for item in second_body["items"])
+        assert [item["practice_record_id"] for item in second_body["items"]] == first_ids
+        assert [item["status"] for item in second_body["items"]] == [
+            "correct",
+            "correct",
+        ]
+        assert await _count(factory, PracticeRecord) == 2
+
+        # 重复提交即使换了作答案，也只回看已有行，不改写历史
+        altered = {
+            **payload,
+            "items": [
+                {"question_id": items[0]["question_id"], "answer": "一个不同的答案"},
+                items[1],
+            ],
+        }
+        third = await client.post("/api/practice/submit", json=altered)
+        assert third.status_code == 200, third.text
+        assert all(item["reused"] is True for item in third.json()["items"])
+        async with factory() as session:
+            original = await session.get(
+                PracticeRecord, first_ids[0]
+            )
+            assert original is not None
+            assert original.student_answer == items[0]["answer"]
+
+        # 不同 seed：同一题也视为另一组练习，各自一行
+        started8 = await client.post(
+            "/api/practice/start",
+            json={"mistake_id": mistake_id, "count": 2, "seed": 8},
+        )
+        assert started8.status_code == 200, started8.text
+        paper8 = started8.json()
+        items8 = []
+        for view in paper8["items"]:
+            question = bank.question(view["question_id"])
+            assert question is not None
+            items8.append({"question_id": question.id, "answer": question.answer})
+        submit8 = await client.post(
+            "/api/practice/submit",
+            json={
+                "topic_id": paper8["topic_id"],
+                "seed": 8,
+                "count": 2,
+                "mistake_id": mistake_id,
+                "items": items8,
+            },
+        )
+        assert submit8.status_code == 200, submit8.text
+        assert all(item["reused"] is False for item in submit8.json()["items"])
+        assert await _count(factory, PracticeRecord) == 4
+
+        by_seed7 = await client.get(
+            "/api/practice",
+            params={"topic_id": paper["topic_id"], "seed": 7},
+        )
+        assert by_seed7.status_code == 200, by_seed7.text
+        assert by_seed7.json()["total"] == 2
+        assert all(item["topic_id"] == paper["topic_id"] for item in by_seed7.json()["items"])
+        assert all(item["seed"] == 7 for item in by_seed7.json()["items"])
+
+        by_seed8 = await client.get(
+            "/api/practice",
+            params={"topic_id": paper["topic_id"], "seed": 8},
+        )
+        assert by_seed8.json()["total"] == 2
+        assert all(item["seed"] == 8 for item in by_seed8.json()["items"])
+
+        assert await _facts(factory) == facts_before
+        assert await _dashboard(client) == dashboard_before
+        assert await _due(client) == due_before
+
+
+@pytest.mark.integration
+async def test_legacy_practice_rows_stay_readable_with_null_group(
+    tmp_path,
+) -> None:
+    """既有（NULL 列）练习行仍可回看；手工记录不参与幂等判定。"""
+
+    factory = _migrated(tmp_path)
+
+    async with _client(factory) as client:
+        created = await client.post(
+            "/api/practice-records",
+            json={
+                "kind": "extra",
+                "problem_text": "历史手工记录",
+                "student_answer": "略",
+                "is_correct": False,
+            },
+        )
+        assert created.status_code == 200, created.text
+        body = created.json()
+        assert body["topic_id"] is None
+        assert body["seed"] is None
+
+        listed = await client.get("/api/practice")
+        assert listed.status_code == 200, listed.text
+        assert listed.json()["total"] == 1
+        assert listed.json()["items"][0]["problem_text"] == "历史手工记录"
+        # 带分组筛选时不返回 NULL 行
+        filtered = await client.get(
+            "/api/practice", params={"topic_id": "cnm_001", "seed": 7}
+        )
+        assert filtered.json()["total"] == 0
+
+
+@pytest.mark.integration
 async def test_practice_self_eval_accepts_verdict_and_blank_is_skipped(
     tmp_path,
 ) -> None:

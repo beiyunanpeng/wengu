@@ -47,6 +47,8 @@ class PracticeRecordInfo(BaseModel):
     problem_text: str
     student_answer: str | None
     is_correct: bool | None
+    topic_id: str | None
+    seed: int | None
     created_at: datetime
 
 
@@ -101,6 +103,7 @@ class PracticeAnswerInfo(BaseModel):
     mode: Literal["system", "self_eval"]
     status: Literal["correct", "wrong", "uncertain", "skipped"]
     practice_record_id: int | None
+    reused: bool = False
 
 
 class PracticeSubmitResponse(BaseModel):
@@ -125,6 +128,8 @@ def _info(row: PracticeRecord) -> PracticeRecordInfo:
         problem_text=row.problem_text,
         student_answer=row.student_answer,
         is_correct=row.is_correct,
+        topic_id=row.topic_id,
+        seed=row.seed,
         created_at=_naive_utc(row.created_at),
     )
 
@@ -175,6 +180,8 @@ async def _fetch_records(
     source_mistake_id: int | None,
     problem_bank_id: int | None,
     kind: str | None,
+    topic_id: str | None,
+    seed: int | None,
     limit: int,
     offset: int,
 ) -> PracticeListResponse:
@@ -185,6 +192,10 @@ async def _fetch_records(
         conditions.append(PracticeRecord.problem_bank_id == problem_bank_id)
     if kind is not None:
         conditions.append(PracticeRecord.kind == kind)
+    if topic_id is not None:
+        conditions.append(PracticeRecord.topic_id == topic_id)
+    if seed is not None:
+        conditions.append(PracticeRecord.seed == seed)
 
     total = (
         await session.execute(
@@ -224,6 +235,8 @@ async def list_practice_records(
         source_mistake_id=source_mistake_id,
         problem_bank_id=problem_bank_id,
         kind=kind,
+        topic_id=None,
+        seed=None,
         limit=limit,
         offset=offset,
     )
@@ -320,6 +333,7 @@ async def submit_practice_endpoint(
                 mode=item.mode,
                 status=item.status,
                 practice_record_id=item.practice_record_id,
+                reused=item.reused,
             )
             for item in result.items
         ],
@@ -332,17 +346,21 @@ async def submit_practice_endpoint(
 async def list_practice(
     mistake_id: int | None = Query(default=None, ge=1),
     kind: Literal["variant", "extra"] | None = None,
+    topic_id: str | None = Query(default=None, min_length=1, max_length=64),
+    seed: int | None = Query(default=None, ge=0, le=MAX_SEED),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     session: AsyncSession = Depends(get_session),
 ) -> PracticeListResponse:
-    """回看加练记录；只读派生表，不影响错题/复习/掌握度。"""
+    """回看加练记录；可按 `(topic_id, seed)` 过滤出"这一组"。只读派生表。"""
 
     return await _fetch_records(
         session,
         source_mistake_id=mistake_id,
         problem_bank_id=None,
         kind=kind,
+        topic_id=topic_id,
+        seed=seed,
         limit=limit,
         offset=offset,
     )

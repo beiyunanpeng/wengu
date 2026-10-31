@@ -7,6 +7,8 @@
   重放同一张卷；题面走 `quiz_view`，绝不下发 answer/accept/explanation/verify。
 - 客观题由服务端 `judge_answer` 判分，客户端 `correct` 一律忽略；解答题/依赖图题
   降级 `self_eval`，由孩子在卷面自评后回传 `correct`。
+- 提交幂等：`dedup_key = variant:{topic_id}:{seed}:{question_id}` 有部分唯一索引；
+  同题重复提交不新增行，回看已有行并标 `reused=true`。
 
 加练是孩子自主行为，服务层不检查家长角色；API 也不挂 `require_parent`。
 """
@@ -19,6 +21,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.judge.normalize import judge_answer
@@ -80,6 +83,7 @@ class PracticeAnswerResult:
     mode: AnswerMode
     status: str
     practice_record_id: int | None
+    reused: bool = False
 
 
 @dataclass(frozen=True)
@@ -158,6 +162,24 @@ def _judge(question: BankQuestion, answer: str) -> str:
     return "correct" if outcome.verdict == "correct" else "wrong"
 
 
+def _dedup_key(topic_id: str, seed: int, question_id: str) -> str:
+    return f"{PRACTICE_KIND}:{topic_id}:{seed}:{question_id}"
+
+
+def _stored_status(row: PracticeRecord) -> str:
+    if row.is_correct is None:
+        return "skipped"
+    return "correct" if row.is_correct else "wrong"
+
+
+async def _find_dedup(
+    session: AsyncSession, dedup_key: str
+) -> PracticeRecord | None:
+    return await session.scalar(
+        select(PracticeRecord).where(PracticeRecord.dedup_key == dedup_key).limit(1)
+    )
+
+
 async def _bank_row_ids(
     session: AsyncSession, question_ids: Sequence[str]
 ) -> dict[str, int]:
@@ -223,6 +245,20 @@ async def submit_practice(
         item = by_id[entry.question_id]
         question = item.question
         text = (entry.answer or "").strip()
+        dedup_key = _dedup_key(cleaned_topic, seed, question.id)
+
+        existing = await _find_dedup(session, dedup_key)
+        if existing is not None:
+            results.append(
+                PracticeAnswerResult(
+                    question_id=question.id,
+                    mode=item.mode,
+                    status=_stored_status(existing),
+                    practice_record_id=existing.id,
+                    reused=True,
+                )
+            )
+            continue
 
         if item.mode == "system":
             if not text:
@@ -270,10 +306,30 @@ async def submit_practice(
             problem_text=question.prompt,
             student_answer=text or None,
             is_correct=is_correct,
+            topic_id=cleaned_topic,
+            seed=seed,
+            dedup_key=dedup_key,
             created_at=moment,
         )
-        session.add(row)
-        await session.flush()
+        try:
+            async with session.begin_nested():
+                session.add(row)
+                await session.flush()
+        except IntegrityError:
+            # 并发重复提交：唯一索引兜底，回看已有行。
+            existing = await _find_dedup(session, dedup_key)
+            if existing is None:
+                raise
+            results.append(
+                PracticeAnswerResult(
+                    question_id=question.id,
+                    mode=item.mode,
+                    status=_stored_status(existing),
+                    practice_record_id=existing.id,
+                    reused=True,
+                )
+            )
+            continue
         results.append(
             PracticeAnswerResult(
                 question_id=question.id,

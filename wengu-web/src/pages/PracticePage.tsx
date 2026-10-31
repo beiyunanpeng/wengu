@@ -252,11 +252,22 @@ export default function PracticePage() {
                     <Text size="xs" c="dimmed">
                       {status.mode === "system" ? "服务端判分" : "学生自评"}
                     </Text>
+                    {status.reused && (
+                      <Badge color="blue" variant="light">
+                        已有记录
+                      </Badge>
+                    )}
                   </Group>
                 )}
               </Stack>
             );
           })}
+
+          {result && result.items.some((item) => item.reused) && (
+            <Alert color="blue" variant="light" title="这一组已经提交过">
+              同题重复提交不会新增记录，下面显示的是已有作答。
+            </Alert>
+          )}
 
           {result ? (
             <Group>
