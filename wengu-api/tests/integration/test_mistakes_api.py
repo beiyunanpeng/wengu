@@ -305,7 +305,7 @@ async def test_void_and_unvoid_mistake_lifecycle(tmp_path) -> None:
         due_before = await client.get(
             "/api/reviews/due", params={"today": due_day}
         )
-        assert due_before.json()["total"] == 1
+        assert due_before.json()["due_total"] == 1
 
         voided = await client.post(
             f"/api/mistakes/{mistake_id}/void",
@@ -353,7 +353,7 @@ async def test_void_and_unvoid_mistake_lifecycle(tmp_path) -> None:
     assert active_list.json()["total"] == 0
     assert all_list.json()["total"] == 1
     assert all_list.json()["items"][0]["status"] == "voided"
-    assert due_after.json()["total"] == 0
+    assert due_after.json()["due_total"] == 0
     assert detail.status_code == 200
     assert detail.json()["status"] == "voided"
     assert detail.json()["current_version"] == 1
@@ -367,7 +367,7 @@ async def test_void_and_unvoid_mistake_lifecycle(tmp_path) -> None:
     assert again_unvoid.status_code == 200, again_unvoid.text
     assert again_unvoid.json()["status"] == "active"
     assert bad_actor_unvoid.status_code == 409
-    assert due_restored.json()["total"] == 1
+    assert due_restored.json()["due_total"] == 1
     assert due_restored.json()["items"][0]["mistake_id"] == mistake_id
     assert final_list.json()["total"] == 1
 

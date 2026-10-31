@@ -64,7 +64,10 @@ class DueReviewItem(BaseModel):
 
 class DueReviewResponse(BaseModel):
     items: list[DueReviewItem]
-    total: int
+    due_total: int
+    returned: int
+    today_completed: int
+    daily_limit: int
     today: date
     limit: int
 
@@ -158,7 +161,7 @@ async def due_reviews(
 ) -> DueReviewResponse:
     day = today or date.today()
     async with session.begin():
-        rows = await due_queue(session, day, limit=limit)
+        queue = await due_queue(session, day, limit=limit)
         items = [
             DueReviewItem(
                 schedule_id=row.schedule.id,
@@ -183,10 +186,16 @@ async def due_reviews(
                     else None
                 ),
             )
-            for row in rows
+            for row in queue.items
         ]
     return DueReviewResponse(
-        items=items, total=len(items), today=day, limit=limit
+        items=items,
+        due_total=queue.due_total,
+        returned=queue.returned,
+        today_completed=queue.today_completed,
+        daily_limit=queue.daily_limit,
+        today=day,
+        limit=limit,
     )
 
 

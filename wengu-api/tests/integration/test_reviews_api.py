@@ -7,6 +7,7 @@ v2.5：错题经"外部转录 → 核对页确认"入本；系统内零模型调
 from __future__ import annotations
 
 import json
+import socket
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime, timedelta
@@ -21,6 +22,7 @@ from app.main import create_app
 from app.models import (
     Attempt,
     Concept,
+    GradingVersion,
     KnowledgeSeed,
     LearningEvent,
     Mistake,
@@ -236,6 +238,67 @@ async def _due_items(client: AsyncClient, day: date) -> list[dict]:
     return response.json()["items"]
 
 
+async def _set_due(
+    factory: async_sessionmaker, mistake_id: int, day: date
+) -> None:
+    async with factory() as session, session.begin():
+        rows = (
+            await session.scalars(
+                select(ReviewSchedule).where(
+                    ReviewSchedule.mistake_id == mistake_id,
+                    ReviewSchedule.completed_at.is_(None),
+                )
+            )
+        ).all()
+        assert rows
+        for row in rows:
+            row.due_date = day
+
+
+def _write_app_config(tmp_path: Path, limit: int) -> Path:
+    path = tmp_path / "app-config.json"
+    path.write_text(
+        json.dumps({"daily_review_limit": limit}), encoding="utf-8"
+    )
+    return path
+
+
+async def _row_counts(factory: async_sessionmaker) -> dict[str, int]:
+    async with factory() as session:
+        return {
+            "events": int(
+                await session.scalar(
+                    select(func.count()).select_from(LearningEvent)
+                )
+                or 0
+            ),
+            "mistakes": int(
+                await session.scalar(select(func.count()).select_from(Mistake))
+                or 0
+            ),
+            "schedules": int(
+                await session.scalar(
+                    select(func.count()).select_from(ReviewSchedule)
+                )
+                or 0
+            ),
+            "attempts": int(
+                await session.scalar(select(func.count()).select_from(Attempt))
+                or 0
+            ),
+            "grading_versions": int(
+                await session.scalar(
+                    select(func.count()).select_from(GradingVersion)
+                )
+                or 0
+            ),
+        }
+
+
+def _boom(*_args, **_kwargs):
+    raise AssertionError("到期队列只读端点不得发起任何网络调用")
+
+
 @pytest.mark.integration
 async def test_confirm_wrong_schedules_and_three_corrects_graduate(tmp_path) -> None:
     factory = _migrated(tmp_path)
@@ -276,13 +339,13 @@ async def test_confirm_wrong_schedules_and_three_corrects_graduate(tmp_path) -> 
             "/api/reviews/due",
             params={"today": (initial.due_date - timedelta(days=1)).isoformat()},
         )
-        assert before_due.json()["total"] == 0
+        assert before_due.json()["due_total"] == 0
 
         due = await client.get(
             "/api/reviews/due", params={"today": initial.due_date.isoformat()}
         )
         assert due.status_code == 200
-        assert due.json()["total"] == 1
+        assert due.json()["due_total"] == 1
         item = due.json()["items"][0]
         assert item["schedule_id"] == initial.id
         assert item["mistake_id"] == mistake_id
@@ -349,7 +412,7 @@ async def test_confirm_wrong_schedules_and_three_corrects_graduate(tmp_path) -> 
         remaining = await client.get(
             "/api/reviews/due", params={"today": second_body["due_on"]}
         )
-        assert remaining.json()["total"] == 0
+        assert remaining.json()["due_total"] == 0
 
     schedules = await _schedules(factory, mistake_id)
     assert len(schedules) == 3
@@ -470,10 +533,10 @@ async def test_due_queue_filters_completed_and_future(tmp_path) -> None:
                 ).isoformat()
             },
         )
-        assert future.json()["total"] == 0
+        assert future.json()["due_total"] == 0
 
         both = await client.get("/api/reviews/due", params={"today": due_day})
-        assert both.json()["total"] == 2
+        assert both.json()["due_total"] == 2
         assert [item["schedule_id"] for item in both.json()["items"]] == [
             first_schedule.id,
             second_schedule.id,
@@ -495,8 +558,122 @@ async def test_due_queue_filters_completed_and_future(tmp_path) -> None:
         only_second = await client.get(
             "/api/reviews/due", params={"today": due_day}
         )
-        assert only_second.json()["total"] == 1
+        assert only_second.json()["due_total"] == 1
         assert only_second.json()["items"][0]["schedule_id"] == second_schedule.id
+
+
+@pytest.mark.integration
+async def test_due_queue_daily_limit_defers_overflow_and_orders_overdue_first(
+    tmp_path, monkeypatch
+) -> None:
+    factory = _migrated(tmp_path)
+    await _seed_topic(factory)
+    monkeypatch.setenv(
+        "WENGU_APP_CONFIG", str(_write_app_config(tmp_path, 10))
+    )
+    today = date(2026, 10, 31)
+
+    async with _client(factory) as client:
+        mistake_ids = [
+            (await _confirm_wrong(client))["mistake_id"] for _ in range(12)
+        ]
+        # 前 3 条逾期（due_date 升序），其余 9 条今日到期
+        overdue_days = [
+            today - timedelta(days=3),
+            today - timedelta(days=2),
+            today - timedelta(days=1),
+        ]
+        for mistake_id, day in zip(mistake_ids[:3], overdue_days, strict=True):
+            await _set_due(factory, mistake_id, day)
+        for mistake_id in mistake_ids[3:]:
+            await _set_due(factory, mistake_id, today)
+
+        before = await _row_counts(factory)
+        with monkeypatch.context() as guard:
+            guard.setattr(socket, "create_connection", _boom)
+            guard.setattr(socket.socket, "connect", _boom)
+            response = await client.get(
+                "/api/reviews/due", params={"today": today.isoformat()}
+            )
+        after = await _row_counts(factory)
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        replay = await client.get(
+            "/api/reviews/due", params={"today": today.isoformat()}
+        )
+
+    assert before == after  # 纯查询：各表行数不变
+    assert payload == replay.json()  # 同输入排序稳定
+    assert payload["due_total"] == 12
+    assert payload["returned"] == 10
+    assert payload["daily_limit"] == 10
+    assert payload["today_completed"] == 0
+    assert len(payload["items"]) == 10
+    # 超限 2 项顺延（due_total - returned），不是失败
+    assert payload["due_total"] - payload["returned"] == 2
+
+    due_dates = [item["due_date"] for item in payload["items"]]
+    assert due_dates[:3] == [day.isoformat() for day in overdue_days]
+    assert due_dates[3:] == [today.isoformat()] * 7
+    assert [item["mistake_id"] for item in payload["items"]] == mistake_ids[:10]
+
+
+@pytest.mark.integration
+async def test_due_queue_hot_config_and_today_completed_from_events(
+    tmp_path, monkeypatch
+) -> None:
+    factory = _migrated(tmp_path)
+    await _seed_topic(factory)
+    monkeypatch.setenv(
+        "WENGU_APP_CONFIG", str(_write_app_config(tmp_path, 10))
+    )
+    today = date(2026, 10, 31)
+    url = "/api/reviews/due"
+
+    async with _client(factory) as client:
+        bodies = [await _confirm_wrong(client) for _ in range(3)]
+        schedule_ids: list[int] = []
+        for body in bodies:
+            (schedule,) = await _schedules(factory, body["mistake_id"])
+            await _set_due(factory, body["mistake_id"], today)
+            schedule_ids.append(schedule.id)
+
+        first = (await client.get(url, params={"today": today.isoformat()})).json()
+        assert first["due_total"] == 3
+        assert first["returned"] == 3
+        assert first["daily_limit"] == 10
+        # 确认入本产生的 attempt_wrong 不是复习完成（payload.kind 缺省）
+        assert first["today_completed"] == 0
+
+        _write_app_config(tmp_path, 1)  # 改 json 不重启
+        capped = (await client.get(url, params={"today": today.isoformat()})).json()
+        assert capped["daily_limit"] == 1
+        assert capped["returned"] == 1
+        assert capped["due_total"] == 3
+
+        _write_app_config(tmp_path, 10)
+        restored = (
+            await client.get(url, params={"today": today.isoformat()})
+        ).json()
+        assert restored["daily_limit"] == 10
+        assert restored["returned"] == 3
+
+        for body, schedule_id in zip(bodies[:2], schedule_ids[:2], strict=True):
+            completed = await client.post(
+                f"/api/reviews/{body['mistake_id']}/complete",
+                json={
+                    "schedule_id": schedule_id,
+                    "correct": True,
+                    "completed_on": today.isoformat(),
+                },
+            )
+            assert completed.status_code == 200, completed.text
+
+        after = (await client.get(url, params={"today": today.isoformat()})).json()
+
+    assert after["today_completed"] == 2
+    assert after["due_total"] == 1
+    assert after["returned"] == 1
 
 
 @pytest.mark.integration
@@ -736,7 +913,7 @@ async def test_intake_without_known_subject_keeps_mistake_without_schedule(
 
     assert body["primary_topic_id"] is None
     assert body["due_on"] is None
-    assert due.json()["total"] == 0
+    assert due.json()["due_total"] == 0
     assert await _count(factory, Mistake) == 1
     assert await _count(factory, ReviewSchedule) == 0
     async with factory() as session:

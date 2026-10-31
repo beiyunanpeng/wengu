@@ -6,6 +6,7 @@ import {
   Divider,
   Group,
   Loader,
+  Progress,
   Select,
   Stack,
   Text,
@@ -118,7 +119,9 @@ export default function ReviewPage() {
             items: previous.items.filter(
               (entry) => entry.schedule_id !== scheduleId,
             ),
-            total: Math.max(0, previous.total - 1),
+            due_total: Math.max(0, previous.due_total - 1),
+            returned: Math.max(0, previous.returned - 1),
+            today_completed: previous.today_completed + 1,
           }
         : previous,
     );
@@ -288,6 +291,14 @@ export default function ReviewPage() {
     );
   }
 
+  // 今日工作量 = 剩余到期 + 今天已完成，再按每日上限截断；
+  // 完成一项时 due_total 减 1、today_completed 加 1，分母保持不变。
+  const goal = due
+    ? Math.min(due.due_total + due.today_completed, due.daily_limit)
+    : 0;
+  const done = Math.min(due?.today_completed ?? 0, goal);
+  const deferred = due ? Math.max(0, due.due_total - due.items.length) : 0;
+
   return (
     <Stack gap="md">
       <Group justify="space-between" align="center">
@@ -295,7 +306,7 @@ export default function ReviewPage() {
         <Group gap="xs">
           {due && (
             <Text size="sm" c="dimmed">
-              今天 {due.today} · 到期 {due.total} 道
+              今天 {due.today} · 到期 {due.due_total} 道
             </Text>
           )}
           <Button size="compact-sm" variant="subtle" onClick={() => void load()}>
@@ -309,6 +320,32 @@ export default function ReviewPage() {
         解答大题或依赖图形则在纸上做、照卷面自评；题库缺口则重做原题。
         考核结果不新建错题本条目。
       </Text>
+
+      {due && goal > 0 && (
+        <Card withBorder>
+          <Stack gap="xs">
+            <Group justify="space-between" align="center" wrap="wrap">
+              <Text fw={600}>
+                今日任务 {done}/{goal} 完成
+              </Text>
+              <Text size="xs" c="dimmed">
+                一次只做上限内的量，做完就收工
+              </Text>
+            </Group>
+            <Progress
+              value={goal > 0 ? (done / goal) * 100 : 0}
+              color={done >= goal ? "teal" : "blue"}
+              radius="xl"
+              aria-label={`今日任务进度 ${done}/${goal}`}
+            />
+            {deferred > 0 && (
+              <Alert color="blue" variant="light">
+                今日已到上限 {due.daily_limit}，其余 {deferred} 项顺延（明天还在，不会丢）
+              </Alert>
+            )}
+          </Stack>
+        </Card>
+      )}
 
       {loading && (
         <Group justify="center" py="xl">
@@ -360,10 +397,16 @@ export default function ReviewPage() {
         </Alert>
       ))}
 
-      {!loading && !error && due && due.items.length === 0 && (
-        <Alert color="blue" variant="light" title="今天没有到期复习">
-          到期时间按实际完成日起算。可以去导入页转录新错题；家长解锁后还可手动组卷练习。
-        </Alert>
+      {!loading && !error && due && due.due_total === 0 && (
+        due.today_completed > 0 ? (
+          <Alert color="teal" variant="light" title="今天的到期复习已完成">
+            到期时间按实际完成日起算，新的排期会按间隔自动出现。
+          </Alert>
+        ) : (
+          <Alert color="blue" variant="light" title="今天没有到期复习">
+            到期时间按实际完成日起算。可以去导入页转录新错题；家长解锁后还可手动组卷练习。
+          </Alert>
+        )
       )}
 
       {due?.items.map((item) => (
