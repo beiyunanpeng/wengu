@@ -1,9 +1,9 @@
 # STATUS.md — 开发计划与完成情况
 
-> 快照日期：2026-10-31（P2-1 日队列收窄口径交付后）
-> 分支 / HEAD：`main` / `a2b3ec4`（P2-1 改动尚未提交，工作区含本票变更）
-> 全量测试：**314 passed**（本机 2026-10-31，54.92s）；`ruff check .` 全绿；`npm run build` 绿
-> Alembic head：`0014_parent_pin`；业务表 19 张
+> 快照日期：2026-10-31（P2-3 课表/日历约束层交付后）
+> 分支 / HEAD：`main` / `a2b3ec4`（P2-1 / P2-3 改动尚未提交，工作区含本票变更）
+> 全量测试：**329 passed**（本机 2026-10-31，60.01s）；`ruff check .` 全绿；`npm run build` 绿
+> Alembic head：`0015_timetable_calendar`；业务表 21 张
 
 本文件是**状态快照**，不替代以下事实源；冲突时以它们为准：
 
@@ -33,6 +33,12 @@
   日历条）；当天有任一作答事件即打卡（答错也算），学习日取 `completed_on`、缺失回退
   `occurred_at`；今天缺席但昨天有 → 锚昨天不清零，连续两天缺席才归零。streak **绝不入库**、
   每请求现算，**不用于学习效果结论**；无手动签到按钮、无积分/徽章/等级。
+- **P2-3 课表/日历约束层已交付**：导航第 7 项「课表/日历」录入每周课表（一节一科，周一=1、
+  第 1–12 节，不做 A/B 周）与日历硬事件（考试/竞赛/请假/其它）；家长解锁可增删，孩子只读同见；
+  日队列页与看板头部显示“今日课程 + 未来 7 天硬事件”。**唯一队列规则**：今天有 `kind='exam'`
+  事件时复习上限 ×`exam_day_limit_factor`（默认 1.5、热生效、200 收口）并返回 `exam_today`；
+  竞赛/请假/其它不放宽。**不自动排课、不做时间块、不做考试科目↔知识点重排序、不做冲突检测、
+  不从课表生成任务**；迁移 `0015_timetable_calendar` 可逆。
 - **P2-1 日队列（收窄口径）已交付**：到期队列仍纯查询，每日上限 `daily_review_limit`
   （`config/app-config.json`，默认 10、改文件热生效）截断返回、只计数；响应新增
   `due_total / returned / today_completed / daily_limit`，排序“逾期 `due_date` 升序 → 今日、
@@ -51,7 +57,7 @@
 |---|---|---|---|
 | Phase 0 | 摸底 + 回归基线 | 部分完成 | 首轮实测结论已在 `docs/methodology/phase0.md`；v2.5 后"识别瓶颈"由批改外移绕过，边界表不再是入本前置 |
 | Phase 1 | 核心闭环 | 进行中 | P1-0～P1-12 完成（模型在环旧链路已退役）；仅剩 P1-7b，P1-7c 阻塞 |
-| Phase 2 | 每日任务 + 家长看板 | 进行中 | P2-5 家长看板、P2-4 两角色 + 本地 PIN、P2-6 极简打卡、P2-1 日队列（本轮仅到期复习/考核）已完成；番茄钟、课表、日队列的背诵/作业/硬事件、PDF 导出未开始 |
+| Phase 2 | 每日任务 + 家长看板 | 进行中 | P2-5 家长看板、P2-4 两角色 + 本地 PIN、P2-6 极简打卡、P2-1 日队列（本轮仅到期复习/考核）、P2-3 课表/日历约束层已完成；番茄钟、日队列的背诵/作业/硬事件权重、PDF 导出未开始 |
 | Phase 3 | 内容与扩展 | 未开始 | 真题库流水线、组卷扩展、英语背诵、听力默写、语文、信奥、长期计划 |
 | Phase 4 | 基础设施演进 | 未开始 | Tailscale、可移植部署、可选本地 GPU |
 | Phase 5 | 开源分发与打包 | 未启动（部分基线已有） | LICENSE / README / CHANGELOG / `.env.example` / 第三方署名已就位；首次运行向导、备份恢复、鉴权开关、教材包安装器未做 |
@@ -112,7 +118,10 @@
   `attempt_*` 事件（`payload.kind="review"` 且 `completed_on==today`）现算。
   复习页显示“今日任务 x/y 完成”，`y=min(due_total+today_completed, daily_limit)`；
   超限提示“其余 M 项顺延（明天还在，不会丢）”，**不惩罚、不加重做、不做焦虑 UI**。
-  背诵铺底 / 作业 deadline / 硬事件抬权重 / 时间块排课未做（依赖 P2-3、P3）。
+  **考试日放宽（P2-3）**：今天有 `kind='exam'` 日历事件时上限
+  `min(round(cap × exam_day_limit_factor), 200)`，响应 `exam_today=true`、`daily_limit`
+  为放大后的值；竞赛/请假/其它不放宽，排序与任务类型不变。
+  背诵铺底 / 作业 deadline / 硬事件抬权重 / 时间块排课未做（依赖 P3）。
 - 手动组卷：按知识点出 1–20 题，固定 seed 可 `replay_paper`；客户端 `correct` 一律忽略。
 - 题面只下发题干/选项/题型/配图 + 质量标签，**绝不下发答案/解析/verify**。
 
@@ -151,21 +160,37 @@
 - **纪律**：streak 绝不入库，每次请求由 `services/streak.py` 纯函数现算；只做习惯展示，
   **不用于学习效果结论**；无手动签到按钮、无写库路径、无积分/徽章/等级/排行榜。
 
-### 4.7 前端（六页导航 + 错题详情）
+### 4.7 前端（七页导航 + 错题详情）
 
 - `/dashboard` 看板；`/import` 导入说明 + 家长手填最小表单；`/intake` 核对入本；
-  `/mistakes` + `/:id` 错题本；`/review` 到期三态 + 今日进度/顺延提示 + 手动组卷；
-  `/records` 练习记录；数学 KaTeX 渲染，同源 `/api` 代理。看板曲线为内联 SVG，不引入图表库。
+  `/mistakes` + `/:id` 错题本；`/review` 到期三态 + 今日进度/顺延提示 + 手工组卷；
+  `/schedule` 课表/日历（家长解锁可增删，未解锁只读）；`/records` 练习记录；
+  数学 KaTeX 渲染，同源 `/api` 代理。看板曲线为内联 SVG，不引入图表库。
 - 导航右侧"家长区"入口：未设 PIN 首次引导设置，已设则解锁；解锁态存 cookie、刷新保持；
-  错题详情的作废/撤销、复习页的手动组卷仅在解锁后可见。
+  错题详情的作废/撤销、复习页的手动组卷、课表/日历的增删仅在解锁后可见。
 - 纯查询页零模型调用（内核已无模型可调）；看板页无推送/锁屏/问责，无积分/徽章。
+- 复习页与看板头部共用只读摘要组件：今日课程（按 `period` 排序）+ 未来 7 天硬事件（排除请假）。
 
 ### 4.8 基础设施
 
 - `learning_events` 只追加 + UNIQUE 幂等键 + UPDATE/DELETE 触发器。
 - 掌握度 / 毕业 / 统计由事实确定性重算；同源改判只取最高版本。
-- SQLite WAL + Alembic（head 0014）；迁移含备份/回退说明与迁移测试。
+- SQLite WAL + Alembic（head 0015）；迁移含备份/回退说明与迁移测试。
 - 日志/事件 payload 不落题目全文、答案、文件 URL、PII；`attempts.answer_text` 恒 NULL。
+
+### 4.9 课表 / 日历约束层（P2-3）
+
+- **数据**：`timetable_slots`（`weekday` 1–7 周一=1、`period` 1–12、`subject`、`note`，
+  `UNIQUE(weekday, period)` = 一节一科、无 A/B 周）；`calendar_events`（`date`、`title`、
+  `kind ∈ {exam, competition, leave, other}`、`subject`、`note`、`INDEX(date)`）。
+- **入口**：`/schedule` 页；家长解锁后可增删（改写 = 删除再添加，无 PATCH），孩子只读同见。
+  写端点挂 `require_parent`；读端点孩子区免 PIN。weekday/period/kind/日期非法 → 422，
+  同一节次重复 → 409，删除不存在 → 404。
+- **约束规则（唯一）**：`due_queue` 查今天是否有 `exam` 事件，有则上限 ×
+  `exam_day_limit_factor`（默认 1.5、非法/小于 1 回退默认、`min(..., 200)` 收口）。
+  **不做**：自动排课 / 时间块 / 考试科目↔知识点重排序 / 冲突检测 / 从课表生成任务。
+- **展示**：日队列页与看板头部“今日课程 + 未来 7 天硬事件”；复习页考试日提示
+  “复习上限已临时放宽到 N 道”。事件默认窗口今天起 30 天，接口支持显式 `from`/`to`。
 
 ## 5. API 与数据现状
 
@@ -179,21 +204,24 @@
 | 错题 / 标签 | `GET /api/mistakes`、`GET /api/mistakes/{id}`、`GET /api/mistakes/options`、`POST /api/mistakes/{id}/labels`、`POST /api/mistakes/{id}/void`、`POST /api/mistakes/{id}/unvoid` |
 | 概念 | `GET /api/concepts`、`POST /api/concepts`、`POST /api/concepts/merge` |
 | 题库 | `POST /api/problem-bank/import`、`GET /api/problem-bank/items/{id}` |
-| 复习 | `GET /api/reviews/due`（纯查询；按 `daily_review_limit` 截断，响应含 `due_total` / `returned` / `today_completed` / `daily_limit`）、`POST /api/reviews/{mistake_id}/quiz`、`POST /api/reviews/{mistake_id}/complete` |
+| 复习 | `GET /api/reviews/due`（纯查询；按 `daily_review_limit` 截断，响应含 `due_total` / `returned` / `today_completed` / `daily_limit` / `exam_today`）、`POST /api/reviews/{mistake_id}/quiz`、`POST /api/reviews/{mistake_id}/complete` |
+| 课表 | `GET /api/timetable`、`POST /api/timetable/slots`、`DELETE /api/timetable/slots/{id}` |
+| 日历 | `GET /api/calendar/events?from=&to=`（缺省今天起 30 天）、`POST /api/calendar/events`、`DELETE /api/calendar/events/{id}` |
 | 组卷 | `GET /api/quizzes/topics`、`GET /api/quizzes/paper`、`POST /api/quizzes/paper/submit` |
 | 练习记录 | `GET /api/attempts`、`DELETE /api/attempts`、`GET/POST/DELETE /api/practice-records` |
 | 看板 | `GET /api/dashboard`（只读，可选 `today` / `curve_days` 1–90；响应含 `streak`） |
 | 会话 / 家长 PIN | `GET /api/session/status`、`POST /api/session/pin/set`、`POST /api/session/unlock`、`POST /api/session/lock` |
 
 家长区（`require_parent`，未解锁 403）：`POST /api/mistakes/{id}/void|unvoid`、
-`POST /api/problem-bank/import`、`GET /api/problem-bank/items/{id}`、`GET /api/quizzes/paper`。
-其余端点（导入、核对确认、到期、考核提交/自评、错题/看板只读）孩子区免 PIN。
+`POST /api/problem-bank/import`、`GET /api/problem-bank/items/{id}`、`GET /api/quizzes/paper`、
+`POST/DELETE /api/timetable/slots*`、`POST/DELETE /api/calendar/events*`。
+其余端点（导入、核对确认、到期、考核提交/自评、错题/看板/课表/日历只读）孩子区免 PIN。
 
 已删除（P1-12）：`/api/captures*`、`/api/extractions*`、`/api/gradings*`、`/api/explanations*`。
 
 ### 5.2 数据库与 seed
 
-- Alembic head `0014_parent_pin`；19 张业务表。
+- Alembic head `0015_timetable_calendar`；21 张业务表。
 - `user_role` 由 `0014_parent_pin` 保证存在 `(role='parent', pin_hash=NULL)` 行；PIN 设置后存 scrypt 哈希。
 - `model_runs` / `ai_jobs` 已 DROP（0013，down 可重建空表）。
 - `photo_captures` / `photo_capture_items` / `problem_extractions` 表结构保留但**无写入方**
@@ -201,8 +229,9 @@
 - seed：664 知识点（数学 315 / 英语 257 / 物理 92）+ 1018 先修边 + 2803 题
   （数学 1407 / 英语 1028 / 物理 368）；化学、语文空 seed 起步。
 - 运行时非密钥参数：`config/app-config.json`（gitignore，本机配置；示例见
-  `config/app-config.example.json`）当前仅 `daily_review_limit`，每请求现读、改文件热生效；
-  缺失/非法回退默认 10。密钥仍只走 `wengu-api/.env`。
+  `config/app-config.example.json`）当前含 `daily_review_limit`（默认 10）与
+  `exam_day_limit_factor`（默认 1.5），每请求现读、改文件热生效；缺失/非法回退默认。
+  密钥仍只走 `wengu-api/.env`。
 - 掌握度 = 已确认 concept 的最小 mastery；`attempts.source ∈ {student_self, system_quiz}` 计入。
 
 ## 6. 未完成、阻塞与缺口
@@ -219,7 +248,7 @@
 | 历史作废/申诉入口 | 部分恢复 | 作废 / 撤销作废已有 HTTP 入口与事件留痕；申诉改判仍未开 | 如需申诉改判，另开"错题状态修订"工单，不复活模型链 |
 | 鉴权 / 本地 PIN | 部分完成 | P2-4 本地家长 PIN 已做（只防误入，非安全边界）；公网鉴权/隔离仍未做 | 公网暴露前走 P5-3 真鉴权或 Tailscale |
 | 化学 / 语文 seed | 未做 | 两科从空 seed 起步 | 家长按教材目录建章级粗粒度 seed |
-| Phase 2 剩余 | 未开始 | 番茄钟、课表、PDF 导出缺失；日队列仅完成“到期复习/考核”组织，背诵铺底 / 作业 deadline / 硬事件抬权重未做（依赖 P2-3、P3） | 按 TICKETS 顺序 |
+| Phase 2 剩余 | 未开始 | 番茄钟、PDF 导出缺失；课表/日历只做约束层（不排课、不生成任务）；日队列仅完成“到期复习/考核”组织，背诵铺底 / 作业 deadline / 硬事件抬权重未做（依赖 P3） | 按 TICKETS 顺序 |
 | Phase 3–5 | 未开始 | 真题库、组卷扩展、英语背诵、信奥、分发向导等缺失 | 按 TICKETS 顺序 |
 
 ## 7. 残留风险与技术债
@@ -249,6 +278,10 @@
     （不得把该计数落成易变列）。
 12. **日队列上限不是任务欠账**：顺延项只截断展示，不写库、不惩罚、不加重做；次日仍按原
     `due_date` 出现在队列中，“实际完成日起算”保证不丢。
+13. **课表/日历只是约束层**：`timetable_slots` 不参与选题、排序或冲突检测，也没有 A/B 周；
+    `calendar_events` 只有 `kind='exam'` 影响上限，且按服务器本地日期判断“今天”。
+    事件列表默认窗口 30 天，更远的考试需在查询中显式给 `from`/`to`；无时区存储，
+    跨时区/跨零点使用需自行确认日期口径。课表/日历写端点无 UI 以外入口，均走 `require_parent`。
 
 ## 8. 工程不变量（已落地，后续不得回退）
 
@@ -266,6 +299,8 @@
 - 到期队列纯查询：每日上限只截断返回并计数，**不写库、不惩罚顺延、不自动加重做**；
   `today_completed` 从事件现算，不新增易变计数列；排序（逾期 `due_date` 升序 → 今日，
   同组 `mistake_id`）稳定、同输入必同输出。
+- 课表/日历只做约束层：不参与选题、排序、冲突检测，不从课表生成任务；写端点挂
+  `require_parent`；唯一队列影响是考试日按热配置系数放大上限。
 
 ## 9. 下一步建议（按依赖与风险排序）
 
@@ -273,8 +308,8 @@
 2. **复习掌握度归因**：把已确认 concept 写入事实，让 mastery 不再恒 0.0。
 3. **外部转录质量实测（P0-1 新口径）**：用真实已批改卷跑模板，统计 `〔?〕` 率、漏题率、
    核对页修改率；据此迭代 `docs/templates/doubao_transcribe_v1.md` 版本。
-4. **Phase 2 剩余**：番茄钟 / 课表 / PDF 导出；日队列的背诵铺底、作业 deadline、硬事件抬权重
-   待 P2-3 与 P3；P2-1 收窄口径、P2-4 两角色、P2-5 看板、P2-6 打卡已完成。
+4. **Phase 2 剩余**：番茄钟 / PDF 导出；日队列的背诵铺底、作业 deadline、硬事件抬权重
+   待 P3；P2-1 收窄口径、P2-3 课表/日历、P2-4 两角色、P2-5 看板、P2-6 打卡已完成。
 5. **P5-3 公网鉴权**（本地 PIN 已做，但非安全边界）与桌面备份恢复，随分发需求穿插。
 
 ## 10. 后续阶段工单清单（均未开始）
@@ -287,7 +322,7 @@
 |---|---|
 | P2-1 | 部分完成（本轮收窄口径）：到期复习/考核组织、每日上限（热配置）、今日进度与顺延提示已交付；固定背诵铺底、作业 deadline 插入、硬事件抬权重待 P2-3/P3 |
 | P2-2 | 番茄钟执行：对下一项计时，完成打点写 `learning_events` |
-| P2-3 | 课表/日历约束层：录入后喂 P2-1，不作为任务源主体 |
+| P2-3 | 已完成：课表/日历约束层。家长录入每周课表 + 日历硬事件、孩子只读同见；唯一队列规则 = 考试日放宽上限（热配置系数）；不自动排课/时间块/冲突检测/从课表生成任务 |
 | P2-4 | 已完成：两角色 + 本地 PIN。孩子区免 PIN；家长区（作废/组卷/题库审核）scrypt 哈希 + 签名 cookie 解锁；不做公网账号体系 |
 | P2-5 | 已完成：家长看板（观察复盘型），`GET /api/dashboard` 只读确定性统计，孩子见同一份；无模型/写路径 |
 | P2-6 | 已完成：极简打卡。看板打卡卡（今日/连续/最长/累计/近 30 天日历条）；streak 从事实现算、不入库，答错也续签；无手动签到、无积分徽章，不用于学习结论 |

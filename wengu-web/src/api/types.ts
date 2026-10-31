@@ -137,6 +137,7 @@ export interface DueReviewResponse {
   returned: number;
   today_completed: number;
   daily_limit: number;
+  exam_today: boolean;
   today: string;
   limit: number;
 }
@@ -453,4 +454,31 @@ export interface DashboardResponse {
 export interface SessionStatus {
   pin_set: boolean;
   parent_unlocked: boolean;
+}
+
+export type CalendarKind = "exam" | "competition" | "leave" | "other";
+
+export interface TimetableSlot {
+  id: number;
+  weekday: number;
+  period: number;
+  subject: string;
+  note: string | null;
+}
+
+export interface TimetableResponse {
+  items: TimetableSlot[];
+}
+
+export interface CalendarEvent {
+  id: number;
+  date: string;
+  title: string;
+  kind: CalendarKind;
+  subject: string | null;
+  note: string | null;
+}
+
+export interface CalendarEventsResponse {
+  items: CalendarEvent[];
 }

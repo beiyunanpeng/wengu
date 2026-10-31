@@ -9,10 +9,12 @@ from app.models.ingestion import (
 from app.models.knowledge import Concept, ConceptAlias, KnowledgeSeed, PrerequisiteEdge
 from app.models.mistakes import Mistake, MistakeVersion, PracticeRecord
 from app.models.review import ReviewSchedule
+from app.models.schedule import CalendarEvent, TimetableSlot
 from app.models.users import UserRole
 
 __all__ = [
     "Attempt",
+    "CalendarEvent",
     "Concept",
     "ConceptAlias",
     "GradingResult",
@@ -29,5 +31,6 @@ __all__ = [
     "PrerequisiteEdge",
     "ProblemBankItem",
     "ReviewSchedule",
+    "TimetableSlot",
     "UserRole",
 ]

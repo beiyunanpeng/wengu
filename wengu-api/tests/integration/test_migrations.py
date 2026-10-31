@@ -30,6 +30,8 @@ EXPECTED_TABLES = {
     "review_schedules",
     "user_role",
     "prerequisite_edges",
+    "timetable_slots",
+    "calendar_events",
 }
 
 # 易变状态一律不存字段（AGENTS §5：掌握度/毕业/统计由事实推导）
@@ -117,6 +119,96 @@ def test_learning_events_append_only_guard(tmp_path) -> None:
             )
     finally:
         engine.dispose()
+
+
+@pytest.mark.integration
+def test_p2_3_timetable_and_calendar_up_down_up(tmp_path) -> None:
+    """0015：课表/日历两表可逆；一条一科、kind 枚举、日期索引由库层兜底。"""
+
+    db_path = tmp_path / "schedule.db"
+    config = _alembic_config(db_path)
+
+    command.upgrade(config, "0014_parent_pin")
+    assert {"timetable_slots", "calendar_events"}.isdisjoint(_tables(db_path))
+
+    command.upgrade(config, "head")
+    engine = create_engine(f"sqlite:///{db_path.as_posix()}")
+    try:
+        with engine.connect() as connection:
+            inspector = inspect(connection)
+            slot_columns = {
+                column["name"] for column in inspector.get_columns("timetable_slots")
+            }
+            event_columns = {
+                column["name"] for column in inspector.get_columns("calendar_events")
+            }
+            slot_uniques = {
+                constraint["name"]
+                for constraint in inspector.get_unique_constraints("timetable_slots")
+            }
+            event_indexes = {
+                index["name"] for index in inspector.get_indexes("calendar_events")
+            }
+        assert slot_columns == {"id", "weekday", "period", "subject", "note"}
+        assert event_columns == {
+            "id",
+            "date",
+            "title",
+            "kind",
+            "subject",
+            "note",
+        }
+        assert "uq_timetable_slots_weekday_period" in slot_uniques
+        assert "ix_calendar_events_date" in event_indexes
+
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO timetable_slots (weekday, period, subject)"
+                    " VALUES (1, 1, '数学')"
+                )
+            )
+            with pytest.raises(
+                sqlalchemy.exc.IntegrityError, match="timetable_slots.weekday"
+            ):
+                connection.execute(
+                    text(
+                        "INSERT INTO timetable_slots (weekday, period, subject)"
+                        " VALUES (1, 1, '语文')"
+                    )
+                )
+            with pytest.raises(sqlalchemy.exc.IntegrityError, match="CHECK"):
+                connection.execute(
+                    text(
+                        "INSERT INTO timetable_slots (weekday, period, subject)"
+                        " VALUES (9, 1, '语文')"
+                    )
+                )
+            connection.execute(
+                text(
+                    "INSERT INTO calendar_events (date, title, kind)"
+                    " VALUES ('2026-11-10', '月考', 'exam')"
+                )
+            )
+            with pytest.raises(sqlalchemy.exc.IntegrityError, match="CHECK"):
+                connection.execute(
+                    text(
+                        "INSERT INTO calendar_events (date, title, kind)"
+                        " VALUES ('2026-11-11', '旅游', 'holiday')"
+                    )
+                )
+            assert (
+                connection.scalar(text("SELECT COUNT(*) FROM calendar_events"))
+                == 1
+            )
+    finally:
+        engine.dispose()
+
+    command.downgrade(config, "0014_parent_pin")
+    assert {"timetable_slots", "calendar_events"}.isdisjoint(_tables(db_path))
+
+    command.upgrade(config, "head")
+    assert {"timetable_slots", "calendar_events"} <= _tables(db_path)
 
 
 @pytest.mark.integration

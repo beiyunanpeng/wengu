@@ -8,6 +8,7 @@ import MistakeDetailPage from "./pages/MistakeDetailPage";
 import MistakesPage from "./pages/MistakesPage";
 import RecordsPage from "./pages/RecordsPage";
 import ReviewPage from "./pages/ReviewPage";
+import SchedulePage from "./pages/SchedulePage";
 import { ParentSessionProvider } from "./parent/ParentSession";
 
 export default function App() {
@@ -22,6 +23,7 @@ export default function App() {
           <Route path="mistakes" element={<MistakesPage />} />
           <Route path="mistakes/:mistakeId" element={<MistakeDetailPage />} />
           <Route path="review" element={<ReviewPage />} />
+          <Route path="schedule" element={<SchedulePage />} />
           <Route path="records" element={<RecordsPage />} />
           <Route path="*" element={<Navigate to="/import" replace />} />
         </Route>

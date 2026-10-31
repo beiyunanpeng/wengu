@@ -21,12 +21,14 @@ from app.core.database import create_sqlite_engine, get_session
 from app.main import create_app
 from app.models import (
     Attempt,
+    CalendarEvent,
     Concept,
     GradingVersion,
     KnowledgeSeed,
     LearningEvent,
     Mistake,
     ReviewSchedule,
+    TimetableSlot,
 )
 from app.services.bank import find_same_type, get_bank
 from app.services.review import derive_review_state, quiz_seed
@@ -255,12 +257,29 @@ async def _set_due(
             row.due_date = day
 
 
-def _write_app_config(tmp_path: Path, limit: int) -> Path:
+def _write_app_config(
+    tmp_path: Path, limit: int, factor: float | None = None
+) -> Path:
+    payload: dict[str, object] = {"daily_review_limit": limit}
+    if factor is not None:
+        payload["exam_day_limit_factor"] = factor
     path = tmp_path / "app-config.json"
-    path.write_text(
-        json.dumps({"daily_review_limit": limit}), encoding="utf-8"
-    )
+    path.write_text(json.dumps(payload), encoding="utf-8")
     return path
+
+
+async def _add_event(
+    factory: async_sessionmaker,
+    day: date,
+    *,
+    kind: str = "exam",
+    title: str = "月考",
+) -> int:
+    async with factory() as session, session.begin():
+        row = CalendarEvent(date=day, title=title, kind=kind)
+        session.add(row)
+        await session.flush()
+        return row.id
 
 
 async def _row_counts(factory: async_sessionmaker) -> dict[str, int]:
@@ -289,6 +308,18 @@ async def _row_counts(factory: async_sessionmaker) -> dict[str, int]:
             "grading_versions": int(
                 await session.scalar(
                     select(func.count()).select_from(GradingVersion)
+                )
+                or 0
+            ),
+            "timetable_slots": int(
+                await session.scalar(
+                    select(func.count()).select_from(TimetableSlot)
+                )
+                or 0
+            ),
+            "calendar_events": int(
+                await session.scalar(
+                    select(func.count()).select_from(CalendarEvent)
                 )
                 or 0
             ),
@@ -674,6 +705,99 @@ async def test_due_queue_hot_config_and_today_completed_from_events(
     assert after["today_completed"] == 2
     assert after["due_total"] == 1
     assert after["returned"] == 1
+
+
+@pytest.mark.integration
+async def test_due_queue_exam_day_relaxes_limit_and_hot_factor(
+    tmp_path, monkeypatch
+) -> None:
+    """P2-3 唯一队列改动：当天有 exam 事件才放大上限，其余事件不放宽。"""
+
+    factory = _migrated(tmp_path)
+    await _seed_topic(factory)
+    config_path = _write_app_config(tmp_path, 10)
+    monkeypatch.setenv("WENGU_APP_CONFIG", str(config_path))
+    today = date(2026, 10, 31)
+    tomorrow = today + timedelta(days=1)
+    url = "/api/reviews/due"
+
+    async with _client(factory) as client:
+        bodies = [await _confirm_wrong(client) for _ in range(3)]
+        for body in bodies:
+            await _set_due(factory, body["mistake_id"], today)
+
+        plain = (
+            await client.get(url, params={"today": today.isoformat()})
+        ).json()
+        assert plain["daily_limit"] == 10
+        assert plain["exam_today"] is False
+        assert plain["returned"] == 3
+
+        # 竞赛 / 请假 / 其它、以及明天的考试都不放宽
+        for kind in ("competition", "leave", "other"):
+            event_id = await _add_event(factory, today, kind=kind, title=kind)
+            payload = (
+                await client.get(url, params={"today": today.isoformat()})
+            ).json()
+            assert payload["daily_limit"] == 10, kind
+            assert payload["exam_today"] is False, kind
+            async with factory() as session, session.begin():
+                row = await session.get(CalendarEvent, event_id)
+                assert row is not None
+                await session.delete(row)
+        future_exam = await _add_event(factory, tomorrow, kind="exam")
+        future_payload = (
+            await client.get(url, params={"today": today.isoformat()})
+        ).json()
+        assert future_payload["daily_limit"] == 10
+        assert future_payload["exam_today"] is False
+        async with factory() as session, session.begin():
+            row = await session.get(CalendarEvent, future_exam)
+            assert row is not None
+            await session.delete(row)
+
+        # 考试日：默认 10 × 1.5 = 15；纯只读（行数不变、无网络）
+        exam_id = await _add_event(factory, today, kind="exam")
+        before = await _row_counts(factory)
+        with monkeypatch.context() as guard:
+            guard.setattr(socket, "create_connection", _boom)
+            guard.setattr(socket.socket, "connect", _boom)
+            relaxed = await client.get(
+                url, params={"today": today.isoformat()}
+            )
+        after = await _row_counts(factory)
+        assert relaxed.status_code == 200, relaxed.text
+        assert before == after
+        payload = relaxed.json()
+        assert payload["daily_limit"] == 15
+        assert payload["exam_today"] is True
+        assert payload["returned"] == 3
+        replay = await client.get(url, params={"today": today.isoformat()})
+        assert payload == replay.json()
+
+        # factor 热改 1.5 → 2.0，不重启即时生效
+        _write_app_config(tmp_path, 10, factor=2.0)
+        boosted = (
+            await client.get(url, params={"today": today.isoformat()})
+        ).json()
+        assert boosted["daily_limit"] == 20
+        assert boosted["exam_today"] is True
+
+        # 配置缺文件：daily/factor 都回退默认（10 × 1.5 = 15）
+        config_path.unlink()
+        fallback = (
+            await client.get(url, params={"today": today.isoformat()})
+        ).json()
+        assert fallback["daily_limit"] == 15
+
+        # 删除考试事件：恢复 10，exam_today 归 false
+        removed = await client.delete(f"/api/calendar/events/{exam_id}")
+        assert removed.status_code == 200, removed.text
+        restored = (
+            await client.get(url, params={"today": today.isoformat()})
+        ).json()
+        assert restored["daily_limit"] == 10
+        assert restored["exam_today"] is False
 
 
 @pytest.mark.integration
