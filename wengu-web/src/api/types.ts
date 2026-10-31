@@ -508,6 +508,40 @@ export interface PracticeListResponse {
   offset: number;
 }
 
+export interface PracticeStartResponse {
+  topic_id: string | null;
+  seed: number;
+  count: number;
+  coverage: "ok" | "thin" | "gap";
+  answerable_total: number;
+  pool_total: number;
+  bank_gap: boolean;
+  message: string | null;
+  items: QuizQuestionView[];
+}
+
+export interface PracticeSubmitItem {
+  question_id: string;
+  answer?: string | null;
+  correct?: boolean | null;
+}
+
+export interface PracticeAnswerInfo {
+  question_id: string;
+  mode: "system" | "self_eval";
+  status: "correct" | "wrong" | "uncertain" | "skipped";
+  practice_record_id: number | null;
+}
+
+export interface PracticeSubmitResponse {
+  topic_id: string;
+  seed: number;
+  count: number;
+  items: PracticeAnswerInfo[];
+  correct: number;
+  wrong: number;
+}
+
 export interface DashboardTopicWeakness {
   topic_id: string;
   name: string | null;

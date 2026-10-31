@@ -5,6 +5,7 @@ import {
   Card,
   Group,
   Loader,
+  Modal,
   Pagination,
   SegmentedControl,
   Stack,
@@ -16,7 +17,11 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { errorMessage } from "../api/client";
-import { listAttempts, listPracticeRecords } from "../api/endpoints";
+import {
+  clearPractice,
+  listAttempts,
+  listPractice,
+} from "../api/endpoints";
 import type { AttemptInfo, PracticeRecordInfo } from "../api/types";
 import MathText from "../components/MathText";
 
@@ -59,6 +64,9 @@ export default function RecordsPage() {
   const [practiceOffset, setPracticeOffset] = useState(0);
   const [practiceLoading, setPracticeLoading] = useState(false);
   const [practiceError, setPracticeError] = useState<string | null>(null);
+  const [clearOpen, setClearOpen] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  const [clearError, setClearError] = useState<string | null>(null);
 
   useEffect(() => {
     if (tab !== "quiz") {
@@ -100,7 +108,7 @@ export default function RecordsPage() {
     }
     let active = true;
     setPracticeLoading(true);
-    listPracticeRecords({
+    listPractice({
       kind: practiceKind === "all" ? undefined : practiceKind,
       limit: PAGE_SIZE,
       offset: practiceOffset,
@@ -127,6 +135,25 @@ export default function RecordsPage() {
       active = false;
     };
   }, [tab, practiceKind, practiceOffset]);
+
+  async function handleClearPractice() {
+    if (clearing) {
+      return;
+    }
+    setClearing(true);
+    setClearError(null);
+    try {
+      await clearPractice();
+      setPractice([]);
+      setPracticeTotal(0);
+      setPracticeOffset(0);
+      setClearOpen(false);
+    } catch (cause) {
+      setClearError(errorMessage(cause));
+    } finally {
+      setClearing(false);
+    }
+  }
 
   return (
     <Stack gap="md">
@@ -227,19 +254,30 @@ export default function RecordsPage() {
               <Text size="sm" c="dimmed">
                 共 {practiceTotal} 条
               </Text>
-              <SegmentedControl
-                size="xs"
-                value={practiceKind}
-                onChange={(value) => {
-                  setPracticeKind(value as "all" | "variant" | "extra");
-                  setPracticeOffset(0);
-                }}
-                data={[
-                  { value: "all", label: "全部" },
-                  { value: "variant", label: "变式" },
-                  { value: "extra", label: "加练" },
-                ]}
-              />
+              <Group gap="xs">
+                <SegmentedControl
+                  size="xs"
+                  value={practiceKind}
+                  onChange={(value) => {
+                    setPracticeKind(value as "all" | "variant" | "extra");
+                    setPracticeOffset(0);
+                  }}
+                  data={[
+                    { value: "all", label: "全部" },
+                    { value: "variant", label: "变式" },
+                    { value: "extra", label: "加练" },
+                  ]}
+                />
+                <Button
+                  size="xs"
+                  color="red"
+                  variant="light"
+                  onClick={() => setClearOpen(true)}
+                  disabled={practiceTotal === 0}
+                >
+                  清空练习记录
+                </Button>
+              </Group>
             </Group>
             {practiceLoading && (
               <Group justify="center" py="xl">
@@ -304,6 +342,36 @@ export default function RecordsPage() {
           </Stack>
         </Tabs.Panel>
       </Tabs>
+
+      <Modal
+        opened={clearOpen}
+        onClose={() => setClearOpen(false)}
+        title="清空练习记录"
+      >
+        <Stack gap="sm">
+          <Text size="sm">
+            将删除全部变式/加练记录（含历史），此操作不可撤销。错题本、掌握度、
+            复习排期与打卡不受影响。
+          </Text>
+          {clearError && (
+            <Alert color="red" variant="light">
+              {clearError}
+            </Alert>
+          )}
+          <Group justify="flex-end">
+            <Button variant="subtle" onClick={() => setClearOpen(false)}>
+              取消
+            </Button>
+            <Button
+              color="red"
+              onClick={() => void handleClearPractice()}
+              loading={clearing}
+            >
+              确认清空
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
     </Stack>
   );
 }

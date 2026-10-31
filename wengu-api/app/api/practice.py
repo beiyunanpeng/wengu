@@ -16,8 +16,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_session
 from app.models import Mistake, PracticeRecord, ProblemBankItem
+from app.schemas.quiz import QuizQuestionView, quiz_view
+from app.services.practice import (
+    MAX_PRACTICE_COUNT,
+    MAX_SEED,
+    PracticeAnswer,
+    PracticeInvalid,
+    PracticeMistakeNotFound,
+    start_practice,
+    submit_practice,
+)
 
-router = APIRouter(tags=["practice-records"])
+router = APIRouter(tags=["practice"])
 
 
 class PracticeCreateRequest(BaseModel):
@@ -49,6 +59,57 @@ class PracticeListResponse(BaseModel):
 
 class PracticeClearResponse(BaseModel):
     deleted: int
+
+
+class PracticeStartRequest(BaseModel):
+    mistake_id: int | None = Field(default=None, ge=1)
+    topic_id: str | None = Field(default=None, min_length=1, max_length=64)
+    count: int = Field(default=3, ge=1, le=MAX_PRACTICE_COUNT)
+    seed: int | None = Field(default=None, ge=0, le=MAX_SEED)
+
+
+class PracticeStartResponse(BaseModel):
+    topic_id: str | None
+    seed: int
+    count: int
+    coverage: Literal["ok", "thin", "gap"]
+    answerable_total: int
+    pool_total: int
+    bank_gap: bool
+    message: str | None
+    items: list[QuizQuestionView]
+
+
+class PracticeSubmitItem(BaseModel):
+    question_id: str = Field(min_length=1, max_length=80)
+    answer: str | None = Field(default=None, max_length=2000)
+    correct: bool | None = None
+
+
+class PracticeSubmitRequest(BaseModel):
+    topic_id: str = Field(min_length=1, max_length=64)
+    seed: int = Field(ge=0, le=MAX_SEED)
+    count: int = Field(default=3, ge=1, le=MAX_PRACTICE_COUNT)
+    mistake_id: int | None = Field(default=None, ge=1)
+    items: list[PracticeSubmitItem] = Field(
+        min_length=1, max_length=MAX_PRACTICE_COUNT
+    )
+
+
+class PracticeAnswerInfo(BaseModel):
+    question_id: str
+    mode: Literal["system", "self_eval"]
+    status: Literal["correct", "wrong", "uncertain", "skipped"]
+    practice_record_id: int | None
+
+
+class PracticeSubmitResponse(BaseModel):
+    topic_id: str
+    seed: int
+    count: int
+    items: list[PracticeAnswerInfo]
+    correct: int
+    wrong: int
 
 
 def _naive_utc(value: datetime) -> datetime:
@@ -108,14 +169,14 @@ async def create_practice_record(
         return _info(row)
 
 
-@router.get("/api/practice-records", response_model=PracticeListResponse)
-async def list_practice_records(
-    source_mistake_id: int | None = Query(default=None, ge=1),
-    problem_bank_id: int | None = Query(default=None, ge=1),
-    kind: Literal["variant", "extra"] | None = None,
-    limit: int = Query(default=50, ge=1, le=200),
-    offset: int = Query(default=0, ge=0),
-    session: AsyncSession = Depends(get_session),
+async def _fetch_records(
+    session: AsyncSession,
+    *,
+    source_mistake_id: int | None,
+    problem_bank_id: int | None,
+    kind: str | None,
+    limit: int,
+    offset: int,
 ) -> PracticeListResponse:
     conditions = []
     if source_mistake_id is not None:
@@ -149,10 +210,150 @@ async def list_practice_records(
     )
 
 
+@router.get("/api/practice-records", response_model=PracticeListResponse)
+async def list_practice_records(
+    source_mistake_id: int | None = Query(default=None, ge=1),
+    problem_bank_id: int | None = Query(default=None, ge=1),
+    kind: Literal["variant", "extra"] | None = None,
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    session: AsyncSession = Depends(get_session),
+) -> PracticeListResponse:
+    return await _fetch_records(
+        session,
+        source_mistake_id=source_mistake_id,
+        problem_bank_id=problem_bank_id,
+        kind=kind,
+        limit=limit,
+        offset=offset,
+    )
+
+
 @router.delete("/api/practice-records", response_model=PracticeClearResponse)
 async def clear_practice_records(
     session: AsyncSession = Depends(get_session),
 ) -> PracticeClearResponse:
+    async with session.begin():
+        result = await session.execute(delete(PracticeRecord))
+        return PracticeClearResponse(deleted=result.rowcount or 0)
+
+
+@router.post("/api/practice/start", response_model=PracticeStartResponse)
+async def start_practice_endpoint(
+    payload: PracticeStartRequest,
+    session: AsyncSession = Depends(get_session),
+) -> PracticeStartResponse:
+    """抽同类题加练卷；孩子区可用，无主考点/题库缺口时返回空卷与提示。"""
+
+    try:
+        result = await start_practice(
+            session,
+            mistake_id=payload.mistake_id,
+            topic_id=payload.topic_id,
+            count=payload.count,
+            seed=payload.seed,
+        )
+    except PracticeMistakeNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from None
+    except PracticeInvalid as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+
+    paper = result.paper
+    pool_size = paper.pool_total if paper is not None else 0
+    return PracticeStartResponse(
+        topic_id=result.topic_id,
+        seed=result.seed,
+        count=result.count,
+        coverage=paper.coverage if paper is not None else "gap",
+        answerable_total=paper.answerable_total if paper is not None else 0,
+        pool_total=pool_size,
+        bank_gap=result.empty,
+        message=result.message,
+        items=[
+            quiz_view(
+                item.question,
+                mode=item.mode,
+                seed=result.seed,
+                pool_size=pool_size,
+            )
+            for item in result.items
+        ],
+    )
+
+
+@router.post("/api/practice/submit", response_model=PracticeSubmitResponse)
+async def submit_practice_endpoint(
+    payload: PracticeSubmitRequest,
+    session: AsyncSession = Depends(get_session),
+) -> PracticeSubmitResponse:
+    """服务端判客观题、收自评题结论；只写 practice_records，不回答案钥匙。"""
+
+    async with session.begin():
+        try:
+            result = await submit_practice(
+                session,
+                topic_id=payload.topic_id,
+                seed=payload.seed,
+                count=payload.count,
+                answers=[
+                    PracticeAnswer(
+                        question_id=entry.question_id,
+                        answer=entry.answer,
+                        correct=entry.correct,
+                    )
+                    for entry in payload.items
+                ],
+                mistake_id=payload.mistake_id,
+            )
+        except PracticeMistakeNotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from None
+        except PracticeInvalid as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from None
+
+    return PracticeSubmitResponse(
+        topic_id=result.topic_id,
+        seed=result.seed,
+        count=result.count,
+        items=[
+            PracticeAnswerInfo(
+                question_id=item.question_id,
+                mode=item.mode,
+                status=item.status,
+                practice_record_id=item.practice_record_id,
+            )
+            for item in result.items
+        ],
+        correct=result.correct,
+        wrong=result.wrong,
+    )
+
+
+@router.get("/api/practice", response_model=PracticeListResponse)
+async def list_practice(
+    mistake_id: int | None = Query(default=None, ge=1),
+    kind: Literal["variant", "extra"] | None = None,
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    session: AsyncSession = Depends(get_session),
+) -> PracticeListResponse:
+    """回看加练记录；只读派生表，不影响错题/复习/掌握度。"""
+
+    return await _fetch_records(
+        session,
+        source_mistake_id=mistake_id,
+        problem_bank_id=None,
+        kind=kind,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.delete("/api/practice", response_model=PracticeClearResponse)
+async def clear_practice(
+    session: AsyncSession = Depends(get_session),
+) -> PracticeClearResponse:
+    """整表清空加练记录；不触碰错题、事件、掌握度与复习排期。"""
+
     async with session.begin():
         result = await session.execute(delete(PracticeRecord))
         return PracticeClearResponse(deleted=result.rowcount or 0)

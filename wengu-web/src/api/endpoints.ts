@@ -36,6 +36,9 @@ import type {
   PaperAnswerKeyResponse,
   PomodoroResponse,
   PracticeListResponse,
+  PracticeStartResponse,
+  PracticeSubmitItem,
+  PracticeSubmitResponse,
   QuizPaperResponse,
   QuizTopicListResponse,
   ReviewQuizResponse,
@@ -509,7 +512,7 @@ export interface PracticeFilters {
   offset?: number;
 }
 
-export function listPracticeRecords(
+export function listPractice(
   filters: PracticeFilters = {},
 ): Promise<PracticeListResponse> {
   const params = new URLSearchParams();
@@ -517,13 +520,60 @@ export function listPracticeRecords(
     params.set("kind", filters.kind);
   }
   if (filters.sourceMistakeId) {
-    params.set("source_mistake_id", String(filters.sourceMistakeId));
+    params.set("mistake_id", String(filters.sourceMistakeId));
   }
   params.set("limit", String(filters.limit ?? 50));
   params.set("offset", String(filters.offset ?? 0));
   return apiRequest<PracticeListResponse>(
-    `/api/practice-records?${params.toString()}`,
+    `/api/practice?${params.toString()}`,
   );
+}
+
+export interface PracticeStartFilters {
+  mistakeId?: number;
+  topicId?: string;
+  count?: number;
+  seed?: number;
+}
+
+export function startPractice(
+  filters: PracticeStartFilters = {},
+): Promise<PracticeStartResponse> {
+  const payload: Record<string, number | string> = {
+    count: filters.count ?? 3,
+  };
+  if (filters.mistakeId !== undefined) {
+    payload.mistake_id = filters.mistakeId;
+  }
+  if (filters.topicId) {
+    payload.topic_id = filters.topicId;
+  }
+  if (filters.seed !== undefined) {
+    payload.seed = filters.seed;
+  }
+  return requestJson<PracticeStartResponse>(
+    "/api/practice/start",
+    "POST",
+    payload,
+  );
+}
+
+export function submitPractice(payload: {
+  topic_id: string;
+  seed: number;
+  count: number;
+  mistake_id?: number;
+  items: PracticeSubmitItem[];
+}): Promise<PracticeSubmitResponse> {
+  return requestJson<PracticeSubmitResponse>(
+    "/api/practice/submit",
+    "POST",
+    payload,
+  );
+}
+
+export function clearPractice(): Promise<{ deleted: number }> {
+  return requestJson<{ deleted: number }>("/api/practice", "DELETE");
 }
 
 export function getDashboard(

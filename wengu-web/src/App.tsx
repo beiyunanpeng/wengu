@@ -10,6 +10,7 @@ import MistakeDetailPage from "./pages/MistakeDetailPage";
 import MistakesPage from "./pages/MistakesPage";
 import PrintMistakesPage from "./pages/PrintMistakesPage";
 import PrintPaperPage from "./pages/PrintPaperPage";
+import PracticePage from "./pages/PracticePage";
 import RecordsPage from "./pages/RecordsPage";
 import ReviewPage from "./pages/ReviewPage";
 import SchedulePage from "./pages/SchedulePage";
@@ -28,6 +29,7 @@ export default function App() {
           <Route path="intake" element={<IntakePage />} />
           <Route path="mistakes" element={<MistakesPage />} />
           <Route path="mistakes/:mistakeId" element={<MistakeDetailPage />} />
+          <Route path="practice" element={<PracticePage />} />
           <Route path="review" element={<ReviewPage />} />
           <Route path="schedule" element={<SchedulePage />} />
           <Route path="records" element={<RecordsPage />} />

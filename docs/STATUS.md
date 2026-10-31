@@ -1,8 +1,8 @@
 # STATUS.md — 开发计划与完成情况
 
-> 快照日期：2026-10-31（P1-1b 家长自建章级 seed 交付后）
-> 分支 / HEAD：`main` / `cc48999`（P1-1b 本地 seed 改动尚未提交，工作区含本票变更）
-> 全量测试：**382 passed**（本机 2026-10-31）；`ruff check .` 全绿；`npm run build` 绿
+> 快照日期：2026-10-31（P3-2 主动加练变式交付后）
+> 分支 / HEAD：`main` / `0d12f5f`（P3-2 加练改动尚未提交，工作区含本票变更）
+> 全量测试：**386 passed**（本机 2026-10-31）；`ruff check .` 全绿；`npm run build` 绿
 > Alembic head：`0017_bank_item_lifecycle`；业务表 22 张（0017 为 `problem_bank` 补 `status` + `updated_at`）
 
 本文件是**状态快照**，不替代以下事实源；冲突时以它们为准：
@@ -53,6 +53,13 @@
   列表/筛选、行内编辑（**合并后重跑同一套审核闸门**，稳定错误码）、作废/撤销（幂等）。
   **不做物理删除**；编辑不改 `external_id`，历史 attempts/事件/排期一律不改写，
   `replay`/`replay_paper` 按题 id/`pool_ids` 判定身份——内容修订不回溯，题离开池才重放失败。
+- **P3-2 主动加练变式已交付**：错题详情新增「加练同类题」，按主考点从**运行时题池**
+  用固定种子抽 1–10 题（可重放、答案不下发）；客观题服务端 `judge_answer` 判分、
+  解答/依赖图题由孩子自评。结果**只写 `practice_records`（`kind='variant'`）**：
+  **不写 attempts、不产生作答事件、不新建错题、不计入掌握度/排期/打卡**，可整表清空；
+  无主考点或题池为空时入口置灰并提示「该知识点暂无同类题」，不报错、不硬凑。
+  `/api/practice/*` 全部孩子区免 PIN。新增 4 条集成测试（不变量快照、防客户端谎报、
+  自评/跳过、家长题 `problem_bank_id` 回填）。
 - **P2-2 番茄钟执行已交付**：复习页每日队列第一项带**纯前端 25 分钟倒计时**，取消不打点，
   自然完成或手动“完成”才 `POST /api/pomodoros` 追加 `pomodoro_completed` 事件（幂等键按
   `started_at`，时长 5–120 钳制，错题可空）；看板与复习页头部显示今日番茄 / 本周专注，
@@ -85,7 +92,7 @@
   手动组卷需在导航"家长区"解锁（scrypt 哈希 + HMAC 签名 cookie，12h，连续 5 次错误锁 60s）。
   PIN **只防误入、不是安全边界**，不做登录/账号/多租户；公网暴露仍须鉴权隔离或 Tailscale。
 - **Phase 1 剩余**：P1-7b 前置回溯诊断（未开始）；P1-7c 自动排复习仍受 Phase 0 闸门阻塞。
-- **下一步**：P3-2 主动加练变式；并行的长期项仍是 P0-1 样本扩容（v2.5 口径）+ P1-7b。
+- **下一步**：P3-3 英语背诵；并行的长期项仍是 P0-1 样本扩容（v2.5 口径）+ P1-7b。
 
 ## 2. 总体路线图状态
 
@@ -94,7 +101,7 @@
 | Phase 0 | 摸底 + 回归基线 | 部分完成 | 首轮实测结论已在 `docs/methodology/phase0.md`；v2.5 后"识别瓶颈"由批改外移绕过，边界表不再是入本前置 |
 | Phase 1 | 核心闭环 | 进行中 | P1-0～P1-12 完成（模型在环旧链路已退役）；仅剩 P1-7b，P1-7c 阻塞 |
 | Phase 2 | 每日任务 + 家长看板 | 进行中 | P2-5 家长看板、P2-4 两角色 + 本地 PIN、P2-6 极简打卡、P2-1 日队列（本轮仅到期复习/考核）、P2-3 课表/日历约束层、P2-2 番茄钟执行、P2-7 打印导出已完成；日队列的背诵/作业/硬事件权重未开始 |
-| Phase 3 | 内容与扩展 | 进行中 | P3-1 家长录题（真题入库审核流水线）+ P3-1b 家长题接入检索池 + P3-1c 题库修订/软作废已完成；P3-5 前置（语文/化学家长自建章级 seed）已交付；组卷加练、英语背诵、听力默写、语文客观题、信奥、长期计划未开始 |
+| Phase 3 | 内容与扩展 | 进行中 | P3-1 家长录题（真题入库审核流水线）+ P3-1b 家长题接入检索池 + P3-1c 题库修订/软作废 + P3-2 主动加练变式已完成；P3-5 前置（语文/化学家长自建章级 seed）已交付；英语背诵、听力默写、语文客观题、信奥、长期计划未开始 |
 | Phase 4 | 基础设施演进 | 未开始 | Tailscale、可移植部署、可选本地 GPU |
 | Phase 5 | 开源分发与打包 | 未启动（部分基线已有） | LICENSE / README / CHANGELOG / `.env.example` / 第三方署名已就位；首次运行向导、备份恢复、鉴权开关、教材包安装器未做 |
 
@@ -370,6 +377,39 @@
 - **本地点不作历史改写**：删除点不会回写 `mistake_versions` 的标签快照；快照里的旧
   `category_id` 仍在，但名称解析为 None（只影响展示，不影响事实与排期）。
 
+### 4.16 主动加练变式（P3-2）
+
+- **定位**：孩子可从错题详情主动加练同类题；这是**派生练习**，不是闭环复习/考核。
+  加练结果只进 `practice_records`（`kind='variant'`），**绝不写 `attempts`、不产生
+  `attempt_*` 事件、不新建错题、不计入掌握度/复习排期/打卡 streak**，可整表清空。
+- **练点解析**：`start_practice(mistake_id | topic_id, count=1..10, seed?)`；`mistake_id`
+  取其 `primary_topic_id`。无主考点或该点题池为空 → 返回 `items=[]`、`coverage='gap'`、
+  `message='该知识点暂无同类题'`（HTTP 200，不报错、不硬凑）。组卷复用
+  `get_runtime_bank` + `paper_picks`：同 topic、mulberry32 固定种子、可重放；
+  题面只走 `quiz_view`（题干/选项/题型/配图/质量标签，**无 answer/accept/explanation/verify**）。
+- **判分与落库**：`submit_practice(topic_id, seed, count, answers, mistake_id?)` 重建同卷，
+  外来/重复题 422；`mode=system` 服务端 `judge_answer`（客户端 `correct` 一律忽略；
+  空白 `skipped`、`uncertain` 不写行），`mode=self_eval` 收孩子自评；每题一行
+  `PracticeRecord`（`source_mistake_id`、`problem_bank_id`、`student_answer`、`is_correct`）。
+  seed 题 `problem_bank_id=NULL`；家长题按 `external_id` 反查 `problem_bank.id` 回填。
+  服务层**不 import `record_event`/`Attempt`**，从代码路径上保证零事件、零尝试。
+- **API（孩子区免 PIN，不挂 `require_parent`）**：`POST /api/practice/start`、
+  `POST /api/practice/submit`（只回 `correct|wrong|uncertain|skipped` + mode + 记录 id，
+  无答案钥匙）、`GET /api/practice?mistake_id=&kind=&limit=&offset=`、
+  `DELETE /api/practice`（整表清空，返回 `deleted`）。旧 `/api/practice-records` 保留兼容。
+- **前端**：错题详情「加练同类题」入口先探测 count=1，gap/无主考点时**置灰 + 文案解释**；
+  `/practice` 页复用 `QuizQuestionCard`，系统题页面作答、自评题「做对了/没做对」，
+  提交后逐题状态 + 本轮计数，可「再练一组」或回看记录；「练习记录 → 变式 / 加练」tab
+  接 `GET /api/practice`，清空按钮带二次确认（写明不影响错题本/掌握度/排期/打卡）。
+- **实测**：临时库 + uvicorn 8790 + Vite 5186。错题 #1（`cnm_001`）3 题：数值答对、
+  选择 B 答对、第 3 题留空跳过 → `2 对 / 0 错`；固定 seed 42 两次启动响应字节一致；
+  客户端对错答谎报 `correct=true` 仍判 `wrong`；提交响应无答案字段。
+  清空前 `attempts=0/events=2/schedules=1/mistakes=1/practice_records=2`，
+  清空后仅 `practice_records=0`，其余表内容与 dashboard、到期队列**完全不变**；
+  无主考点错题 #2 入口置灰并显示 gap 文案。
+- **测试**：`tests/integration/test_practice_api.py`（4 条，含全列快照不变量、
+  dashboard/due 字节级不变、清空后不变量仍不变、自评/跳过/外来题、家长题主键回填）。
+
 ## 5. API 与数据现状
 
 ### 5.1 API 面
@@ -390,7 +430,8 @@
 | 日历 | `GET /api/calendar/events?from=&to=`（缺省今天起 30 天）、`POST /api/calendar/events`、`DELETE /api/calendar/events/{id}` |
 | 番茄 | `POST /api/pomodoros`（追加 `pomodoro_completed`，201 `{id, duration_minutes}`；孩子区免 PIN） |
 | 组卷 | `GET /api/quizzes/topics`、`GET /api/quizzes/paper`、`GET /api/quizzes/paper/answers`（家长答案钥匙：同卷只回正答 + 可接受别名，不含解析/verify）、`POST /api/quizzes/paper/submit` |
-| 练习记录 | `GET /api/attempts`、`DELETE /api/attempts`、`GET/POST/DELETE /api/practice-records` |
+| 练习记录 | `GET /api/attempts`、`DELETE /api/attempts`、`GET/POST/DELETE /api/practice-records`（兼容旧前端） |
+| 主动加练（P3-2） | `POST /api/practice/start`、`POST /api/practice/submit`、`GET /api/practice?mistake_id=&kind=&limit=&offset=`、`DELETE /api/practice`（全部孩子区免 PIN；只写 `practice_records`，提交响应不含答案钥匙） |
 | 看板 | `GET /api/dashboard`（只读，可选 `today` / `curve_days` 1–90；响应含 `streak`、`pomodoros_today`、`focus_minutes_this_week`） |
 | 会话 / 家长 PIN | `GET /api/session/status`、`POST /api/session/pin/set`、`POST /api/session/unlock`、`POST /api/session/lock` |
 
@@ -401,7 +442,8 @@
 `POST /api/bank/drafts/{id}/approve|reject`、`POST /api/bank/items`、
 `GET /api/bank/items`、`PATCH /api/bank/items/{id}`、`POST /api/bank/items/{id}/void|unvoid`、
 `GET/POST /api/local-seed/topics`、`PATCH/DELETE /api/local-seed/topics/{id}`。
-其余端点（导入、核对确认、到期、考核提交/自评、错题/看板/课表/日历/seed 只读）孩子区免 PIN。
+其余端点（导入、核对确认、到期、考核提交/自评、主动加练、错题/看板/课表/日历/seed 只读）
+孩子区免 PIN。
 
 已删除（P1-12）：`/api/captures*`、`/api/extractions*`、`/api/gradings*`、`/api/explanations*`。
 
@@ -439,8 +481,9 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
 
 | 项 | 状态 | 影响 | 解锁条件 / 下一步 |
 |---|---|---|---|
-| 家长录题与组卷未打通 | 已关闭（P3-1b） | 审核入库题已合并进运行时题池，参与到期考核与手动组卷；统计/coverage 随池重算 | 后续 P3-2 加练检索复用同一运行时池（仍须固定种子可重放、答案不下发） |
+| 家长录题与组卷未打通 | 已关闭（P3-1b） | 审核入库题已合并进运行时题池，参与到期考核、手动组卷与 P3-2 主动加练；统计/coverage 随池重算 | 题目数量仍靠家长继续录题扩充 |
 | 入库题无编辑/作废 | 已关闭（P3-1c） | 家长可在 `/bank` 列表内编辑（重跑同一套闸门）或软作废/撤销；作废题退出检索池，不物理删除、不改写历史 | 后续如需要"当时题面快照"，另开 attempts 展示层工单 |
+| 主动加练污染闭环 | 已关闭（P3-2） | 加练只写 `practice_records(kind=variant)`，不写 attempts/事件/错题本，不影响掌握度/排期/打卡；可整表清空；gap 只提示不硬凑 | 提交幂等键、category/错因/难度筛选可另开增量工单 |
 | 录题审核逐条 | 部分缓解 | 草稿只能逐条通过/驳回，批量录入时家长操作成本高 | 观察真实使用量后决定是否做批量确认；不得改为无人确认自动入库 |
 | 空 seed 学科无法录题挂点 | 已关闭（P1-1b） | 家长可在 `/local-seed` 建语文/化学章级点（`cnl_`/`cnc_`），错题主考点与题库 `topic_id` 均可挂，到期考核闭环打通 | 教材包自动导入/多教材切换仍归 P5-4；细粒度仍走错题受控生长 |
 | P0-1 样本扩容 | 待按 v2.5 重新定义 | 外部转录质量是新的主瓶颈 | 用真实"已批改卷"样本测转录模板 + 核对页漏/错项率 |
@@ -454,7 +497,7 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
 | 鉴权 / 本地 PIN | 部分完成 | P2-4 本地家长 PIN 已做（只防误入，非安全边界）；公网鉴权/隔离仍未做 | 公网暴露前走 P5-3 真鉴权或 Tailscale |
 | 化学 / 语文 seed | 已关闭（P1-1b；本地点为家长自建） | 家长按教材目录在 `/local-seed` 建章级点；仓库 seed 保持只读、不覆盖上游行 | 预置教材包（P5-4）可后续补充；章级 40–80 点、单科上限 200 |
 | Phase 2 剩余 | 部分完成 | 打印导出已随 P2-7 补齐（前端打印视图，非服务端 PDF 文件）；课表/日历只做约束层（不排课、不生成任务）；日队列仅完成“到期复习/考核”组织，背诵铺底 / 作业 deadline / 硬事件抬权重未做（依赖 P3）；番茄钟已完成（纯前端计时 + 事件打点） | 按 TICKETS 顺序 |
-| Phase 3–5 | 部分完成 | P3-1 录题流水线已交付；组卷加练、英语背诵、听力默写、语文、信奥、长期计划及 Phase 4/5 均未开始 | 按 TICKETS 顺序 |
+| Phase 3–5 | 部分完成 | P3-1 录题流水线、P3-2 主动加练已交付；英语背诵、听力默写、语文、信奥、长期计划及 Phase 4/5 均未开始 | 按 TICKETS 顺序 |
 
 ## 7. 残留风险与技术债
 
@@ -472,6 +515,9 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
    限流为进程内存计数（重启清零、多实例不共享），会话密钥缺省自动生成到 `data/.session_secret`
    （多实例部署必须显式设置 `WENGU_SESSION_SECRET`）。
 8. **前端无自动化 E2E**：浏览器走查为手工实跑；`npm run build` 只保证类型与打包。
+9. **主动加练的派生表语义**：`practice_records` 无提交幂等键，同一张卷重复提交会重复写行
+   （只影响可整表清空的派生表，不影响闭环事实）；组卷目前只按主考点检索，尚未提供
+   category/错因/难度筛选；"再练一组"每次换随机种子，不保存上一组身份用于重放。
 9. **P1-12 运行态证据为临时库**：E2E 使用 `.e2e-data` 临时库与 8123 端口，跑完即删；
    容器全栈重建验收待下次部署窗口。
 10. **打卡回退口径的边界**：批量入库确认会写一条无 `completed_on` 的 `attempt_wrong`
@@ -540,7 +586,8 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
   本地 seed 写端点全部挂 `require_parent`。
 - 日志/事件不落题目全文、答案、文件 URL、个人信息、密钥。
 - 纯查询 GET 零模型调用；内核零模型（无 provider / SDK / 模型审计表）。
-- 变式/加练只进 `practice_records`，绝不进错题本、不排复习。
+- 变式/加练只进 `practice_records`，绝不进错题本、不排复习；`/api/practice/*` 孩子区免 PIN，
+  gap/无主考点只返回空提示（HTTP 200），不报错、不硬凑题。
 - 不引入通用 agent 编排框架、Redis、外部 MQ、向量库、K8s；不默认 Postgres。
 - Phase 0 闸门：未经用户确认的自动入库/自动排复习不实现。
 - 两角色边界：孩子区免 PIN；家长区端点挂 `require_parent`；PIN 只防误入，不替代公网鉴权。
@@ -556,8 +603,8 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
 
 ## 9. 下一步建议（按依赖与风险排序）
 
-1. **P3-2 主动加练变式**：按 category/错因/难度检索组卷进 `practice_records`；复用 P3-1b
-   的运行时题池（seed + 家长题），保持固定种子可重放、答案不下发。
+1. **P3-3 英语背诵**（P3-2 主动加练已完成）：自评间隔重复（档③），只做习惯与自评，
+   不引入语音/ASR；P3-2 的派生表与免 PIN 加练模式可复用。
 2. **P1-7b 前置回溯诊断**：`prerequisite_edges` 已装载，固定种子 `replay` 必须可重建。
 3. **复习掌握度归因**：把已确认 concept 写入事实，让 mastery 不再恒 0.0。
 4. **外部转录质量实测（P0-1 新口径）**：用真实已批改卷 / 空白真题跑两个模板，统计 `〔?〕` 率、
@@ -591,7 +638,7 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
 | 工单 | 目标 |
 |---|---|
 | P3-1 | 已完成：家长录题（真题入库审核流水线）。外部转录 `agent_bank_transcribe_v1` → `bank_drafts` → 家长 `/bank` 逐条确认 → SQLite `problem_bank`；手填兜底；缺答案/choice 不命中/未知 topic/AST 沙箱拒/数值矛盾一律拒绝；固定 `unaudited`/`blind_verified`；迁移 0016。**模型不得生成答案**；P3-1b 已把入库题合并进运行时检索池（到期考核/手动组卷），旧记录跨池 `replay` 显式抛 `BankReplayError`；**P3-1c（已完成 2026-10-31）**：题库列表/编辑/软作废/撤销（迁移 0017），编辑重跑同一套闸门、作废只退出检索池、不物理删除且不改写历史 |
-| P3-2 | 组卷/加练：按 category/错因/难度检索真题组卷；禁止 LLM 凭空编题 |
+| P3-2 | 已完成：主动加练变式。错题详情按主考点从运行时题池固定种子抽题，系统题服务端判分、自评题收孩子结论；结果只写 `practice_records(kind=variant)`，不进 attempts/事件/错题本、不影响掌握度/排期/打卡，可整表清空；无题知识点只提示不硬凑；端点孩子区免 PIN。LLM 不参与出题/判分。category/错因/难度筛选未做 |
 | P3-3 | 英语背诵：自评间隔重复（档③） |
 | P3-4 | 听力 + 默写：默写复用批改；听力用教材音频 + TTS；不做口语 ASR |
 | P3-5 | 语文客观题并入（字音/病句/默写）；作文/阅读理解只讲解不入本。**前置已交付（P1-1b）**：家长自建语文/化学章级 seed，语文错题可挂主考点、题库可挂 `topic_id` |

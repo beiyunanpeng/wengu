@@ -22,11 +22,17 @@ import {
   getMistake,
   getMistakeOptions,
   listConcepts,
+  startPractice,
   unvoidMistake,
   updateMistakeLabels,
   voidMistake,
 } from "../api/endpoints";
-import type { Concept, ErrorCauseOption, MistakeDetail } from "../api/types";
+import type {
+  Concept,
+  ErrorCauseOption,
+  MistakeDetail,
+  PracticeStartResponse,
+} from "../api/types";
 import CategoryPicker from "../components/CategoryPicker";
 import MathText from "../components/MathText";
 import { useParentSession } from "../parent/ParentSession";
@@ -53,6 +59,9 @@ export default function MistakeDetailPage() {
   const [statusBusy, setStatusBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [practice, setPractice] = useState<PracticeStartResponse | null>(null);
+  const [practiceChecking, setPracticeChecking] = useState(true);
+  const [practiceError, setPracticeError] = useState<string | null>(null);
 
   function applyDetail(next: MistakeDetail) {
     setDetail(next);
@@ -131,6 +140,36 @@ export default function MistakeDetailPage() {
       active = false;
     };
   }, [categoryId]);
+
+  useEffect(() => {
+    if (mistakeId === null || Number.isNaN(mistakeId)) {
+      setPracticeChecking(false);
+      return;
+    }
+    let active = true;
+    setPracticeChecking(true);
+    startPractice({ mistakeId, count: 1 })
+      .then((response) => {
+        if (active) {
+          setPractice(response);
+          setPracticeError(null);
+        }
+      })
+      .catch((cause: unknown) => {
+        if (active) {
+          setPractice(null);
+          setPracticeError(errorMessage(cause));
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setPracticeChecking(false);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [mistakeId]);
 
   async function handleCreateConcept() {
     const name = newConceptName.trim();
@@ -462,6 +501,40 @@ export default function MistakeDetailPage() {
               去复习
             </Button>
           </Group>
+          <Group align="center">
+            <Button
+              variant="light"
+              onClick={() => navigate(`/practice?mistake_id=${detail.id}`)}
+              loading={practiceChecking}
+              disabled={
+                practiceChecking ||
+                practice === null ||
+                practice.items.length === 0
+              }
+            >
+              加练同类题
+            </Button>
+            {practiceChecking && (
+              <Text size="xs" c="dimmed">
+                正在检查同类题…
+              </Text>
+            )}
+            {!practiceChecking &&
+              practice &&
+              practice.items.length === 0 && (
+                <Text size="xs" c="dimmed">
+                  {practice.message ?? "该知识点暂无同类题"}
+                </Text>
+              )}
+            {!practiceChecking && practiceError && (
+              <Text size="xs" c="red">
+                同类题检查失败：{practiceError}
+              </Text>
+            )}
+          </Group>
+          <Text size="xs" c="dimmed">
+            加练只写练习记录：不进错题本、不影响掌握度与复习排期。
+          </Text>
           <Text size="xs" c="dimmed">
             v2.5：批改与讲解在系统外完成（卷面红笔 + 拿不准找豆包/家长）；
             系统只记录与复习，不生成讲解。
