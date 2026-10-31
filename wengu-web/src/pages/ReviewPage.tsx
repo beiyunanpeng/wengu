@@ -17,6 +17,7 @@ import { useEffect, useState } from "react";
 import { errorMessage } from "../api/client";
 import {
   completeReview,
+  getDashboard,
   getDueReviews,
   getQuizPaper,
   submitQuizPaper,
@@ -34,6 +35,7 @@ import type {
 } from "../api/types";
 import ExplanationSlot from "../components/ExplanationSlot";
 import MathText from "../components/MathText";
+import PomodoroTimer from "../components/PomodoroTimer";
 import QuizQuestionCard from "../components/QuizQuestionCard";
 import QuizTopicPicker from "../components/QuizTopicPicker";
 import ScheduleBrief from "../components/ScheduleBrief";
@@ -93,6 +95,24 @@ export default function ReviewPage() {
   const [paperResult, setPaperResult] = useState<PaperSubmitResponse | null>(
     null,
   );
+  const [focus, setFocus] = useState<{
+    today: number;
+    weekMinutes: number;
+  } | null>(null);
+  const [focusError, setFocusError] = useState<string | null>(null);
+
+  async function loadFocus() {
+    try {
+      const dashboard = await getDashboard();
+      setFocus({
+        today: dashboard.pomodoros_today,
+        weekMinutes: dashboard.focus_minutes_this_week,
+      });
+      setFocusError(null);
+    } catch (cause) {
+      setFocusError(errorMessage(cause));
+    }
+  }
 
   async function load(showSpinner = true) {
     if (showSpinner) {
@@ -106,6 +126,7 @@ export default function ReviewPage() {
     } finally {
       setLoading(false);
     }
+    void loadFocus();
   }
 
   useEffect(() => {
@@ -305,6 +326,11 @@ export default function ReviewPage() {
       <Group justify="space-between" align="center">
         <Title order={2}>复习与考核</Title>
         <Group gap="xs">
+          {focus && (
+            <Text size="sm" c="dimmed">
+              今日番茄 {focus.today} 个 · 本周专注 {focus.weekMinutes} 分钟
+            </Text>
+          )}
           {due && (
             <Text size="sm" c="dimmed">
               今天 {due.today} · 到期 {due.due_total} 道
@@ -315,6 +341,12 @@ export default function ReviewPage() {
           </Button>
         </Group>
       </Group>
+
+      {focusError && (
+        <Text size="xs" c="red">
+          番茄统计读取失败：{focusError}
+        </Text>
+      )}
 
       <Text size="sm" c="dimmed">
         到期任务：能按主考点取到同类题就考（服务端判分，计入掌握度）；
@@ -418,7 +450,7 @@ export default function ReviewPage() {
         )
       )}
 
-      {due?.items.map((item) => (
+      {due?.items.map((item, index) => (
         <Card key={item.schedule_id} withBorder>
           <Stack gap="sm">
             <Group justify="space-between" align="flex-start" wrap="wrap">
@@ -450,6 +482,13 @@ export default function ReviewPage() {
             <Text size="xs" c="dimmed">
               {taskInstruction(item)}
             </Text>
+
+            {index === 0 && (
+              <PomodoroTimer
+                mistakeId={item.mistake_id}
+                onRecorded={() => void loadFocus()}
+              />
+            )}
 
             {item.task === "redo" ? (
               <MathText text={item.problem_text || "（题目文本缺失）"} />

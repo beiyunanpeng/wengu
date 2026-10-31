@@ -19,6 +19,7 @@ import type {
   MistakeOptions,
   PaperSubmitAnswer,
   PaperSubmitResponse,
+  PomodoroResponse,
   PracticeListResponse,
   QuizPaperResponse,
   QuizTopicListResponse,
@@ -196,6 +197,19 @@ export function submitReviewQuiz(
     "POST",
     { actor: "student", ...payload },
   );
+}
+
+export function recordPomodoro(payload: {
+  mistake_id?: number | null;
+  duration_minutes: number;
+  started_at: string;
+  completed_on: string;
+  actor?: "student" | "parent";
+}): Promise<PomodoroResponse> {
+  return requestJson<PomodoroResponse>("/api/pomodoros", "POST", {
+    actor: "student",
+    ...payload,
+  });
 }
 
 export function getInboxInfo(): Promise<InboxInfo> {

@@ -16,6 +16,7 @@ from app.api.dashboard import router as dashboard_router
 from app.api.health import router as health_router
 from app.api.imports import router as imports_router
 from app.api.mistakes import router as mistakes_router
+from app.api.pomodoro import router as pomodoro_router
 from app.api.practice import router as practice_router
 from app.api.problem_bank import router as problem_bank_router
 from app.api.quizzes import router as quizzes_router
@@ -82,6 +83,7 @@ def create_app() -> FastAPI:
     application.include_router(dashboard_router)
     application.include_router(session_router)
     application.include_router(schedule_router)
+    application.include_router(pomodoro_router)
     return application
 
 

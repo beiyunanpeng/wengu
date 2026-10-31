@@ -449,6 +449,8 @@ export interface DashboardResponse {
   governance: DashboardGovernance;
   event_stats: DashboardEventStats;
   streak: DashboardStreak;
+  pomodoros_today: number;
+  focus_minutes_this_week: number;
 }
 
 export interface SessionStatus {
@@ -481,4 +483,9 @@ export interface CalendarEvent {
 
 export interface CalendarEventsResponse {
   items: CalendarEvent[];
+}
+
+export interface PomodoroResponse {
+  id: number;
+  duration_minutes: number;
 }
