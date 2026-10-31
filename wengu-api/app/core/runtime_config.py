@@ -8,6 +8,7 @@ JSON 文件，文件缺失或字段非法时退回内置默认值，绝不因配
 from __future__ import annotations
 
 import json
+import math
 import os
 from collections.abc import Mapping
 from pathlib import Path
@@ -17,6 +18,7 @@ from app.core.config import PROJECT_ROOT
 
 DEFAULT_DAILY_REVIEW_LIMIT = 10
 MAX_DAILY_REVIEW_LIMIT = 200
+DEFAULT_EXAM_DAY_LIMIT_FACTOR = 1.5
 
 
 def app_config_path() -> Path:
@@ -45,3 +47,19 @@ def daily_review_limit() -> int:
     if isinstance(raw, bool) or not isinstance(raw, int) or raw < 1:
         return DEFAULT_DAILY_REVIEW_LIMIT
     return min(raw, MAX_DAILY_REVIEW_LIMIT)
+
+
+def exam_day_limit_factor() -> float:
+    """考试日复习上限放大系数；缺失/非法/小于 1 时回退默认 1.5。
+
+    只放大、不缩小：`factor < 1` 视为配置错误，避免 "考试日反而少做"。
+    最终上限仍由 `MAX_DAILY_REVIEW_LIMIT` 收口。
+    """
+
+    raw = _load().get("exam_day_limit_factor")
+    if isinstance(raw, bool) or not isinstance(raw, int | float):
+        return DEFAULT_EXAM_DAY_LIMIT_FACTOR
+    value = float(raw)
+    if not math.isfinite(value) or value < 1:
+        return DEFAULT_EXAM_DAY_LIMIT_FACTOR
+    return value

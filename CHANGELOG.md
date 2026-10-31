@@ -16,6 +16,39 @@ Phase 1 只剩 P1-7b（前置回溯诊断）与受闸门阻塞的 P1-7c。
 
 ### Added
 
+- **P2-3 课表/日历约束层**（2026-10-31）：
+  课表与日历只做**约束层**，不是任务源主体：不自动排课、不做时间块、不做
+  “考试科目 ↔ 知识点”重排序、不做冲突检测、不从课表生成任务。本轮只做三件事：
+  **家长录入 → 孩子同见 → 考试日当日放宽复习上限（一条确定性规则）**。
+  - **迁移 `0015_timetable_calendar`**（可逆，up/down/up 有测试）：`timetable_slots`
+    （`weekday` 1–7 周一=1、`period` 1–12、`subject`、`note`，`UNIQUE(weekday, period)`
+    保证一节一科、不做 A/B 周）+ `calendar_events`（`date`、`title`、`kind`
+    `CHECK IN ('exam','competition','leave','other')`、`subject`、`note`、`INDEX(date)`）。
+    downgrade 先删索引再删表。
+  - **API**：`GET /api/timetable`（按 weekday/period 排序，孩子可读）；
+    `POST /api/timetable/slots`、`DELETE /api/timetable/slots/{id}`；
+    `GET /api/calendar/events?from=&to=`（升序，缺省今天起 30 天，`end<start` → 422）；
+    `POST /api/calendar/events`、`DELETE /api/calendar/events/{id}`。
+    **所有写端点挂 `require_parent`**（未解锁 403），读端点孩子区免 PIN；无 PATCH，
+    改课 = 删除再添加。weekday/period/kind/日期非法 → 422；同节次重复 → 409。
+  - **唯一队列改动**：`services/review.py:due_queue` 在算出上限后查
+    `calendar_events(date=today, kind='exam')`，命中则
+    `cap = min(round(cap × exam_day_limit_factor), 200)`；系数从运行时配置
+    `config/app-config.json` 的 `exam_day_limit_factor` 现读（默认 1.5，非法/小于 1
+    回退默认，改文件热生效）。响应新增 `exam_today`，`daily_limit` 返回放大后的值。
+    竞赛/请假/其它事件**不放宽**；排序、任务类型、`thin`/`gap` 全部不变。
+  - **前端**：新增 `/schedule`「课表/日历」页（导航第 7 项）：家长解锁后可增删课表与事件，
+    未解锁只读同见；日队列页与看板头部新增只读摘要「今日课程」+「未来 7 天硬事件」
+    （排除请假）；复习页在 `exam_today` 时显示“今日有考试，复习上限已临时放宽到 N 道”。
+  - **验证**：新增 `tests/integration/test_schedule_api.py`（CRUD / 422 / 409 / 403 /
+    时间窗 / 删除 404）、迁移 up/down/up 用例、`test_runtime_config.py` 系数默认/合法/非法/
+    热改用例、到期队列放宽用例（考试今天 10→15、竞赛/请假/明天考试不放宽、系数 1.5→2.0
+    热改、删事件回 10、行数不变 + socket 拦截 + 重放一致）。全量 pytest **329 passed**、
+    `ruff check .` 绿、`import app.main` OK、`npm run build` 绿。临时库 + uvicorn :8010 +
+    Vite :5180 浏览器实跑：录周六第 1 节数学 + 今天“月考” → 复习页/看板头部显示今日课程与
+    硬事件 → 上限 10→15 并出现考试日提示 → 删除事件后 API 与页面恢复 10 且提示消失。
+  - **残留风险**：`config/app-config.json` 被 gitignore 且当前无 UI 改配置（P5-1）；
+    事件默认窗口 30 天，更远的考试需显式改查询参数；课表只展示、绝不参与选题/排序/冲突检测。
 - **P2-1 日队列自动生成（本轮收窄口径：只组织到期复习/考核）**（2026-10-31）：
   到期队列仍是**纯查询**，新增每日上限与队列元数据；前端复习页顶部显示今日进度与顺延提示。
   背诵铺底、作业 deadline 插入、月考/硬事件抬权重、时间块排课**本轮不做**（依赖 P2-3 课表与

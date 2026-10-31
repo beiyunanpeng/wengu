@@ -1,6 +1,9 @@
 import { apiRequest, requestJson } from "./client";
 import type {
   AttemptListResponse,
+  CalendarEvent,
+  CalendarEventsResponse,
+  CalendarKind,
   CompleteReviewResponse,
   Concept,
   ConceptCreateResponse,
@@ -21,6 +24,8 @@ import type {
   QuizTopicListResponse,
   ReviewQuizResponse,
   SessionStatus,
+  TimetableResponse,
+  TimetableSlot,
   TopicListResponse,
 } from "./types";
 
@@ -371,4 +376,69 @@ export function unlockParent(pin: string): Promise<SessionStatus> {
 
 export function lockParent(): Promise<SessionStatus> {
   return requestJson<SessionStatus>("/api/session/lock", "POST", {});
+}
+
+export function getTimetable(): Promise<TimetableResponse> {
+  return apiRequest<TimetableResponse>("/api/timetable");
+}
+
+export interface TimetableSlotPayload {
+  weekday: number;
+  period: number;
+  subject: string;
+  note?: string | null;
+}
+
+export function createTimetableSlot(
+  payload: TimetableSlotPayload,
+): Promise<TimetableSlot> {
+  return requestJson<TimetableSlot>("/api/timetable/slots", "POST", payload);
+}
+
+export function deleteTimetableSlot(
+  slotId: number,
+): Promise<{ deleted: number }> {
+  return requestJson<{ deleted: number }>(
+    `/api/timetable/slots/${slotId}`,
+    "DELETE",
+  );
+}
+
+export function getCalendarEvents(
+  filters: { from?: string; to?: string } = {},
+): Promise<CalendarEventsResponse> {
+  const params = new URLSearchParams();
+  if (filters.from) {
+    params.set("from", filters.from);
+  }
+  if (filters.to) {
+    params.set("to", filters.to);
+  }
+  const query = params.toString();
+  return apiRequest<CalendarEventsResponse>(
+    `/api/calendar/events${query ? `?${query}` : ""}`,
+  );
+}
+
+export interface CalendarEventPayload {
+  date: string;
+  title: string;
+  kind: CalendarKind;
+  subject?: string | null;
+  note?: string | null;
+}
+
+export function createCalendarEvent(
+  payload: CalendarEventPayload,
+): Promise<CalendarEvent> {
+  return requestJson<CalendarEvent>("/api/calendar/events", "POST", payload);
+}
+
+export function deleteCalendarEvent(
+  eventId: number,
+): Promise<{ deleted: number }> {
+  return requestJson<{ deleted: number }>(
+    `/api/calendar/events/${eventId}`,
+    "DELETE",
+  );
 }

@@ -36,6 +36,7 @@ import ExplanationSlot from "../components/ExplanationSlot";
 import MathText from "../components/MathText";
 import QuizQuestionCard from "../components/QuizQuestionCard";
 import QuizTopicPicker from "../components/QuizTopicPicker";
+import ScheduleBrief from "../components/ScheduleBrief";
 import { useParentSession } from "../parent/ParentSession";
 
 const TASK_LABELS: Record<ReviewTask, string> = {
@@ -320,6 +321,14 @@ export default function ReviewPage() {
         解答大题或依赖图形则在纸上做、照卷面自评；题库缺口则重做原题。
         考核结果不新建错题本条目。
       </Text>
+
+      <ScheduleBrief />
+
+      {due?.exam_today && (
+        <Alert color="red" variant="light" title="今日有考试">
+          复习上限已临时放宽到 {due.daily_limit} 道；考试日只是多给一点余量，不做任何排课或重排。
+        </Alert>
+      )}
 
       {due && goal > 0 && (
         <Card withBorder>

@@ -68,6 +68,7 @@ class DueReviewResponse(BaseModel):
     returned: int
     today_completed: int
     daily_limit: int
+    exam_today: bool
     today: date
     limit: int
 
@@ -194,6 +195,7 @@ async def due_reviews(
         returned=queue.returned,
         today_completed=queue.today_completed,
         daily_limit=queue.daily_limit,
+        exam_today=queue.exam_today,
         today=day,
         limit=limit,
     )

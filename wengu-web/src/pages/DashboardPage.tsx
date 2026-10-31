@@ -15,6 +15,7 @@ import { useEffect, useState } from "react";
 
 import { errorMessage } from "../api/client";
 import { getDashboard } from "../api/endpoints";
+import ScheduleBrief from "../components/ScheduleBrief";
 import type {
   DashboardConceptMastery,
   DashboardCurvePoint,
@@ -310,6 +311,8 @@ export default function DashboardPage() {
           只读确定性统计：孩子与家长看同一份，全部从事件事实现算，不调模型。
         </Text>
       </Stack>
+
+      <ScheduleBrief />
 
       <StreakCard streak={data.streak} />
 

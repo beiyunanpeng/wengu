@@ -1,3 +1,4 @@
 {
-  "daily_review_limit": 10
+  "daily_review_limit": 10,
+  "exam_day_limit_factor": 1.5
 }

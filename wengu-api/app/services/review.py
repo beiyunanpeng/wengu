@@ -23,10 +23,15 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.runtime_config import daily_review_limit
+from app.core.runtime_config import (
+    MAX_DAILY_REVIEW_LIMIT,
+    daily_review_limit,
+    exam_day_limit_factor,
+)
 from app.judge.normalize import judge_answer
 from app.models import (
     Attempt,
+    CalendarEvent,
     GradingResult,
     KnowledgeSeed,
     LearningEvent,
@@ -191,6 +196,7 @@ class DueQueue:
     due_total: int
     today_completed: int
     daily_limit: int
+    exam_today: bool = False
 
     @property
     def returned(self) -> int:
@@ -884,6 +890,19 @@ async def _today_completed(session: AsyncSession, today: date) -> int:
     )
 
 
+async def _has_exam_today(session: AsyncSession, today: date) -> bool:
+    """日历上今天是否有 kind='exam' 的硬事件（唯一影响队列上限的规则）。"""
+
+    row = (
+        await session.execute(
+            select(CalendarEvent.id)
+            .where(CalendarEvent.date == today, CalendarEvent.kind == "exam")
+            .limit(1)
+        )
+    ).first()
+    return row is not None
+
+
 async def due_queue(
     session: AsyncSession,
     today: date,
@@ -897,6 +916,10 @@ async def due_queue(
     `daily_review_limit`（热加载），超过上限的到期项不返回、只计入 `due_total`；
     `limit` 是调用方额外的硬上限，最终取两者较小值。
 
+    P2-3 唯一的队列改动：日历上今天有 `kind='exam'` 事件时，上限按运行时
+    配置 `exam_day_limit_factor` 放大（默认 1.5），仍受 200 收口，并标记
+    `exam_today`；竞赛/请假/其它事件不放宽。排序、任务类型、thin/gap 不变。
+
     v2.5 考核优先/重做兜底：按 `primary_topic_id` 检索 seed 题库——
     命中出"同类题考核"，未命中（无主考点或该知识点 0 题）退回原题重做并标
     `bank_gap`。`coverage=thin` 只是覆盖偏薄提示，仍正常出题、不得当 gap。
@@ -907,6 +930,11 @@ async def due_queue(
     cap = daily_review_limit() if daily_limit is None else daily_limit
     if cap < 1:
         raise ValueError("daily_limit 必须 ≥1")
+    exam_today = await _has_exam_today(session, today)
+    if exam_today:
+        cap = min(
+            round(cap * exam_day_limit_factor()), MAX_DAILY_REVIEW_LIMIT
+        )
     effective = cap if limit is None else min(cap, limit)
 
     due_filter = (
@@ -977,6 +1005,7 @@ async def due_queue(
         due_total=due_total,
         today_completed=today_completed,
         daily_limit=cap,
+        exam_today=exam_today,
     )
 
 
