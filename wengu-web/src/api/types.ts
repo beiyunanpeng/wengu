@@ -133,7 +133,10 @@ export interface QuizQuestionView {
 
 export interface DueReviewResponse {
   items: DueReviewItem[];
-  total: number;
+  due_total: number;
+  returned: number;
+  today_completed: number;
+  daily_limit: number;
   today: string;
   limit: number;
 }

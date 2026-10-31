@@ -16,6 +16,33 @@ Phase 1 只剩 P1-7b（前置回溯诊断）与受闸门阻塞的 P1-7c。
 
 ### Added
 
+- **P2-1 日队列自动生成（本轮收窄口径：只组织到期复习/考核）**（2026-10-31）：
+  到期队列仍是**纯查询**，新增每日上限与队列元数据；前端复习页顶部显示今日进度与顺延提示。
+  背诵铺底、作业 deadline 插入、月考/硬事件抬权重、时间块排课**本轮不做**（依赖 P2-3 课表与
+  P3 背诵，避免越界）。
+  - **每日上限**：`services/review.py:due_queue` 从运行时配置 `config/app-config.json` 的
+    `daily_review_limit` 读取（默认 10、1–200 收口、**每次请求现读、改 JSON 即热生效**；
+    文件缺失/非法回退默认值，可用 `WENGU_APP_CONFIG` 指向其他路径）。超过上限的到期项
+    不返回、只计入 `due_total`；`limit` 查询参数仍作调用方硬上限，最终取两者较小值。
+  - **响应字段**：`GET /api/reviews/due` 新增 `due_total`（全部到期数）、`returned`
+    （本次返回数）、`today_completed`（当天已完成复习数 = `attempt_*` 事件中
+    `payload.kind="review"` 且 `completed_on==today` 的条数，从事件现算、不读易变列）、
+    `daily_limit`；原 `total` 由 `due_total` 取代。
+  - **排序**：先逾期（`due_date` 升序）再今日，同组按 `mistake_id`、最后排期 id 兜底；
+    同输入重复请求结果稳定。`thin` / `gap` 与考核优先/重做兜底语义不变。
+  - **前端**：复习页顶部“今日任务 x/y 完成”进度条，`y=min(due_total+today_completed,
+    daily_limit)`；超限显示“今日已到上限 N，其余 M 项顺延（明天还在，不会丢）”。
+    顺延不惩罚、不加重做、不产生漏打卡焦虑；完成一项时本地同步 `due_total-1 /
+    today_completed+1`，分母保持不变。
+  - **运行态证据**：临时库 + uvicorn :8145 + Vite :5181 实跑——12 项到期、上限 10 →
+    返回 10、`due_total=12`、顺延 2、逾期 3 项排在今日前；完成 2 项后
+    `today_completed=2`、`due_total=10`，页面 2/10；改 JSON 上限 4 不重启后端 → API 与页面
+    立即变为 4/上限、顺延 8；页面内完成 1 项后进度 3/10、卡片 10→9，服务端
+    `today_completed=3`。
+  - **验证**：新增 `tests/unit/test_runtime_config.py` 11 例（默认/合法/非法/上限收口/热改）
+    与 2 例集成测试（12 项+上限 10、逾期优先与稳定排序、只读行数不变 + socket 拦截、
+    热改上限、`today_completed` 从事件算且确认入本的 `attempt_wrong` 不计）。全量 pytest
+    **314 passed**、`ruff check .` 绿、`import app.main` OK、`npm run build` 绿。
 - **P2-6 极简打卡（streak 从事实现算，不入库）**（2026-10-31）：
   看板新增“每日打卡”卡：今日已打卡 / 今天还没打卡、连续 N 天、最长 N 天、累计学习天数、
   近 30 天日历条；沿用 P2-5 的掌握度曲线，不新建页面或端点。

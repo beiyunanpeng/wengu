@@ -19,10 +19,11 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Literal
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.runtime_config import daily_review_limit
 from app.judge.normalize import judge_answer
 from app.models import (
     Attempt,
@@ -180,6 +181,20 @@ class DueReview:
     seed: int
     quiz: BankPick | None
     coverage_hint: str | None
+
+
+@dataclass(frozen=True)
+class DueQueue:
+    """到期队列快照：只读、不落库；`items` 已按每日上限截断。"""
+
+    items: tuple[DueReview, ...]
+    due_total: int
+    today_completed: int
+    daily_limit: int
+
+    @property
+    def returned(self) -> int:
+        return len(self.items)
 
 
 async def _get_mistake(session: AsyncSession, mistake_id: int) -> Mistake:
@@ -838,18 +853,78 @@ def quiz_seed(mistake_id: int, schedule_id: int) -> int:
     return (mistake_id * 0x9E3779B1 + schedule_id) & 0xFFFFFFFF
 
 
+def _payload_mapping(raw: Any) -> Mapping[str, Any]:
+    if isinstance(raw, Mapping):
+        return raw
+    if isinstance(raw, str):
+        try:
+            data = json.loads(raw)
+        except (TypeError, json.JSONDecodeError):
+            return {}
+        return data if isinstance(data, Mapping) else {}
+    return {}
+
+
+async def _today_completed(session: AsyncSession, today: date) -> int:
+    """今日已完成复习数：从事件现算，不读任何易变列。"""
+
+    rows = (
+        await session.execute(
+            select(LearningEvent.payload).where(
+                LearningEvent.type.in_((ATTEMPT_CORRECT, ATTEMPT_WRONG))
+            )
+        )
+    ).all()
+    day = today.isoformat()
+    return sum(
+        1
+        for (raw,) in rows
+        if (payload := _payload_mapping(raw)).get("kind") == REVIEW_EVENT_KIND
+        and payload.get("completed_on") == day
+    )
+
+
 async def due_queue(
-    session: AsyncSession, today: date, limit: int = 50
-) -> list[DueReview]:
-    """今日到期（含逾期）的复习任务；纯查询。
+    session: AsyncSession,
+    today: date,
+    limit: int | None = None,
+    daily_limit: int | None = None,
+) -> DueQueue:
+    """今日到期（含逾期）的复习任务；纯查询，不写库。
+
+    排序确定性：先逾期（`due_date` 升序，含更早逾期）再今日，同组按
+    `mistake_id`，最后用排期 id 兜底。每日上限默认取运行时配置
+    `daily_review_limit`（热加载），超过上限的到期项不返回、只计入 `due_total`；
+    `limit` 是调用方额外的硬上限，最终取两者较小值。
 
     v2.5 考核优先/重做兜底：按 `primary_topic_id` 检索 seed 题库——
     命中出"同类题考核"，未命中（无主考点或该知识点 0 题）退回原题重做并标
     `bank_gap`。`coverage=thin` 只是覆盖偏薄提示，仍正常出题、不得当 gap。
     """
 
-    if limit < 1:
+    if limit is not None and limit < 1:
         raise ValueError("limit 必须 ≥1")
+    cap = daily_review_limit() if daily_limit is None else daily_limit
+    if cap < 1:
+        raise ValueError("daily_limit 必须 ≥1")
+    effective = cap if limit is None else min(cap, limit)
+
+    due_filter = (
+        ReviewSchedule.completed_at.is_(None),
+        ReviewSchedule.due_date <= today,
+        Mistake.status == MISTAKE_ACTIVE,
+    )
+    due_total = int(
+        await session.scalar(
+            select(func.count())
+            .select_from(ReviewSchedule)
+            .join(Mistake, Mistake.id == ReviewSchedule.mistake_id)
+            .where(*due_filter)
+        )
+        or 0
+    )
+    today_completed = await _today_completed(session, today)
+
     rows = (
         await session.execute(
             select(ReviewSchedule, Mistake, MistakeVersion)
@@ -861,13 +936,11 @@ async def due_queue(
                     MistakeVersion.version == Mistake.current_version,
                 ),
             )
-            .where(
-                ReviewSchedule.completed_at.is_(None),
-                ReviewSchedule.due_date <= today,
-                Mistake.status == MISTAKE_ACTIVE,
+            .where(*due_filter)
+            .order_by(
+                ReviewSchedule.due_date, Mistake.id, ReviewSchedule.id
             )
-            .order_by(ReviewSchedule.due_date, ReviewSchedule.id)
-            .limit(limit)
+            .limit(effective)
         )
     ).all()
 
@@ -899,7 +972,12 @@ async def due_queue(
                 ),
             )
         )
-    return items
+    return DueQueue(
+        items=tuple(items),
+        due_total=due_total,
+        today_completed=today_completed,
+        daily_limit=cap,
+    )
 
 
 async def _attempt_event(
