@@ -4,7 +4,15 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Text, UniqueConstraint
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -84,4 +92,29 @@ class IngestionDraft(Base):
 
     __table_args__ = (
         UniqueConstraint("import_batch_id", "seq", name="uq_ingestion_drafts_batch_seq"),
+    )
+
+
+class BankDraft(Base):
+    """P3-1 空白真题录题草稿：外部 agent 转录后停在这里，家长审核才入 problem_bank。
+
+    与错题草稿分表：录题不建错题、不排复习；`status` 只允许 draft/approved/rejected。
+    `normalized_json` 是归一化后的题目字段（含可空 answer，等家长补填）。
+    """
+
+    __tablename__ = "bank_drafts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    import_batch_id: Mapped[int] = mapped_column(
+        ForeignKey("import_batches.id"), nullable=False
+    )
+    seq: Mapped[int] = mapped_column(Integer, nullable=False)
+    normalized_json: Mapped[str] = mapped_column(Text, nullable=False)
+    has_placeholder: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="draft")
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("import_batch_id", "seq", name="uq_bank_drafts_batch_seq"),
+        Index("ix_bank_drafts_status", "status"),
     )

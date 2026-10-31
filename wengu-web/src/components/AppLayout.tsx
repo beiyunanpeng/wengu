@@ -2,8 +2,9 @@ import { AppShell, Button, Container, Group, Text } from "@mantine/core";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 
 import ParentGate from "./ParentGate";
+import { useParentSession } from "../parent/ParentSession";
 
-const NAV = [
+const NAV: { to: string; label: string; parentOnly?: boolean }[] = [
   { to: "/dashboard", label: "看板" },
   { to: "/import", label: "导入" },
   { to: "/intake", label: "核对" },
@@ -11,11 +12,14 @@ const NAV = [
   { to: "/review", label: "复习考核" },
   { to: "/schedule", label: "课表/日历" },
   { to: "/records", label: "练习记录" },
+  { to: "/bank", label: "题库审核", parentOnly: true },
 ];
 
 export default function AppLayout() {
   const { pathname } = useLocation();
   const navigate = useNavigate();
+  const { unlocked } = useParentSession();
+  const navItems = NAV.filter((item) => !item.parentOnly || unlocked);
 
   return (
     <AppShell header={{ height: 56 }} padding={0}>
@@ -30,7 +34,7 @@ export default function AppLayout() {
             wengu · 温故
           </Text>
           <Group gap={4} wrap="nowrap">
-            {NAV.map((item) => {
+            {navItems.map((item) => {
               const active =
                 pathname === item.to || pathname.startsWith(`${item.to}/`);
               return (

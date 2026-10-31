@@ -1,9 +1,9 @@
 # STATUS.md — 开发计划与完成情况
 
-> 快照日期：2026-10-31（P2-7 打印导出交付后）
-> 分支 / HEAD：`main` / `fbe7116`（P2-1～P2-7 改动尚未提交，工作区含本票变更）
-> 全量测试：**351 passed**（本机 2026-10-31，62.29s）；`ruff check .` 全绿；`npm run build` 绿
-> Alembic head：`0015_timetable_calendar`；业务表 21 张（P2-7 无迁移）
+> 快照日期：2026-10-31（P3-1 家长录题交付后）
+> 分支 / HEAD：`main` / `fbe7116`（P2-1～P2-7、P3-1 改动尚未提交，工作区含本票变更）
+> 全量测试：**369 passed**（本机 2026-10-31）；`ruff check .` 全绿；`npm run build` 绿
+> Alembic head：`0016_bank_drafts`；业务表 22 张（0016 新增 `bank_drafts` + `problem_bank` 补列）
 
 本文件是**状态快照**，不替代以下事实源；冲突时以它们为准：
 
@@ -26,6 +26,14 @@
 - **P1-12 删除票已交付**：视觉栈、gateway、provider 抽象、讲解服务、HTTP 模型判分端点、
   `model_runs` / `ai_jobs`（迁移 0013）、`llm_prompts/`、旧链路脚本与测试、前端旧三页
   全部退役；保留 intake / grading 确认服务 / judge / bank / quiz / review / inbox。
+- **P3-1 家长录题已交付**：家长拍空白真题 → 外部 agent 按
+  `docs/templates/doubao_bank_transcribe_v1.md` 转录 → `data/inbox/` 按 channel 分派进
+  `bank_drafts` → 家长「题库审核」页逐条确认 → SQLite `problem_bank`（**不写 seed JSON**）；
+  手填表单兜底。**红线：模型不得自行解题生成答案**，`answer` 只从卷面/答案册转录，
+  否则留空由家长补填，缺答案拒入库。入库统一过长度/枚举/choice key/topic 存在性校验 +
+  AST `verify` 沙箱（非法表达式、`__import__`、赋值、属性访问、纯数值矛盾全拒），
+  固定标 `unaudited=true` / `blind_verified=false`。四个端点全挂 `require_parent`，
+  孩子区导航不可见；迁移 `0016`（可逆）。
 - **P2-2 番茄钟执行已交付**：复习页每日队列第一项带**纯前端 25 分钟倒计时**，取消不打点，
   自然完成或手动“完成”才 `POST /api/pomodoros` 追加 `pomodoro_completed` 事件（幂等键按
   `started_at`，时长 5–120 钳制，错题可空）；看板与复习页头部显示今日番茄 / 本周专注，
@@ -58,8 +66,7 @@
   手动组卷需在导航"家长区"解锁（scrypt 哈希 + HMAC 签名 cookie，12h，连续 5 次错误锁 60s）。
   PIN **只防误入、不是安全边界**，不做登录/账号/多租户；公网暴露仍须鉴权隔离或 Tailscale。
 - **Phase 1 剩余**：P1-7b 前置回溯诊断（未开始）；P1-7c 自动排复习仍受 Phase 0 闸门阻塞。
-- **下一步**：P0-1 样本扩容（重新定义 v2.5 口径）+ P1-7b；P0-2 黄金集需按"系统内无模型"
-  重新界定价值（见 §6）。
+- **下一步**：P3-2 主动加练变式；并行的长期项仍是 P0-1 样本扩容（v2.5 口径）+ P1-7b。
 
 ## 2. 总体路线图状态
 
@@ -68,7 +75,7 @@
 | Phase 0 | 摸底 + 回归基线 | 部分完成 | 首轮实测结论已在 `docs/methodology/phase0.md`；v2.5 后"识别瓶颈"由批改外移绕过，边界表不再是入本前置 |
 | Phase 1 | 核心闭环 | 进行中 | P1-0～P1-12 完成（模型在环旧链路已退役）；仅剩 P1-7b，P1-7c 阻塞 |
 | Phase 2 | 每日任务 + 家长看板 | 进行中 | P2-5 家长看板、P2-4 两角色 + 本地 PIN、P2-6 极简打卡、P2-1 日队列（本轮仅到期复习/考核）、P2-3 课表/日历约束层、P2-2 番茄钟执行、P2-7 打印导出已完成；日队列的背诵/作业/硬事件权重未开始 |
-| Phase 3 | 内容与扩展 | 未开始 | 真题库流水线、组卷扩展、英语背诵、听力默写、语文、信奥、长期计划 |
+| Phase 3 | 内容与扩展 | 进行中 | P3-1 家长录题（真题入库审核流水线）已完成；组卷加练、英语背诵、听力默写、语文、信奥、长期计划未开始 |
 | Phase 4 | 基础设施演进 | 未开始 | Tailscale、可移植部署、可选本地 GPU |
 | Phase 5 | 开源分发与打包 | 未启动（部分基线已有） | LICENSE / README / CHANGELOG / `.env.example` / 第三方署名已就位；首次运行向导、备份恢复、鉴权开关、教材包安装器未做 |
 
@@ -170,11 +177,12 @@
 - **纪律**：streak 绝不入库，每次请求由 `services/streak.py` 纯函数现算；只做习惯展示，
   **不用于学习效果结论**；无手动签到按钮、无写库路径、无积分/徽章/等级/排行榜。
 
-### 4.7 前端（七页导航 + 错题详情）
+### 4.7 前端（八页导航 + 错题详情，家长解锁另有题库审核）
 
 - `/dashboard` 看板；`/import` 导入说明 + 家长手填最小表单；`/intake` 核对入本；
   `/mistakes` + `/:id` 错题本；`/review` 到期三态 + 今日进度/顺延提示 + 手工组卷；
   `/schedule` 课表/日历（家长解锁可增删，未解锁只读）；`/records` 练习记录；
+  `/bank` 题库审核（**仅家长解锁后出现在导航**，未解锁只显示家长专属提示）；
   `/print/mistakes`、`/print/paper` 打印视图（AppLayout 之外，无导航壳）；
   数学 KaTeX 渲染，同源 `/api` 代理。看板曲线为内联 SVG，不引入图表库。
 - 导航右侧"家长区"入口：未设 PIN 首次引导设置，已设则解锁；解锁态存 cookie、刷新保持；
@@ -236,6 +244,30 @@
   题卡 `break-inside: avoid`、答案页 `break-before: page`。实测：错题页 4 组 → 4 页；
   练习卷默认 1 页、开答案页 2 页；Chrome 阅读器打开正常。
 
+### 4.12 家长录题 / 题库审核（P3-1）
+
+- **链路**：家长拍**空白真题 / 教师版** → 外部 agent 按
+  `docs/templates/doubao_bank_transcribe_v1.md` 转录（`channel=agent_bank_transcribe_v1`）→
+  `data/inbox/` 监听导入 → `bank_drafts` → 家长 `/bank` 页逐条通过/驳回 → SQLite
+  `problem_bank`；家长手填表单走同一闸门。**家长题不写 seed JSON**（seed 保持只读）。
+- **红线**：**模型不得自行解题生成答案**。模板只在照片明确含答案时转录 `answer`，否则留空；
+  审核页缺答案一律 422 拒绝入库，由家长补填后再通过。
+- **导入校验**：字段长度（prompt 2000 / answer 500 / verify 2000 / source_ref 200）、
+  `type ∈ {choice,numeric,short,self}`、choice 必须有选项且 key 唯一且 answer 命中 key、
+  `topic_id` 必须存在于 `knowledge_seed`、内联 SVG 过白名单净化；坏项逐条
+  `errors[{index,field,reason}]` 返回，不做整批静默截断；批次 sha256 去重。
+- **审核闸门**：approve 时合并家长覆盖值 → 重新 normalize → `check_approvable`
+  （缺 answer / 空题面 / 含 `〔?〕` / choice 不命中）→ `classify_verify`：
+  无 verify → `unverifiable/no_verify`；非法表达式或 `__import__`/赋值/属性访问 →
+  AST 沙箱拒；数值/短答表达式与答案矛盾 → 拒入库；choice 文本型 verify 无法数值核验 →
+  `unverifiable/choice_text_mismatch`。入库固定 `unaudited=true`、`blind_verified=false`。
+- **API（全挂 `require_parent`，未解锁 403）**：`GET /api/bank/drafts`（status 过滤 + 分页 +
+  topic 名回显）、`POST /api/bank/drafts/{id}/approve`、`POST /api/bank/drafts/{id}/reject`、
+  `POST /api/bank/items`（手填直录）。重复审核 / 已驳回转正 → 409。
+- **前端**：导航「题库审核」仅家长解锁后出现；未解锁不发请求、只显示家长专属提示。
+  草稿卡回显题面/配图/选项/建议考点/答案/verify，可改 `topic_id`、补答案、难度后通过；
+  页面级提示显示 `problem_bank #id · verify_status`；手填表单复用同一校验。
+
 ## 5. API 与数据现状
 
 ### 5.1 API 面
@@ -248,6 +280,7 @@
 | 错题 / 标签 | `GET /api/mistakes`、`GET /api/mistakes/{id}`、`GET /api/mistakes/options`、`POST /api/mistakes/{id}/labels`、`POST /api/mistakes/{id}/void`、`POST /api/mistakes/{id}/unvoid` |
 | 概念 | `GET /api/concepts`、`POST /api/concepts`、`POST /api/concepts/merge` |
 | 题库 | `POST /api/problem-bank/import`、`GET /api/problem-bank/items/{id}` |
+| 题库审核（P3-1） | `GET /api/bank/drafts`、`POST /api/bank/drafts/{id}/approve`、`POST /api/bank/drafts/{id}/reject`、`POST /api/bank/items`（全部 `require_parent`） |
 | 复习 | `GET /api/reviews/due`（纯查询；按 `daily_review_limit` 截断，响应含 `due_total` / `returned` / `today_completed` / `daily_limit` / `exam_today`）、`POST /api/reviews/{mistake_id}/quiz`、`POST /api/reviews/{mistake_id}/complete` |
 | 课表 | `GET /api/timetable`、`POST /api/timetable/slots`、`DELETE /api/timetable/slots/{id}` |
 | 日历 | `GET /api/calendar/events?from=&to=`（缺省今天起 30 天）、`POST /api/calendar/events`、`DELETE /api/calendar/events/{id}` |
@@ -260,20 +293,27 @@
 家长区（`require_parent`，未解锁 403）：`POST /api/mistakes/{id}/void|unvoid`、
 `POST /api/problem-bank/import`、`GET /api/problem-bank/items/{id}`、`GET /api/quizzes/paper`、
 `GET /api/quizzes/paper/answers`、`POST/DELETE /api/timetable/slots*`、
-`POST/DELETE /api/calendar/events*`。
+`POST/DELETE /api/calendar/events*`、`GET /api/bank/drafts`、
+`POST /api/bank/drafts/{id}/approve|reject`、`POST /api/bank/items`。
 其余端点（导入、核对确认、到期、考核提交/自评、错题/看板/课表/日历只读）孩子区免 PIN。
 
 已删除（P1-12）：`/api/captures*`、`/api/extractions*`、`/api/gradings*`、`/api/explanations*`。
 
 ### 5.2 数据库与 seed
 
-- Alembic head `0015_timetable_calendar`；21 张业务表（P2-2 / P2-7 不建表；P2-7 仅新增家长答案钥匙读端点）。
+- Alembic head `0016_bank_drafts`；22 张业务表（0016 新增 `bank_drafts`，
+  `problem_bank` 补 `topic_id` FK + `question_type/difficulty/choices_json/figure/hide_choice_text/percent`，
+  既有行默认 NULL）。
+- `bank_drafts`：`import_batch_id` FK + `seq` + `normalized_json` + `has_placeholder` +
+  `status draft|approved|rejected` + `created_at`，`UNIQUE(import_batch_id, seq)`；
+  草稿永不自动转正，只能由家长审核端点翻状态。
 - `user_role` 由 `0014_parent_pin` 保证存在 `(role='parent', pin_hash=NULL)` 行；PIN 设置后存 scrypt 哈希。
 - `model_runs` / `ai_jobs` 已 DROP（0013，down 可重建空表）。
 - `photo_captures` / `photo_capture_items` / `problem_extractions` 表结构保留但**无写入方**
   （本票按清单只 DROP 两表；如需彻底清理另开工单）。
 - seed：664 知识点（数学 315 / 英语 257 / 物理 92）+ 1018 先修边 + 2803 题
   （数学 1407 / 英语 1028 / 物理 368）；化学、语文空 seed 起步。
+  **P3-1 家长录题只进 SQLite `problem_bank`，不写 seed JSON**；seed 包仍随仓库只读分发。
 - 运行时非密钥参数：`config/app-config.json`（gitignore，本机配置；示例见
   `config/app-config.example.json`）当前含 `daily_review_limit`（默认 10）与
   `exam_day_limit_factor`（默认 1.5），每请求现读、改文件热生效；缺失/非法回退默认。
@@ -284,6 +324,10 @@
 
 | 项 | 状态 | 影响 | 解锁条件 / 下一步 |
 |---|---|---|---|
+| 家长录题与组卷未打通 | 缺口 | P3-1 只完成"入库 + 审核"；`/api/quizzes/*` 仍只读取内存 seed 题库，家长新录的 `problem_bank` 题**暂不参与**到期考核与手动组卷 | P3-2 或后续"题库统一检索层"工单把 `problem_bank` 并入检索/组卷（须保持固定种子可重放与答案不下发） |
+| 入库题无编辑/作废 | 缺口 | 录错答案或分类后无法在系统内修订，只能直接改库（不得手改生产 SQLite） | 另开"题库条目修订/作废"工单，走事件留痕而非硬删 |
+| 录题审核逐条 | 部分缓解 | 草稿只能逐条通过/驳回，批量录入时家长操作成本高 | 观察真实使用量后决定是否做批量确认；不得改为无人确认自动入库 |
+| 空 seed 学科无法录题挂点 | 缺口 | `topic_id` 必须存在于 `knowledge_seed`，语文/化学暂无法挂知识点 | 先补教材 seed 包（P5-4），或后续允许"仅存题不挂点"的受控例外 |
 | P0-1 样本扩容 | 待按 v2.5 重新定义 | 外部转录质量是新的主瓶颈 | 用真实"已批改卷"样本测转录模板 + 核对页漏/错项率 |
 | P0-2 黄金评测集 | 未开始（需重新界定） | 系统内核已无模型，原 prompt/供应商回归失去对象 | 若做，只针对外部转录质量与题库/判分回归 |
 | P1-7b 前置回溯诊断 | 未开始 | 无法定位根因先修 | `prerequisite_edges` 就绪 |
@@ -295,7 +339,7 @@
 | 鉴权 / 本地 PIN | 部分完成 | P2-4 本地家长 PIN 已做（只防误入，非安全边界）；公网鉴权/隔离仍未做 | 公网暴露前走 P5-3 真鉴权或 Tailscale |
 | 化学 / 语文 seed | 未做 | 两科从空 seed 起步 | 家长按教材目录建章级粗粒度 seed |
 | Phase 2 剩余 | 部分完成 | 打印导出已随 P2-7 补齐（前端打印视图，非服务端 PDF 文件）；课表/日历只做约束层（不排课、不生成任务）；日队列仅完成“到期复习/考核”组织，背诵铺底 / 作业 deadline / 硬事件抬权重未做（依赖 P3）；番茄钟已完成（纯前端计时 + 事件打点） | 按 TICKETS 顺序 |
-| Phase 3–5 | 未开始 | 真题库、组卷扩展、英语背诵、信奥、分发向导等缺失 | 按 TICKETS 顺序 |
+| Phase 3–5 | 部分完成 | P3-1 录题流水线已交付；组卷加练、英语背诵、听力默写、语文、信奥、长期计划及 Phase 4/5 均未开始 | 按 TICKETS 顺序 |
 
 ## 7. 残留风险与技术债
 
@@ -332,7 +376,14 @@
     均由客户端上报（可信家庭场景，非防作弊），服务端只钳制 5–120 分钟；不足 5 分钟的手动
     完成会记为 5 分钟。看板按 payload `completed_on` 归日，缺失回退 `occurred_at`（UTC）日期；
     番茄只展示专注时长，**不得用于学习效果结论**。
-15. **打印导出依赖浏览器**：PDF 由“打印 → 另存为 PDF”生成，分页/页边距由 Chrome/Edge 打印
+15. **家长录题只到"入库"为止**：P3-1 的 `problem_bank` 新题**尚未接入组卷/到期考核**
+    （检索层仍只读内存 seed 题库），也**没有编辑/作废入口**；录错只能后续工单修订。
+    审核页逐条确认、无批量通过；`verify` 只验证"答案自洽"，**无法发现题目文本抄错**，
+    仍需家长人工把关。`answer` 只能来自卷面/答案册或家长手填，**绝不由模型生成**；
+    choice 的文本型 verify 无法数值核验，只能标 `unverifiable`。`topic_id` 必须命中既有
+    seed，语文/化学空 seed 学科暂不能挂点。审核面全部挂 `require_parent`，但 PIN 仍
+    只防误入、不是安全边界。
+16. **打印导出依赖浏览器**：PDF 由“打印 → 另存为 PDF”生成，分页/页边距由 Chrome/Edge 打印
     引擎决定（已实测 A4），Firefox/移动端可能有差异；不产出服务端 PDF 文件（邮件附件等场景
     留待真需求）。错题日期筛选在**前端**分页拉全量后过滤，家庭规模可接受，量大时应下推到后端
     索引。答案页仅靠 `require_parent` 与“默认不渲染”防误入，**不是安全边界**；家长若在打印
@@ -344,6 +395,10 @@
 - `learning_events` 只追加，UNIQUE 幂等键，UPDATE/DELETE 触发器守卫。
 - **模型只提、代码才判**（作用域 = 自造同类题）；运行时不用 `eval()`，题库核验走 AST 白名单沙箱。
 - 核对页确认是唯一转正入口；建议值与确认值分离；确认值优先、冲突不静默覆盖。
+- **家长录题红线**：`answer` 只能来自卷面/答案册或家长手填，**模型不得解题生成答案**；
+  缺答案拒入库；`verify` 必须过 AST 白名单沙箱（禁 `__import__`/赋值/属性访问）；
+  `bank_drafts` 永不自动转正；入库固定 `unaudited=true`、`blind_verified=false`；
+  家长题只进 SQLite `problem_bank`，**绝不写 seed JSON**；审核/手填端点挂 `require_parent`。
 - 日志/事件不落题目全文、答案、文件 URL、个人信息、密钥。
 - 纯查询 GET 零模型调用；内核零模型（无 provider / SDK / 模型审计表）。
 - 变式/加练只进 `practice_records`，绝不进错题本、不排复习。
@@ -362,13 +417,16 @@
 
 ## 9. 下一步建议（按依赖与风险排序）
 
-1. **P1-7b 前置回溯诊断**：`prerequisite_edges` 已装载，固定种子 `replay` 必须可重建。
-2. **复习掌握度归因**：把已确认 concept 写入事实，让 mastery 不再恒 0.0。
-3. **外部转录质量实测（P0-1 新口径）**：用真实已批改卷跑模板，统计 `〔?〕` 率、漏题率、
-   核对页修改率；据此迭代 `docs/templates/doubao_transcribe_v1.md` 版本。
-4. **Phase 2 剩余**：PDF 导出；日队列的背诵铺底、作业 deadline、硬事件抬权重待 P3；
-   P2-1 收窄口径、P2-2 番茄钟、P2-3 课表/日历、P2-4 两角色、P2-5 看板、P2-6 打卡已完成。
-5. **P5-3 公网鉴权**（本地 PIN 已做，但非安全边界）与桌面备份恢复，随分发需求穿插。
+1. **P3-2 主动加练变式**：按 category/错因/难度检索组卷进 `practice_records`；如需把
+   P3-1 的 `problem_bank` 新题纳入检索，先统一题库检索层（保持固定种子可重放、答案不下发）。
+2. **P1-7b 前置回溯诊断**：`prerequisite_edges` 已装载，固定种子 `replay` 必须可重建。
+3. **复习掌握度归因**：把已确认 concept 写入事实，让 mastery 不再恒 0.0。
+4. **外部转录质量实测（P0-1 新口径）**：用真实已批改卷 / 空白真题跑两个模板，统计 `〔?〕` 率、
+   漏题率、核对页修改率；据此迭代 `docs/templates/` 下模板版本。
+5. **Phase 2 剩余**：日队列的背诵铺底、作业 deadline、硬事件抬权重待 P3；
+   P2-1 收窄口径、P2-2 番茄钟、P2-3 课表/日历、P2-4 两角色、P2-5 看板、P2-6 打卡、
+   P2-7 打印已完成。
+6. **P5-3 公网鉴权**（本地 PIN 已做，但非安全边界）与桌面备份恢复，随分发需求穿插。
 
 ## 10. 后续阶段工单清单（均未开始）
 
@@ -390,7 +448,7 @@
 
 | 工单 | 目标 |
 |---|---|
-| P3-1 | 真题库录入流水线：外部转录 → `problem_bank` → 家长审核队列 |
+| P3-1 | 已完成：家长录题（真题入库审核流水线）。外部转录 `agent_bank_transcribe_v1` → `bank_drafts` → 家长 `/bank` 逐条确认 → SQLite `problem_bank`；手填兜底；缺答案/choice 不命中/未知 topic/AST 沙箱拒/数值矛盾一律拒绝；固定 `unaudited`/`blind_verified`；迁移 0016。**模型不得生成答案；新题暂未接入组卷** |
 | P3-2 | 组卷/加练：按 category/错因/难度检索真题组卷；禁止 LLM 凭空编题 |
 | P3-3 | 英语背诵：自评间隔重复（档③） |
 | P3-4 | 听力 + 默写：默写复用批改；听力用教材音频 + TTS；不做口语 ASR |

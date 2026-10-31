@@ -19,6 +19,7 @@ EXPECTED_TABLES = {
     "concept_aliases",
     "import_batches",
     "ingestion_drafts",
+    "bank_drafts",
     "photo_captures",
     "photo_capture_items",
     "problem_extractions",
@@ -209,6 +210,148 @@ def test_p2_3_timetable_and_calendar_up_down_up(tmp_path) -> None:
 
     command.upgrade(config, "head")
     assert {"timetable_slots", "calendar_events"} <= _tables(db_path)
+
+
+@pytest.mark.integration
+def test_p3_1_bank_drafts_and_problem_bank_columns(tmp_path) -> None:
+    """0016：bank_drafts 新表 + problem_bank 录题列；既有行保持原值、新列为 NULL。"""
+
+    db_path = tmp_path / "bank-drafts.db"
+    config = _alembic_config(db_path)
+    command.upgrade(config, "0015_timetable_calendar")
+
+    engine = create_engine(f"sqlite:///{db_path.as_posix()}")
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO problem_bank (external_id, subject, problem_text,"
+                    " answer, verify, created_at)"
+                    " VALUES ('old-1', '数学', '1+1=?', '2', '1+1', CURRENT_TIMESTAMP)"
+                )
+            )
+    finally:
+        engine.dispose()
+
+    added_columns = {
+        "topic_id": True,
+        "question_type": True,
+        "difficulty": True,
+        "choices_json": True,
+        "figure": True,
+        "hide_choice_text": True,
+        "percent": True,
+        "unaudited": True,
+        "blind_verified": True,
+    }
+
+    command.upgrade(config, "head")
+    engine = create_engine(f"sqlite:///{db_path.as_posix()}")
+    try:
+        with engine.connect() as connection:
+            inspector = inspect(connection)
+            assert "bank_drafts" in inspector.get_table_names()
+            draft_columns = {
+                column["name"] for column in inspector.get_columns("bank_drafts")
+            }
+            draft_uniques = {
+                constraint["name"]
+                for constraint in inspector.get_unique_constraints("bank_drafts")
+            }
+            draft_indexes = {
+                index["name"] for index in inspector.get_indexes("bank_drafts")
+            }
+            bank_columns = {
+                column["name"]: column["nullable"]
+                for column in inspector.get_columns("problem_bank")
+            }
+            bank_fks = inspector.get_foreign_keys("problem_bank")
+            old_row = connection.execute(
+                text(
+                    "SELECT subject, problem_text, answer, verify, topic_id,"
+                    " question_type, unaudited FROM problem_bank"
+                    " WHERE external_id = 'old-1'"
+                )
+            ).one()
+        assert draft_columns == {
+            "id",
+            "import_batch_id",
+            "seq",
+            "normalized_json",
+            "has_placeholder",
+            "status",
+            "created_at",
+        }
+        assert "uq_bank_drafts_batch_seq" in draft_uniques
+        assert "ix_bank_drafts_status" in draft_indexes
+        for name, nullable in added_columns.items():
+            assert bank_columns[name] is nullable
+        topic_fk = next(
+            fk for fk in bank_fks if fk["constrained_columns"] == ["topic_id"]
+        )
+        assert topic_fk["referred_table"] == "knowledge_seed"
+        assert topic_fk["options"].get("ondelete") == "SET NULL"
+        assert old_row == ("数学", "1+1=?", "2", "1+1", None, None, None)
+
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO import_batches"
+                    " (id, channel, sha256, status, created_at)"
+                    " VALUES (1, 'agent_bank_transcribe_v1', 'sha-1',"
+                    " 'imported', CURRENT_TIMESTAMP)"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO bank_drafts"
+                    " (import_batch_id, seq, normalized_json, created_at)"
+                    " VALUES (1, 1, '{}', CURRENT_TIMESTAMP)"
+                )
+            )
+            with pytest.raises(
+                sqlalchemy.exc.IntegrityError, match="bank_drafts.import_batch_id"
+            ):
+                connection.execute(
+                    text(
+                        "INSERT INTO bank_drafts"
+                        " (import_batch_id, seq, normalized_json, created_at)"
+                        " VALUES (1, 1, '{}', CURRENT_TIMESTAMP)"
+                    )
+                )
+            with pytest.raises(sqlalchemy.exc.IntegrityError, match="CHECK"):
+                connection.execute(
+                    text(
+                        "INSERT INTO bank_drafts"
+                        " (import_batch_id, seq, normalized_json, status, created_at)"
+                        " VALUES (1, 2, '{}', 'unknown', CURRENT_TIMESTAMP)"
+                    )
+                )
+    finally:
+        engine.dispose()
+
+    command.downgrade(config, "0015_timetable_calendar")
+    engine = create_engine(f"sqlite:///{db_path.as_posix()}")
+    try:
+        with engine.connect() as connection:
+            inspector = inspect(connection)
+            assert "bank_drafts" not in inspector.get_table_names()
+            bank_columns = {
+                column["name"] for column in inspector.get_columns("problem_bank")
+            }
+            remaining = connection.execute(
+                text(
+                    "SELECT subject, problem_text, answer, verify"
+                    " FROM problem_bank WHERE external_id = 'old-1'"
+                )
+            ).one()
+        assert added_columns.keys().isdisjoint(bank_columns)
+        assert remaining == ("数学", "1+1=?", "2", "1+1")
+    finally:
+        engine.dispose()
+
+    command.upgrade(config, "head")
+    assert "bank_drafts" in _tables(db_path)
 
 
 @pytest.mark.integration

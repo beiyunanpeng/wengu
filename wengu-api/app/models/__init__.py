@@ -1,6 +1,7 @@
 from app.models.events import Attempt, LearningEvent
 from app.models.grading import GradingResult, GradingVersion, ProblemBankItem
 from app.models.ingestion import (
+    BankDraft,
     ImportBatch,
     IngestionDraft,
     PhotoCapture,
@@ -14,6 +15,7 @@ from app.models.users import UserRole
 
 __all__ = [
     "Attempt",
+    "BankDraft",
     "CalendarEvent",
     "Concept",
     "ConceptAlias",
