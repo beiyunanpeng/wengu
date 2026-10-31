@@ -19,6 +19,8 @@
 - 作废：当前 voided 错题数 + 作废/撤销事件数（历史留痕，不洗数据）；
 - 打卡：`services.streak` 从同一批已加载事件现算（`completed_on` 优先），
   streak 只做习惯展示、不入库、不参与任何学习效果结论。
+- 番茄：`services.pomodoro` 汇总 `pomodoro_completed` 事实（今日个数 +
+  本周专注分钟），只展示专注时长；不计入掌握度 / streak / 错题本。
 """
 
 from __future__ import annotations
@@ -44,6 +46,7 @@ from app.models import (
 from app.models.mistakes import MISTAKE_ACTIVE, MISTAKE_VOIDED
 from app.services.bank import get_bank
 from app.services.mistakes import MISTAKE_REACTIVATED_EVENT, MISTAKE_VOIDED_EVENT
+from app.services.pomodoro import summarize_pomodoros
 from app.services.recompute import (
     ATTEMPT_CORRECT,
     ATTEMPT_WRONG,
@@ -125,6 +128,8 @@ class DashboardSnapshot:
     reactivate_events: int
     event_stats: dict[str, Any]
     streak: StreakSummary
+    pomodoros_today: int
+    focus_minutes_this_week: int
 
 
 def _payload(event: Event) -> dict[str, Any]:
@@ -444,6 +449,7 @@ async def build_dashboard(
     appeal_count, appealed_gradings = await _appeal_counts(session)
     void_events = sum(1 for event in events if event.type == MISTAKE_VOIDED_EVENT)
     reactivate_events = sum(1 for event in events if event.type == MISTAKE_REACTIVATED_EVENT)
+    pomodoro = summarize_pomodoros(events, today, week_start)
 
     return DashboardSnapshot(
         today=today,
@@ -471,4 +477,6 @@ async def build_dashboard(
         reactivate_events=reactivate_events,
         event_stats=stats(events),
         streak=summarize_streak(events, today),
+        pomodoros_today=pomodoro.pomodoros_today,
+        focus_minutes_this_week=pomodoro.focus_minutes_this_week,
     )

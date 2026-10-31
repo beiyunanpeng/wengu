@@ -128,6 +128,8 @@ class DashboardResponse(BaseModel):
     governance: GovernanceView
     event_stats: EventStatsView
     streak: StreakView
+    pomodoros_today: int
+    focus_minutes_this_week: int
 
 
 def _to_response(snapshot: DashboardSnapshot) -> DashboardResponse:
@@ -204,6 +206,8 @@ def _to_response(snapshot: DashboardSnapshot) -> DashboardResponse:
             learning_days_total=snapshot.streak.learning_days_total,
             recent_days=[StreakDayView(date=day.date, done=day.done) for day in snapshot.streak.recent_days],
         ),
+        pomodoros_today=snapshot.pomodoros_today,
+        focus_minutes_this_week=snapshot.focus_minutes_this_week,
     )
 
 

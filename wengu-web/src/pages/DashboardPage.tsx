@@ -316,7 +316,7 @@ export default function DashboardPage() {
 
       <StreakCard streak={data.streak} />
 
-      <SimpleGrid cols={{ base: 2, sm: 3, md: 6 }}>
+      <SimpleGrid cols={{ base: 2, sm: 3, md: 4 }}>
         <MetricCard
           label="活跃错题"
           value={data.inventory.active}
@@ -342,6 +342,16 @@ export default function DashboardPage() {
           label="作废"
           value={data.governance.void_events}
           hint={`撤销 ${data.governance.reactivate_events} 次`}
+        />
+        <MetricCard
+          label="今日番茄"
+          value={data.pomodoros_today}
+          hint={`本周专注 ${data.focus_minutes_this_week} 分钟`}
+        />
+        <MetricCard
+          label="本周专注"
+          value={`${data.focus_minutes_this_week} 分钟`}
+          hint="只统计番茄完成事实"
         />
       </SimpleGrid>
 

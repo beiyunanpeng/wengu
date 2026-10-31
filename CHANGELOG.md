@@ -16,6 +16,37 @@ Phase 1 只剩 P1-7b（前置回溯诊断）与受闸门阻塞的 P1-7c。
 
 ### Added
 
+- **P2-2 番茄钟执行（计时器，不是规划器）**（2026-10-31）：
+  对复习队列的下一项做一个**纯前端 25 分钟倒计时**，完成时把一条事实事件写入
+  `learning_events`，仅供看板展示“专注时长”。**不规划、不排程、不自动连跑**。
+  - **事件**：`services/pomodoro.py:record_pomodoro` 追加
+    `type="pomodoro_completed"`，幂等键 `pomodoro:{started_at.timestamp():.0f}`
+    （同一开始时刻重放不重复），payload 含 `mistake_id`、`duration_minutes`、
+    `completed_on`；`duration` 钳制 5–120 分钟；`mistake_id` 可空（自由专注）。
+    **不建新表、不加迁移**（head 仍 `0015_timetable_calendar`）。
+  - **API**：`POST /api/pomodoros` → 201 `{id, duration_minutes}`；
+    `duration_minutes` / `mistake_id` 用 `StrictInt`（布尔与字符串不静默强转），
+    缺字段/非法日期/非法枚举 → 422；指定不存在的 `mistake_id` → 404。孩子区免 PIN。
+  - **看板**：`GET /api/dashboard` 新增 `pomodoros_today`、`focus_minutes_this_week`
+    （周一起算），从 `pomodoro_completed` 事件现算；空库全零。看板页新增
+    “今日番茄”“本周专注”两张卡，复习页头部同步显示。
+  - **前端**：复习页每日队列第一项带“开始专注”——25 分钟倒计时，可取消（取消不打点），
+    自然归零或手动“完成”才 POST；刷新/关页即弃，**不做后台计时、不做通知推送、
+    不自动开始下一个**。手动提前完成按已用分钟数（向上取整、下限 1）提交，服务端再钳到 5。
+  - **边界（钉死）**：番茄事件**不计入掌握度、不计入 P2-6 打卡 streak、不进错题本、
+    不完成复习任务**；`recompute` / `streak` 只消费作答事件，番茄天然被排除。
+  - **验证**：新增 `tests/unit/test_pomodoro.py`（钳制边界、类型拒绝、今日/本周聚合、
+    缺 `completed_on` 回退 `occurred_at`、空库、追加事件后 mastery/streak/毕业不变）与
+    `tests/integration/test_pomodoro_api.py`（打点 + 幂等重放同一 id、钳制与 422/404、
+    打点前后 dashboard 掌握度/streak/到期/存量/完成数/bank_gap 不变、事件与派生表行数不变、
+    周聚合与纯函数重算一致、空库全零）。全量 pytest **350 passed**（61.06s）、
+    `ruff check .` 绿、`import app.main` OK、`npm run build` 绿。临时库 + uvicorn :8010 +
+    Vite :5181 浏览器实跑：开始专注 → 手动完成 → 今日番茄 1 / 本周专注 5 分钟（不足
+    5 分钟按钳制下限记）、到期数不变；“再专注一个”后取消 → 计数仍为 1、库中仅 1 条事件；
+    用同一 `started_at` 重放 POST → 返回同一事件 id，库中仍 1 条；看板两张卡同为 1 / 5 分钟。
+  - **残留风险**：计时器纯前端，刷新/关页即丢；时长以客户端上报的 `started_at` 与已用分钟为准
+    （可信家庭场景，非防作弊）；`duration` 下限 5 分钟会把手动秒完成记为 5 分钟；
+    看板统计依赖 payload 的 `completed_on`，缺失时回退 `occurred_at`（UTC）日期。
 - **P2-3 课表/日历约束层**（2026-10-31）：
   课表与日历只做**约束层**，不是任务源主体：不自动排课、不做时间块、不做
   “考试科目 ↔ 知识点”重排序、不做冲突检测、不从课表生成任务。本轮只做三件事：
