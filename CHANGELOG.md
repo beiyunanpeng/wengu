@@ -16,6 +16,52 @@ Phase 1 只剩 P1-7b（前置回溯诊断）与受闸门阻塞的 P1-7c。
 
 ### Added
 
+- **P3-2 主动加练变式（只写 `practice_records`）**（2026-10-31）：
+  补上"错题详情只能去复习、不能主动加练"的缺口。加练 = **按错题主考点取同类题**
+  （固定种子可重放），结果只进 `practice_records`（`kind='variant'`），
+  **绝不写 `attempts`、不产生作答事件、不新建错题、不影响掌握度/复习排期/打卡**，
+  可整表清空。
+  - **服务** `app/services/practice.py`：`start_practice(session, *, mistake_id | topic_id,
+    count=1..10, seed?)`——`mistake_id` 取其 `primary_topic_id`；无主考点或题池为空
+    （gap）→ 返回 `items=[]` + `message="该知识点暂无同类题"`，**200 不报错、不硬凑**。
+    组卷复用 `get_runtime_bank` + `paper_picks`（同 topic、mulberry32 固定种子、可重放），
+    题面只走 `quiz_view`（题干/选项/题型/配图/质量标签，**无 answer/accept/explanation/verify**）。
+    `submit_practice(topic_id, seed, count, answers, mistake_id?)` 重建同卷并校验题目归属，
+    客户端重复/外来题 422；`mode=system` 由服务端 `judge_answer` 判分（空白跳过、
+    `uncertain` 不写行），`mode=self_eval` 收孩子自评；每题写一行 `PracticeRecord`
+    （`kind=variant`、`source_mistake_id`、`problem_bank_id`、`student_answer`、`is_correct`），
+    **整个服务不 import `record_event`/`Attempt`**。seed 题 `problem_bank_id=NULL`；
+    家长题按 `external_id` 反查 `ProblemBankItem.id` 落库。
+  - **API（`tags=["practice"]`，全部孩子区免 PIN，不挂 `require_parent`）**：
+    `POST /api/practice/start`、`POST /api/practice/submit`（响应只回
+    `correct|wrong|uncertain|skipped` + mode + 记录 id，**不含答案钥匙**）、
+    `GET /api/practice?mistake_id=&kind=&limit=&offset=`、
+    `DELETE /api/practice`（整表清空，返回 `deleted`）。旧 `/api/practice-records`
+    保留以兼容旧前端，内部共用同一查询。
+  - **前端**：错题详情新增「加练同类题」入口——打开时先探测 `start`（count=1），
+    gap/无主考点时**按钮置灰并显示 `message`**；`/practice` 页复用 `QuizQuestionCard`：
+    系统题页面作答、自评题「做对了/没做对」、提交后逐题出「答对/答错/已跳过」+ 本轮计数，
+    可「再练一组」（重新随机种子）或回看练习记录；页头明示"只写练习记录、不影响掌握度与排期"。
+    「练习记录」页「变式 / 加练」tab 接 `GET /api/practice`，新增清空按钮 + 二次确认弹窗
+    （写明不影响错题本/掌握度/复习排期/打卡）。
+  - **验证**：新增 `tests/integration/test_practice_api.py`（4 条：确定性 + 无答案字段 +
+    gap 200 + 孩子区免 PIN；提交前后 `attempts`/`learning_events`/`review_schedules`/
+    `mistakes` 全列快照与 dashboard/due 字节级不变、只多 `practice_records`，清空后表空且
+    不变量仍不变；自评收 `correct`、空白跳过、外来题 422；家长题记录回填
+    `problem_bank_id`）。全量 pytest **386 passed**、`ruff check .` 绿、`import app.main` OK、
+    `npm run build` 绿。
+  - **运行态证据**：临时库（head 0017）+ uvicorn 8790 + Vite 5186。错题 #1（`cnm_001`）
+    启动加练得 3 题（seed `900280951`），数值题答对、选择题选 B 答对、第 3 题留空跳过，
+    结果 `2 对 / 0 错`；固定 seed 42 连续两次启动响应**字节完全一致**（q1/q4/q2）；
+    客户端对错答谎报 `correct=true` 仍判 `wrong`；提交响应无任何答案字段。
+    「练习记录 → 变式/加练」显示 2 条并带来源错题；清空前 `attempts=0`、`events=2`、
+    `schedules=1`、`mistakes=1`、`practice_records=2`，清空后仅 `practice_records=0`，
+    `attempts/events/schedules/mistakes` 与 dashboard、`/api/reviews/due` **完全不变**。
+    无主考点错题 #2 的入口置灰并显示「该知识点暂无同类题」；临时服务已停止、临时库已删除。
+  - **残留风险**：加练提交**无幂等键**——同一张卷重复提交会重复写 `practice_records`
+    （仅影响可整表清空的派生表，不影响闭环事实）；组卷目前只按"主考点"检索，
+    category/错因/难度筛选尚未提供；每次"再练一组"换随机种子，不保存"上一组"身份用于重放。
+
 - **P1-1b 家长自建章级 seed（语文/化学空 seed 起步）**（2026-10-31）：
   补上"语文/化学空 seed 起步"的最后一段——家长可在 `data/seeds_local/` 维护章级知识点，
   **JSON 文件即真源、SQLite `knowledge_seed` 只是装载副本**；语文/化学错题因此可挂主考点、

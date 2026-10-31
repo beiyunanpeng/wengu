@@ -147,7 +147,7 @@
 ## Phase 3 —— 内容扩展（按 ROI）
 > v2.5：**"检索真题组卷"的题库检索引擎已提前到 P1-10、"出同类题考核"到 P1-11**。Phase 3 只保留增量。
 - **P3-1 真题库增量录入流水线**（已完成 2026-10-31）：家长/外部 agent 帮录**新题**入 `problem_bank`（含 `answer/verify/topic_id/难度/错因`）+ 审核队列；入库题走 AST 沙箱 `verify` 核验。**交付**：`doubao_bank_transcribe_v1` 模板、`bank_drafts` 草稿表（迁移 0016）、inbox 按 channel 分派、四个 `require_parent` 端点、家长「题库审核」页 + 手填表单。**红线**：`answer` 只从卷面/答案册转录或家长手填，**模型不得自行解题生成答案**；缺答案拒入库；家长题只进 SQLite，不写 seed JSON。禁：LLM 现编无钥匙题。**P3-1b（已完成 2026-10-31）**：入库题已合并进运行时检索池（`get_runtime_bank`），参与到期考核与手动组卷；approve/手填后清缓存；统计/coverage 随池重算；旧 pick 跨池 `replay` 显式抛 `BankReplayError`。**P3-1c（已完成 2026-10-31）**：题库条目修订 = 编辑 + 软作废（`status ∈ {active, voided}`，迁移 0017 可逆）；`GET/PATCH /api/bank/items` + `void/unvoid`（全挂 `require_parent`）；编辑合并后重跑同一套闸门（缺答案/占位/沙箱/choice key/数值矛盾 → 422 稳定码），不改 `external_id`；作废题退出检索池但不物理删除、不改写历史 attempts/事件/排期；`replay` 按题 id/`pool_ids` 判定，内容修订不回溯；前端 `/bank` 已入库列表 + 编辑 + 作废/撤销。禁：物理删除题目；改写历史事件/attempts；动 seed 文件；把题库审核面暴露给孩子区。
-- **P3-2 主动加练变式（`practice_records`，不影响掌握度）**：按 category/错因/难度检索组卷给孩子加练，可整表清空。禁：与闭环考核混淆；禁 LLM 编题。
+- **P3-2 主动加练变式（`practice_records`，不影响掌握度）**（已完成 2026-10-31）：错题详情「加练同类题」按 `primary_topic_id` 从运行时题池固定种子抽 1–10 题（可重放、答案不下发）；系统题服务端 `judge_answer` 判分，解答/依赖图题孩子自评。**结果只写 `practice_records(kind='variant')`**——不写 attempts、不产生事件、不新建错题、不计入掌握度/排期/打卡，可整表清空；无主考点或题池为空时入口置灰并提示「该知识点暂无同类题」（200 不报错）。**交付**：`services/practice.py`、`POST /api/practice/start|submit`、`GET/DELETE /api/practice`（全部孩子区免 PIN）、`/practice` 页 + 错题详情入口 + 「练习记录 → 变式/加练」tab 与清空确认；4 条集成测试。**残留**：提交无幂等键、仅按主考点检索（category/错因/难度筛选未做）。禁：与闭环考核混淆；禁 LLM 编题/判分。
 - **P3-3 英语背诵**：自评间隔重复（档③）。
 - **P3-4 听力+默写**：默写=卷面批改后走转录导入；听力"教材音频+TTS"+组卷。禁：口语 ASR。
 - **P3-5 语文客观并入**：字音/病句/默写并入转录；作文/阅读理解只走外部讲解不进本。
