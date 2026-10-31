@@ -16,6 +16,54 @@ Phase 1 只剩 P1-7b（前置回溯诊断）与受闸门阻塞的 P1-7c。
 
 ### Added
 
+- **P1-1b 家长自建章级 seed（语文/化学空 seed 起步）**（2026-10-31）：
+  补上"语文/化学空 seed 起步"的最后一段——家长可在 `data/seeds_local/` 维护章级知识点，
+  **JSON 文件即真源、SQLite `knowledge_seed` 只是装载副本**；语文/化学错题因此可挂主考点、
+  题库可挂 `topic_id`，P3-5 语文客观题并入与化学真题录入的前提就位。
+  - **多源装载** `app/seed/loader.py`：顺序 `<seeds_dir>/data/topics.json`（仓库只读）→
+    `<seeds_dir>/local/*.json`（开发机分发，可选）→ `<data_dir>/seeds_local/*.json`
+    （家长运行时自建；Docker 内 `./seeds` 只读、`data/` 随备份走）。按 id upsert 幂等；
+    本地条目强制 `source='local'`、`unaudited=true`、`blind_verified=false`；
+    **id 与上游/先前本地冲突 → error 日志并拒绝该条**；单文件解析失败只 warning 跳过，
+    不阻塞服务与其余源。
+  - **数据契约**：与上游 topics.json 同 schema 子集（`id/name/subject/domain/grade/semester/
+    chapter/type/description/mastery_criteria`）；语文只收 `cnl_`、化学只收 `cnc_`
+    （与上游 `cnm_`/`cne_`/`cnp_` 隔离）；无迁移（`knowledge_seed.source` 已存在）。
+  - **原子写**：同目录 `mkstemp` + `fsync` + `os.replace`，进程内 `asyncio.Lock` 串行化，
+    不产生半写文件；`next_local_id` 按前缀扫描已占用序号（零填充 3 位）。
+  - **家长 API**（路由级 `Depends(require_parent)`，未解锁 403）：
+    `GET /api/local-seed/topics?subject=`、`POST /api/local-seed/topics`、
+    `PATCH/DELETE /api/local-seed/topics/{id}`。校验：subject 仅语文/化学（其它 422）、
+    name 非空 ≤40、grade 7–9、单科 ≤200 点、mastery_criteria ≤20 条×200 字；
+    非 local 行（含 `cnm_*` 上游）PATCH/DELETE → 404。
+  - **删除联动**：从文件移除 + 删 `knowledge_seed` 行；`mistakes.primary_topic_id` /
+    `problem_bank.topic_id` 显式置 NULL 并返回 `mistakes_unbound` / `problems_unbound`；
+    错题本身保留（退回原题重做），历史 attempts/事件/排期不动；仍被 `concepts` 引用 → 409。
+  - **导出脚本** `scripts/export_topics_junior.py`：合并仓库 topics.json + `seeds/local` +
+    `<data_dir>/seeds_local`，冲突/坏文件只告警；输出仍 664 + local 行、UTF-8 无 BOM，
+    转录模板的 `suggested_topic_id` 从此可选到语文/化学点。
+  - **前端 `/local-seed`「学科 seed」**：家长解锁后导航可见（`parentOnly`），按语文/化学切换；
+    列表显示 id/名称/年级/学期/章/类型/引用计数 + 「家长自建 · 未经教师审核」；新增/编辑弹窗
+    （名称必填、年级 7–9、学期/章/领域/类型/描述/掌握标准）；删除二次确认写明后果并显示
+    「将解绑错题 N 道、题库 N 道」。
+  - **验证**：新增 `tests/integration/test_local_seed.py`（6 条：多源合并 + 坏文件/冲突跳过 +
+    重启仍在；CRUD/原子写/上游行 404/学科 422；语文点 → 题库挂点 → 语文错题确认 → 到期
+    quiz 闭环；删除解绑计数与历史保留 + concept 引用 409；未解锁全 403；导出合并 664+local
+    且仓库 seed sha256 不变）。全量 pytest **382 passed**、`ruff check .` 绿、
+    `import app.main` OK、`npm run build` 绿。
+  - **运行态证据**：临时库 + uvicorn 8099 + Vite 5199；`seeds_local/topics_语文.json` 三个
+    `cnl_` 点重启后 `knowledge_seed` 3 行 `source='local'`/`unaudited=1`/`blind_verified=0`，
+    坏 JSON 只告警；POST 生成 `cnl_004` 且文件原子落盘（无 `.topics-*.tmp`）；PATCH 生效；
+    上游 `cnm_*` PATCH/DELETE 404、数学 POST/GET 422；语文题入 `problem_bank` 并挂点，
+    语文错题确认后到期队列出 `quiz`（`pool_size=1`），提交判分 `correct`；DELETE 返回
+    `{"mistakes_unbound":1,"problems_unbound":1}`，DB 里错题仍 `active`、主考点变 NULL；
+    导出成功且仓库 seed sha256 不变。浏览器：未解锁无「学科 seed/题库审核」导航且页面提示
+    家长专属；解锁后新增 `cnl_004`、编辑改名、删除确认弹窗显示解绑计数，操作后文件同步移除。
+  - **残留风险**：删除知识点不会改写 `mistake_versions` 历史标签快照（`category_id` 仍是旧 id，
+    名称解析为 None，只影响展示）；被删序号会被 `next_local_id` 复用（历史引用靠快照 id
+    无法复活）；手工从本地 JSON 删除条目不会自动清理 `knowledge_seed` 旧行（只有 API 删除
+    才同步），需以 API 为准；本地文件位于 `data/` 随备份走、不进 git。
+
 - **P3-1c 题库条目修订与软作废**（2026-10-31）：
   补上 P3-1/1b 遗留的"入库题无编辑/作废入口"缺口。题库修订 = **编辑 + 软作废**
   （`status ∈ {active, voided}`），**不做物理删除**，与错题本同一哲学。

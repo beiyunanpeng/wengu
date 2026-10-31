@@ -13,6 +13,7 @@ const NAV: { to: string; label: string; parentOnly?: boolean }[] = [
   { to: "/schedule", label: "课表/日历" },
   { to: "/records", label: "练习记录" },
   { to: "/bank", label: "题库审核", parentOnly: true },
+  { to: "/local-seed", label: "学科 seed", parentOnly: true },
 ];
 
 export default function AppLayout() {

@@ -1,10 +1,15 @@
 """运行时装载器：seeds/data/*.json（分发真源）→ SQLite 装载副本 + 内存索引。
 
-纪律（AGENTS §2.6 / TICKETS P1-1b）：
+纪律（AGENTS §2.6 / TICKETS P1-1b / P3-5 前置）：
 - JSON 文件是 seed 的唯一真源，SQLite knowledge_seed / prerequisite_edges 是装载副本
   （装载副本给 concepts/mistake_versions 提供 FK 锚点与 SQL 检索能力）。
 - 幂等可重入：重复装载行数不变；知识点 upsert（有引用挂着的行不删），
   先修边全量同步（JSON 即真源）。
+- **多源合并顺序**：`<seeds_dir>/data/topics.json`（仓库 seed，只读）→
+  `<seeds_dir>/local/*.json`（开发机分发场景，可选）→
+  `<data_dir>/seeds_local/*.json`（家长运行时自建，文件真源）。
+  本地条目 id 与上游/先前本地条目冲突即拒绝并记 error 日志；单文件解析失败只跳过该文件。
+- 本地条目强制 `source='local'`、`unaudited=true`、`blind_verified=false`。
 - 教材包 mappings/*.json 只校验 + 暴露进索引，不写数据库、不随仓库分发数据。
 - 化学/语文空 seed 起步：缺文件 / 空数组容忍；契约见 seeds/README.md。
 """
@@ -12,6 +17,10 @@
 from __future__ import annotations
 
 import json
+import logging
+import os
+import re
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -22,7 +31,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.models import KnowledgeSeed, PrerequisiteEdge
 
+logger = logging.getLogger(__name__)
+
 MAPPING_STATUSES = {"example", "draft", "reviewed"}
+LOCAL_SOURCE = "local"
+LOCAL_SUBJECT_PREFIXES = {"语文": "cnl_", "化学": "cnc_"}
+
 
 
 class SeedFormatError(ValueError):
@@ -46,20 +60,28 @@ class SeedIndex:
         return self.children.get(topic_id, [])
 
 
-async def load_seed(session: AsyncSession, seeds_dir: Path | None = None) -> SeedIndex:
+async def load_seed(
+    session: AsyncSession,
+    seeds_dir: Path | None = None,
+    data_dir: Path | None = None,
+) -> SeedIndex:
     """装载（幂等）。事务自包含；空 seed 起步返回空索引。"""
 
-    root = Path(seeds_dir) if seeds_dir is not None else get_settings().seeds_dir
-    data_dir = root / "data"
+    settings = get_settings()
+    root = Path(seeds_dir) if seeds_dir is not None else settings.seeds_dir
+    runtime_dir = Path(data_dir) if data_dir is not None else settings.data_dir
 
-    topics_raw = _read_json(data_dir / "topics.json") or []
-    deps_raw = _read_json(data_dir / "dependencies.json") or []
-    source = _read_json(data_dir / "_source.json")
+    topics_raw = _read_json(root / "data" / "topics.json") or []
+    deps_raw = _read_json(root / "data" / "dependencies.json") or []
+    source = _read_json(root / "data" / "_source.json")
     if not isinstance(topics_raw, list) or not isinstance(deps_raw, list):
         raise SeedFormatError("topics.json / dependencies.json 必须是数组")
 
     topics = [_validate_topic(t) for t in topics_raw]
     topic_ids = {t["id"] for t in topics}
+    local_topics = read_local_topics(local_seed_files(root, runtime_dir), topic_ids)
+    topics.extend(local_topics)
+    topic_ids.update(t["id"] for t in local_topics)
     edges = [_validate_edge(d) for d in deps_raw]
     edges = [e for e in edges if e["topic_id"] in topic_ids and e["prerequisite_id"] in topic_ids]
     mappings = load_mappings(root / "mappings")
@@ -69,6 +91,98 @@ async def load_seed(session: AsyncSession, seeds_dir: Path | None = None) -> See
         await _sync_edges(session, edges)
 
     return _build_index(topics, edges, mappings, source)
+
+
+def local_seed_files(seeds_dir: Path, data_dir: Path) -> list[Path]:
+    """本地 seed 文件优先级：开发机 `seeds/local` → 运行时 `<data_dir>/seeds_local`。"""
+
+    files: list[Path] = []
+    for directory in (Path(seeds_dir) / "local", Path(data_dir) / "seeds_local"):
+        if directory.is_dir():
+            files.extend(sorted(directory.glob("*.json")))
+    return files
+
+
+def read_local_topics(
+    paths: list[Path], taken_ids: set[str]
+) -> list[dict[str, Any]]:
+    """读取本地 seed 文件并合并；坏文件/坏条目跳过，id 冲突拒绝且记 error 日志。"""
+
+    merged: dict[str, dict[str, Any]] = {}
+    for path in paths:
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            logger.warning("跳过本地 seed 文件 %s：%s", path, exc)
+            continue
+        if not isinstance(raw, list):
+            logger.warning("跳过本地 seed 文件 %s：根节点必须是数组", path)
+            continue
+        for item in raw:
+            try:
+                topic = validate_local_topic(item)
+            except SeedFormatError as exc:
+                logger.warning("跳过本地 seed 条目（%s）：%s", path.name, exc)
+                continue
+            if topic["id"] in taken_ids or topic["id"] in merged:
+                logger.error(
+                    "本地 seed id 与既有知识点冲突，已拒绝：%s（%s）", topic["id"], path.name
+                )
+                continue
+            merged[topic["id"]] = topic
+    return list(merged.values())
+
+
+def validate_local_topic(raw: Any) -> dict[str, Any]:
+    """本地条目校验：契约子集 + 学科前缀 + 强制 local 标签。"""
+
+    topic = _validate_topic(raw)
+    prefix = LOCAL_SUBJECT_PREFIXES.get(topic["subject"])
+    if prefix is None:
+        raise SeedFormatError(
+            f"本地知识点学科仅支持 {sorted(LOCAL_SUBJECT_PREFIXES)}，实际 {topic['subject']!r}"
+        )
+    if not topic["id"].startswith(prefix):
+        raise SeedFormatError(
+            f"本地知识点 id 必须以 {prefix} 开头（学科 {topic['subject']}），实际 {topic['id']!r}"
+        )
+    topic["source"] = LOCAL_SOURCE
+    topic["unaudited"] = True
+    topic["blind_verified"] = False
+    return topic
+
+
+def write_local_topics(path: Path, entries: list[dict[str, Any]]) -> None:
+    """原子写（同目录 tmp + os.replace），避免半写文件。"""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(entries, ensure_ascii=False, indent=2) + "\n"
+    fd, tmp_name = tempfile.mkstemp(prefix=".topics-", suffix=".tmp", dir=path.parent)
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(payload)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
+_ID_SEQUENCE = re.compile(r"^(.+?)(\d+)$")
+
+
+def next_local_id(prefix: str, taken_ids: set[str]) -> str:
+    """按学科前缀 + 递增序号生成 id（cnl_001…），跳过已占用序号。"""
+
+    highest = 0
+    for topic_id in taken_ids:
+        match = _ID_SEQUENCE.match(topic_id)
+        if match and match.group(1) == prefix:
+            highest = max(highest, int(match.group(2)))
+    return f"{prefix}{highest + 1:03d}"
+
 
 
 def load_mappings(mappings_dir: Path) -> list[dict[str, Any]]:

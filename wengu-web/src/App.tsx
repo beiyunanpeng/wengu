@@ -5,6 +5,7 @@ import BankPage from "./pages/BankPage";
 import DashboardPage from "./pages/DashboardPage";
 import ImportPage from "./pages/ImportPage";
 import IntakePage from "./pages/IntakePage";
+import LocalSeedPage from "./pages/LocalSeedPage";
 import MistakeDetailPage from "./pages/MistakeDetailPage";
 import MistakesPage from "./pages/MistakesPage";
 import PrintMistakesPage from "./pages/PrintMistakesPage";
@@ -31,6 +32,7 @@ export default function App() {
           <Route path="schedule" element={<SchedulePage />} />
           <Route path="records" element={<RecordsPage />} />
           <Route path="bank" element={<BankPage />} />
+          <Route path="local-seed" element={<LocalSeedPage />} />
           <Route path="*" element={<Navigate to="/import" replace />} />
         </Route>
       </Routes>

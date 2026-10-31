@@ -43,6 +43,12 @@
 - **化学、语文** = 复用同 JSON 契约，家长对课本目录录章级粗粒度 40–80 点（`unaudited: true`、无题），不另找源、不自建细粒度题库。
 - 教材包（`mappings/<版本id>.json` + `status: example|draft|reviewed`）：现网 `mappings` 0 条、示例不得引用——机制照抄、数据家长自建。
 - DoD：License 署名 + 原项目 URL + NC 声明写入 seed 包内嵌 `_source.json`；`unaudited` / `blind_verified` 透传到 UI。**题目本身不在此票载入**（见 P1-10）。禁止：硬编码学科树；把 seed 数据塞进 SQLite（应 JSON 文件随仓库分发 + 内存索引）。
+- **已完成（2026-10-31，家长自建章级 seed 补齐化学/语文空 seed 起步）**：装载器多源合并
+  `seeds/data/topics.json` → `seeds/local/*.json` → `<data_dir>/seeds_local/*.json`，按 id
+  upsert 幂等、冲突拒绝、坏文件只告警；语文 `cnl_` / 化学 `cnc_` 由家长在 `/local-seed`
+  页 CRUD（文件原子写、`knowledge_seed` 副本、固定 `source='local'` / `unaudited=true` /
+  `blind_verified=false`）；删除联动解绑错题/题库并返回计数；导出脚本合并 local 源。
+  端点全挂 `require_parent`；无迁移。验收证据见 `CHANGELOG.md`（P1-1b 条目）。
 
 ### P1-2 Provider 层收缩为 mock-only（v2.5 改，原"Provider 适配层 + 成本护栏"）
 - 依赖：P1-0。
@@ -145,6 +151,8 @@
 - **P3-3 英语背诵**：自评间隔重复（档③）。
 - **P3-4 听力+默写**：默写=卷面批改后走转录导入；听力"教材音频+TTS"+组卷。禁：口语 ASR。
 - **P3-5 语文客观并入**：字音/病句/默写并入转录；作文/阅读理解只走外部讲解不进本。
+  **前置已交付（P1-1b，2026-10-31）**：家长可自建语文章级 seed（`cnl_`）、语文题可挂
+  `topic_id`、语文错题可挂主考点，到期考核 `quiz` 闭环已实跑；本票只剩题库内容接入。
 - **P3-6 信奥独立流**：卡壳→外部引导→"待重做清单"（复用转录）；需要时手动组卷（C++ 题库检索）；C++ 技能图谱 seed。禁：判题 infra、自动排复习。
 - **P3-7 长期计划**：覆盖型（seed 图谱+掌握度自适应）+ 积累型（streak）；家长与 AI（外部）共创、AI 生成后审核。
 

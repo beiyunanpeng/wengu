@@ -73,9 +73,9 @@ async def test_load_seed_idempotent_and_tags(session_factory, tmp_path) -> None:
     seeds_dir = _write_seeds(tmp_path / "seeds")
 
     async with session_factory() as session:
-        index = await load_seed(session, seeds_dir)
-        await load_seed(session, seeds_dir)  # 重复装载：行数不变
-        await load_seed(session, seeds_dir)
+        index = await load_seed(session, seeds_dir, data_dir=tmp_path / "runtime")
+        await load_seed(session, seeds_dir, data_dir=tmp_path / "runtime")  # 重复装载：行数不变
+        await load_seed(session, seeds_dir, data_dir=tmp_path / "runtime")
 
     async with session_factory() as session:
         rows = (await session.execute(select(KnowledgeSeed))).scalars().all()
@@ -106,7 +106,7 @@ async def test_load_seed_idempotent_and_tags(session_factory, tmp_path) -> None:
 async def test_edges_full_sync_and_topic_upsert(session_factory, tmp_path) -> None:
     seeds_dir = _write_seeds(tmp_path / "seeds")
     async with session_factory() as session:
-        await load_seed(session, seeds_dir)
+        await load_seed(session, seeds_dir, data_dir=tmp_path / "runtime")
 
     # 改真源：更新名称、删掉一条边
     modified_topics = [{**t, "name": "有理数（改）" if t["id"] == "cnm_001" else t["name"]}
@@ -114,7 +114,7 @@ async def test_edges_full_sync_and_topic_upsert(session_factory, tmp_path) -> No
     _write_seeds(seeds_dir, topics=modified_topics, edges=EDGES[:1])
 
     async with session_factory() as session:
-        await load_seed(session, seeds_dir)
+        await load_seed(session, seeds_dir, data_dir=tmp_path / "runtime")
 
     async with session_factory() as session:
         topics = (await session.execute(select(KnowledgeSeed))).scalars().all()
@@ -130,7 +130,9 @@ async def test_empty_seed_start(session_factory, tmp_path) -> None:
 
     (tmp_path / "seeds").mkdir()
     async with session_factory() as session:
-        index = await load_seed(session, tmp_path / "seeds")
+        index = await load_seed(
+            session, tmp_path / "seeds", data_dir=tmp_path / "runtime"
+        )
     assert index.topics == {} and index.mappings == []
 
 
@@ -139,7 +141,7 @@ async def test_invalid_topic_fails_fast(session_factory, tmp_path) -> None:
     seeds_dir = _write_seeds(tmp_path / "seeds", topics=[{"id": "cnm_x"}])  # 缺 subject/name
     async with session_factory() as session:
         with pytest.raises(SeedFormatError):
-            await load_seed(session, seeds_dir)
+            await load_seed(session, seeds_dir, data_dir=tmp_path / "runtime")
 
 
 @pytest.mark.integration
@@ -156,7 +158,7 @@ async def test_seed_rows_survive_events_empty_check(session_factory, tmp_path) -
 
     seeds_dir = _write_seeds(tmp_path / "seeds")
     async with session_factory() as session:
-        await load_seed(session, seeds_dir)
+        await load_seed(session, seeds_dir, data_dir=tmp_path / "runtime")
     async with session_factory() as session:
         count = (await session.execute(
             select(func.count()).select_from(LearningEvent)
