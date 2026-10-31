@@ -16,6 +16,7 @@ from app.api.concepts import router as concepts_router
 from app.api.dashboard import router as dashboard_router
 from app.api.health import router as health_router
 from app.api.imports import router as imports_router
+from app.api.local_seed import router as local_seed_router
 from app.api.mistakes import router as mistakes_router
 from app.api.pomodoro import router as pomodoro_router
 from app.api.practice import router as practice_router
@@ -73,6 +74,7 @@ def create_app() -> FastAPI:
     application = FastAPI(title="wengu · 温故", version=__version__, lifespan=_lifespan)
     application.include_router(health_router)
     application.include_router(seed_router)
+    application.include_router(local_seed_router)
     application.include_router(mistakes_router)
     application.include_router(concepts_router)
     application.include_router(practice_router)

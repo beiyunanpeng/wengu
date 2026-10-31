@@ -72,6 +72,49 @@ export interface TopicListResponse {
   offset: number;
 }
 
+export interface LocalTopicInfo {
+  id: string;
+  name: string;
+  subject: string;
+  grade: string | null;
+  semester: string | null;
+  chapter: string | null;
+  domain: string | null;
+  description: string | null;
+  type: string | null;
+  mastery_criteria: string[] | null;
+  unaudited: boolean;
+  blind_verified: boolean;
+  mistake_count: number;
+  problem_count: number;
+}
+
+export interface LocalTopicList {
+  items: LocalTopicInfo[];
+  total: number;
+}
+
+export interface LocalTopicCreatePayload {
+  subject: "语文" | "化学";
+  name: string;
+  grade?: number | null;
+  semester?: string | null;
+  chapter?: string | null;
+  domain?: string | null;
+  description?: string | null;
+  mastery_criteria?: string[] | null;
+  type?: string | null;
+}
+
+export type LocalTopicUpdatePayload = Omit<LocalTopicCreatePayload, "subject">;
+
+export interface LocalTopicDeleteResponse {
+  id: string;
+  removed: boolean;
+  mistakes_unbound: number;
+  problems_unbound: number;
+}
+
 export interface Concept {
   id: number;
   name: string;

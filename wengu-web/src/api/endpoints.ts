@@ -23,6 +23,11 @@ import type {
   ImportResult,
   InboxInfo,
   IntakeDraftListResponse,
+  LocalTopicCreatePayload,
+  LocalTopicDeleteResponse,
+  LocalTopicInfo,
+  LocalTopicList,
+  LocalTopicUpdatePayload,
   MistakeDetail,
   MistakeListResponse,
   MistakeOptions,
@@ -534,6 +539,43 @@ export function getDashboard(
   const query = search.toString();
   return apiRequest<DashboardResponse>(
     `/api/dashboard${query ? `?${query}` : ""}`,
+  );
+}
+
+export function listLocalTopics(subject?: string): Promise<LocalTopicList> {
+  const params = new URLSearchParams();
+  if (subject) {
+    params.set("subject", subject);
+  }
+  const query = params.toString();
+  return apiRequest<LocalTopicList>(
+    `/api/local-seed/topics${query ? `?${query}` : ""}`,
+  );
+}
+
+export function createLocalTopic(
+  payload: LocalTopicCreatePayload,
+): Promise<LocalTopicInfo> {
+  return requestJson<LocalTopicInfo>("/api/local-seed/topics", "POST", payload);
+}
+
+export function updateLocalTopic(
+  topicId: string,
+  payload: LocalTopicUpdatePayload,
+): Promise<LocalTopicInfo> {
+  return requestJson<LocalTopicInfo>(
+    `/api/local-seed/topics/${encodeURIComponent(topicId)}`,
+    "PATCH",
+    payload,
+  );
+}
+
+export function deleteLocalTopic(
+  topicId: string,
+): Promise<LocalTopicDeleteResponse> {
+  return requestJson<LocalTopicDeleteResponse>(
+    `/api/local-seed/topics/${encodeURIComponent(topicId)}`,
+    "DELETE",
   );
 }
 
