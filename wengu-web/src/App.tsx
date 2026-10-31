@@ -6,6 +6,8 @@ import ImportPage from "./pages/ImportPage";
 import IntakePage from "./pages/IntakePage";
 import MistakeDetailPage from "./pages/MistakeDetailPage";
 import MistakesPage from "./pages/MistakesPage";
+import PrintMistakesPage from "./pages/PrintMistakesPage";
+import PrintPaperPage from "./pages/PrintPaperPage";
 import RecordsPage from "./pages/RecordsPage";
 import ReviewPage from "./pages/ReviewPage";
 import SchedulePage from "./pages/SchedulePage";
@@ -15,6 +17,8 @@ export default function App() {
   return (
     <ParentSessionProvider>
       <Routes>
+        <Route path="print/mistakes" element={<PrintMistakesPage />} />
+        <Route path="print/paper" element={<PrintPaperPage />} />
         <Route element={<AppLayout />}>
           <Route index element={<Navigate to="/import" replace />} />
           <Route path="dashboard" element={<DashboardPage />} />

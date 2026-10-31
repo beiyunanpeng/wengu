@@ -212,6 +212,20 @@ export interface PaperSubmitAnswer {
   correct?: boolean | null;
 }
 
+export interface PaperAnswerKeyItem {
+  question_id: string;
+  mode: "system" | "self_eval";
+  answer: string;
+  acceptable_answers: string[];
+}
+
+export interface PaperAnswerKeyResponse {
+  topic_id: string;
+  seed: number;
+  count: number;
+  items: PaperAnswerKeyItem[];
+}
+
 export interface PaperAnswerInfo {
   question_id: string;
   mode: "system" | "self_eval";

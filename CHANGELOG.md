@@ -16,7 +16,41 @@ Phase 1 只剩 P1-7b（前置回溯诊断）与受闸门阻塞的 P1-7c。
 
 ### Added
 
-- **P2-2 番茄钟执行（计时器，不是规划器）**（2026-10-31）：
+- **P2-7 错题四区块 / 练习卷打印导出**（2026-10-31）：
+  用**前端打印视图 + 浏览器“打印 → 另存为 PDF”**导出，零 PDF 库、零服务端文件生成。
+  数学由既有 KaTeX 渲染成 HTML/CSS、中文走系统字体，浏览器打印两者天然兼得。
+  - **错题四区块** `/print/mistakes?category_id=&error_cause=&from=&to=`（无导航壳）：
+    调既有 `GET /api/mistakes`（`status=active`）分页拉全量，**日期在前端按本地自然日过滤**
+    （既有接口无日期参数，本票不改后端）；按 `category_id` 聚合成“知识点页组”，未挂知识点
+    排最后；每题一卡：① 原题（`MathText` KaTeX）② 孩子作答 ③ 订正正答 ④ 错因批注
+    （确认错因 + 知识点 + 细标签）。空结果给“当前筛选下没有错题”提示并禁用打印。
+  - **练习卷** `/print/paper?topic_id=&count=&seed=`：调既有 `GET /api/quizzes/paper`
+    渲染题干/选项/配图，**默认 DOM 不含答案/解析/verify**；未指定 seed 时把服务端返回的
+    seed 写回 URL，刷新/重印同一张卷。末页“家长答案页”默认关闭、按需加载、单独分页，
+    供家长自行决定是否打印。
+  - **唯一后端增量（例外说明）**：新增 `GET /api/quizzes/paper/answers`，挂
+    `require_parent`，按同 `topic_id/count/seed` 重建同卷，只回正答与可接受别名
+    （**不含 `explanation` / `verify`**）。加此端点是因为练习卷接口按安全设计永不下发答案，
+    而 seed 题 id 为字符串（如 `cnm_002_q3`）、无法用 `GET /api/problem-bank/items/{id}`
+    （整型库 id）取答案；前端确实拿不到该字段，按工单例外条款补最小家长端点。
+  - **打印样式** `src/print.css`：`@page A4` + 14mm 边距；打印时隐藏工具栏；知识点页组之间
+    `break-before: page`、题卡 `break-inside: avoid`、答案页 `break-before: page`；
+    屏显为 A4 白纸预览 + “打印 / 另存为 PDF”“返回”按钮（`window.print()`）。
+  - **入口**：错题本“导出打印”（携带当前知识点/错因筛选）、复习页手动组卷成功区
+    “导出练习卷”（携带 `topic_id/count/seed`）。
+  - **验证**：新增 `test_paper_answer_key_is_parent_only_and_matches_bank`（答题钥匙与题库
+    同卷同答、孩子侧卷面仍无答案字段、未知知识点 404、锁定家长区 403）。全量 pytest
+    **351 passed**、`ruff check .` 绿、`import app.main` OK、`npm run build` 绿。
+    浏览器 + 临时库实跑：错题本选知识点/错因 → 导出打印 URL 带
+    `category_id=cnm_010&error_cause=calculation`、四区块各 1 组；无筛选 5 题 4 组，
+    KaTeX 节点 7 个（题干 3 个），四区块标题齐全；`category_id` / `error_cause` / `from+to`
+    筛选各只剩目标题；空组合显示“当前筛选下没有错题”且打印按钮禁用。Headless Chrome
+    打印：错题页 4 组 → **4 页**（每组另起页）；练习卷默认 **1 页**、DOM 无
+    `正答/可接受/解析/verify`；点开家长答案页后 **2 页**（答案页单独分页），PDF 在
+    Chrome 阅读器打开正常（第 1 页卷面、第 2 页答案）。
+  - **残留风险**：日期筛选需分页扫描全部活跃错题后在前端过滤（家庭规模可接受，量大时应下推
+    到后端索引）；分页/分页效果依赖浏览器打印实现（Chrome/Edge 已验）；答案页仅靠
+    `require_parent` 防误入，不是安全边界；不产出服务端 PDF 文件（邮件附件等留待真需求）。
   对复习队列的下一项做一个**纯前端 25 分钟倒计时**，完成时把一条事实事件写入
   `learning_events`，仅供看板展示“专注时长”。**不规划、不排程、不自动连跑**。
   - **事件**：`services/pomodoro.py:record_pomodoro` 追加

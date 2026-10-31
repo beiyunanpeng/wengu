@@ -86,9 +86,28 @@ export default function MistakesPage() {
     <Stack gap="md">
       <Group justify="space-between" align="center">
         <Title order={2}>错题本</Title>
-        <Text size="sm" c="dimmed">
-          共 {total} 道
-        </Text>
+        <Group gap="sm">
+          <Text size="sm" c="dimmed">
+            共 {total} 道
+          </Text>
+          <Button
+            size="compact-sm"
+            variant="light"
+            onClick={() => {
+              const params = new URLSearchParams();
+              if (categoryId) {
+                params.set("category_id", categoryId);
+              }
+              if (errorCause) {
+                params.set("error_cause", errorCause);
+              }
+              const query = params.toString();
+              navigate(`/print/mistakes${query ? `?${query}` : ""}`);
+            }}
+          >
+            导出打印
+          </Button>
+        </Group>
       </Group>
 
       <Card withBorder>

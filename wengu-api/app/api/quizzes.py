@@ -66,6 +66,20 @@ class QuizPaperResponse(BaseModel):
     items: list[QuizQuestionView]
 
 
+class PaperAnswerKeyItem(BaseModel):
+    question_id: str
+    mode: Literal["system", "self_eval"]
+    answer: str
+    acceptable_answers: list[str]
+
+
+class PaperAnswerKeyResponse(BaseModel):
+    topic_id: str
+    seed: int
+    count: int
+    items: list[PaperAnswerKeyItem]
+
+
 class PaperSubmitAnswer(BaseModel):
     question_id: str = Field(min_length=1, max_length=80)
     answer: str | None = Field(default=None, max_length=2000)
@@ -173,6 +187,42 @@ async def quiz_paper(
                 mode=item.mode,
                 seed=paper.seed,
                 pool_size=paper.pool_total,
+            )
+            for item in paper.items
+        ],
+    )
+
+
+@router.get(
+    "/api/quizzes/paper/answers",
+    response_model=PaperAnswerKeyResponse,
+    dependencies=[Depends(require_parent)],
+)
+async def quiz_paper_answers(
+    topic_id: str = Query(min_length=1, max_length=64),
+    count: int = Query(default=3, ge=1, le=MAX_PAPER_COUNT),
+    seed: int = Query(ge=0, le=MAX_SEED),
+) -> PaperAnswerKeyResponse:
+    """家长答案钥匙：按同 topic/seed/count 重建同一张卷，只回正答与可接受别名。
+
+    孩子侧组卷接口永远不下发答案；本端点挂 `require_parent`，仅供打印页的
+    “家长答案页”使用。仍不返回 `explanation / verify`，避免扩大泄漏面。
+    """
+
+    try:
+        paper = build_paper(topic_id, seed, count)
+    except QuizTopicNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from None
+    return PaperAnswerKeyResponse(
+        topic_id=paper.topic_id,
+        seed=paper.seed,
+        count=count,
+        items=[
+            PaperAnswerKeyItem(
+                question_id=item.question.id,
+                mode=item.mode,
+                answer=item.question.answer,
+                acceptable_answers=list(item.question.accept),
             )
             for item in paper.items
         ],
