@@ -1,9 +1,9 @@
 # STATUS.md — 开发计划与完成情况
 
-> 快照日期：2026-10-31（P3-2 主动加练变式交付后）
-> 分支 / HEAD：`main` / `0d12f5f`（P3-2 加练改动尚未提交，工作区含本票变更）
-> 全量测试：**386 passed**（本机 2026-10-31）；`ruff check .` 全绿；`npm run build` 绿
-> Alembic head：`0017_bank_item_lifecycle`；业务表 22 张（0017 为 `problem_bank` 补 `status` + `updated_at`）
+> 快照日期：2026-10-31（P3-2 加练幂等 + 本地 seed id 不复用交付后）
+> 分支 / HEAD：`main` / `539bac3`（本票改动尚未提交，工作区含本票变更）
+> 全量测试：**391 passed**（本机 2026-10-31）；`ruff check .` 全绿；`npm run build` 绿
+> Alembic head：`0018_practice_dedup`；业务表 22 张（0018 给 `practice_records` 补 `topic_id` / `seed` / `dedup_key` + 部分唯一索引）
 
 本文件是**状态快照**，不替代以下事实源；冲突时以它们为准：
 
@@ -356,12 +356,18 @@
   `data/` 随备份走）；装载顺序 `seeds/data/topics.json`（仓库只读）→
   `seeds/local/*.json`（开发机分发，可选）→ `<data_dir>/seeds_local/*.json`（家长运行时）。
   按 id upsert 幂等，重启后本地点仍在；单文件坏 JSON 只告警跳过，不阻塞服务与其余源；
-  id 与上游/先前本地冲突 → error 日志并拒绝该条。
+  id 与上游/先前本地冲突 → error 日志并拒绝该条。装载器跳过下划线开头的文件
+  （`_id_counters.json` 是运行期簿记，不是 topics 数组）。
 - **契约**：与上游 topics.json 同 schema 子集；语文前缀 `cnl_`、化学 `cnc_`
   （与 `cnm_`/`cne_`/`cnp_` 隔离）；装载/API 统一强制 `source='local'`、`unaudited=true`、
   `blind_verified=false`；**无迁移**（`knowledge_seed.source` 已存在）。
 - **写入**：原子写（同目录 tmp + fsync + `os.replace`，进程内锁串行），先写文件再
   upsert/改行；id 由服务端按前缀 + 递增序号生成（零填充 3 位）。
+- **id 永不复用**：`<data_dir>/seeds_local/_id_counters.json` 记录各学科「已发放过的最大
+  序号」（如 `{"语文": 4}`），**只增不减**；`next_local_id` 取 `max(计数器, 文件与 DB 中
+  同前缀最大序号) + 1`。创建时**先预留序号并原子写回计数器再落盘**——后续写失败只留空号，
+  绝不回退复用；删除知识点不回退计数器。计数器文件损坏/格式非法 → fail-closed
+  （`LocalSeedError`），不静默重置；`_id_counters.json` 不被装载器/导出脚本当作 seed 读取。
 - **API（全挂 `require_parent`）**：`GET /api/local-seed/topics?subject=`、
   `POST /api/local-seed/topics`、`PATCH/DELETE /api/local-seed/topics/{id}`。
   subject 仅语文/化学（其它 422）、name 非空 ≤40、grade 7–9、单科 ≤200 点；
@@ -376,6 +382,11 @@
   引用计数与「家长自建 · 未经教师审核」，新增/编辑弹窗、删除确认显示受影响计数。
 - **本地点不作历史改写**：删除点不会回写 `mistake_versions` 的标签快照；快照里的旧
   `category_id` 仍在，但名称解析为 None（只影响展示，不影响事实与排期）。
+- **P3-2d 运行态证据（2026-10-31）**：临时库 + uvicorn `127.0.0.1:8111`。连续创建语文点
+  得 `cnl_001..003`，计数器 `{"语文": 3}`；删除 `cnl_003` 后计数器仍为 3；再创建得
+  **`cnl_004`**（非 003），计数器 4。重启服务后装载器仍见 `cnl_001/002/004`，
+  `_id_counters.json` 未被当作 seed；重启后再创建得 `cnl_005`，计数器 5。
+  `_id_counters.json` 不被 loader 当 seed 读取另有单测覆盖（两个 local 源均跳过下划线文件）。
 
 ### 4.16 主动加练变式（P3-2）
 
@@ -393,9 +404,16 @@
   `PracticeRecord`（`source_mistake_id`、`problem_bank_id`、`student_answer`、`is_correct`）。
   seed 题 `problem_bank_id=NULL`；家长题按 `external_id` 反查 `problem_bank.id` 回填。
   服务层**不 import `record_event`/`Attempt`**，从代码路径上保证零事件、零尝试。
+- **提交幂等（迁移 0018）**：`practice_records` 增 `topic_id` / `seed` / `dedup_key`
+  与部分唯一索引 `uq_practice_records_dedup_key`（`WHERE dedup_key IS NOT NULL`，多 NULL
+  不冲突）。每题写行前计算 `dedup_key = variant:{topic_id}:{seed}:{question_id}`：
+  已存在 → 不新增、回看已有行并返回 `reused=true`（同题重复提交不覆盖原作答）；
+  并发重复走 savepoint + 唯一索引兜底，再次回看。不同 seed 视为另一组练习，各自成行。
+  既有行（三列 NULL）不受影响、仍可回看；`GET /api/practice` 支持 `topic_id` + `seed`
+  过滤，练习记录页按组展示「这一组」。
 - **API（孩子区免 PIN，不挂 `require_parent`）**：`POST /api/practice/start`、
   `POST /api/practice/submit`（只回 `correct|wrong|uncertain|skipped` + mode + 记录 id，
-  无答案钥匙）、`GET /api/practice?mistake_id=&kind=&limit=&offset=`、
+  无答案钥匙）、`GET /api/practice?mistake_id=&kind=&topic_id=&seed=&limit=&offset=`、
   `DELETE /api/practice`（整表清空，返回 `deleted`）。旧 `/api/practice-records` 保留兼容。
 - **前端**：错题详情「加练同类题」入口先探测 count=1，gap/无主考点时**置灰 + 文案解释**；
   `/practice` 页复用 `QuizQuestionCard`，系统题页面作答、自评题「做对了/没做对」，
@@ -407,8 +425,15 @@
   清空前 `attempts=0/events=2/schedules=1/mistakes=1/practice_records=2`，
   清空后仅 `practice_records=0`，其余表内容与 dashboard、到期队列**完全不变**；
   无主考点错题 #2 入口置灰并显示 gap 文案。
-- **测试**：`tests/integration/test_practice_api.py`（4 条，含全列快照不变量、
-  dashboard/due 字节级不变、清空后不变量仍不变、自评/跳过/外来题、家长题主键回填）。
+- **测试**：`tests/integration/test_practice_api.py`（6 条，含全列快照不变量、
+  dashboard/due 字节级不变、清空后不变量仍不变、自评/跳过/外来题、家长题主键回填；
+  另含提交幂等（重复提交行数不增 + `reused=true`、换 seed 各自成行）与旧行 NULL 分组可读）。
+- **P3-2d 运行态证据（2026-10-31）**：临时库 head `0018` + uvicorn `127.0.0.1:8111`。
+  同 `cnm_001` + seed 7 连提两次：第一次 `rows=2`、`reused=false`；第二次 `rows=2`、
+  `reused=true` 且记录 id 不变；换 seed 8 再提 → `rows=4`、各自 `reused=false`。
+  `GET /api/practice?topic_id=cnm_001&seed=7|8` 各 2 条并带 `topic_id/seed`。
+  加练前后 `attempts/learning_events/review_schedules/mistakes` 均 0 → 0，
+  `practice_records` 0 → 4；`/api/dashboard` 与 `/api/reviews/due` 响应完全一致。
 
 ## 5. API 与数据现状
 
@@ -431,7 +456,7 @@
 | 番茄 | `POST /api/pomodoros`（追加 `pomodoro_completed`，201 `{id, duration_minutes}`；孩子区免 PIN） |
 | 组卷 | `GET /api/quizzes/topics`、`GET /api/quizzes/paper`、`GET /api/quizzes/paper/answers`（家长答案钥匙：同卷只回正答 + 可接受别名，不含解析/verify）、`POST /api/quizzes/paper/submit` |
 | 练习记录 | `GET /api/attempts`、`DELETE /api/attempts`、`GET/POST/DELETE /api/practice-records`（兼容旧前端） |
-| 主动加练（P3-2） | `POST /api/practice/start`、`POST /api/practice/submit`、`GET /api/practice?mistake_id=&kind=&limit=&offset=`、`DELETE /api/practice`（全部孩子区免 PIN；只写 `practice_records`，提交响应不含答案钥匙） |
+| 主动加练（P3-2） | `POST /api/practice/start`、`POST /api/practice/submit`（幂等：重复提交回 `reused=true`）、`GET /api/practice?mistake_id=&kind=&topic_id=&seed=&limit=&offset=`、`DELETE /api/practice`（全部孩子区免 PIN；只写 `practice_records`，提交响应不含答案钥匙） |
 | 看板 | `GET /api/dashboard`（只读，可选 `today` / `curve_days` 1–90；响应含 `streak`、`pomodoros_today`、`focus_minutes_this_week`） |
 | 会话 / 家长 PIN | `GET /api/session/status`、`POST /api/session/pin/set`、`POST /api/session/unlock`、`POST /api/session/lock` |
 
@@ -452,10 +477,12 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
 
 ### 5.2 数据库与 seed
 
-- Alembic head `0017_bank_item_lifecycle`；22 张业务表（0016 新增 `bank_drafts`，
+- Alembic head `0018_practice_dedup`；22 张业务表（0016 新增 `bank_drafts`，
   `problem_bank` 补 `topic_id` FK + `question_type/difficulty/choices_json/figure/hide_choice_text/percent`；
   0017 再补 `status TEXT NOT NULL server_default 'active'`（CHECK `active|voided`）+
-  `updated_at DATETIME NULL`，既有行回填 `active`）。
+  `updated_at DATETIME NULL`，既有行回填 `active`；0018 给 `practice_records` 补
+  `topic_id TEXT NULL` / `seed INTEGER NULL` / `dedup_key TEXT NULL` + 部分唯一索引
+  `uq_practice_records_dedup_key ... WHERE dedup_key IS NOT NULL`，既有行三列保持 NULL）。
 - `bank_drafts`：`import_batch_id` FK + `seq` + `normalized_json` + `has_placeholder` +
   `status draft|approved|rejected` + `created_at`，`UNIQUE(import_batch_id, seq)`；
   草稿永不自动转正，只能由家长审核端点翻状态。
@@ -467,7 +494,8 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
   （数学 1407 / 英语 1028 / 物理 368）；化学、语文从**空仓库 seed** 起步，由家长在
   `<data_dir>/seeds_local/topics_<学科>.json` 自建章级点（`source='local'`，装载副本进
   `knowledge_seed`；重启用文件恢复）。加载顺序 = 仓库 topics.json → `seeds/local/*.json` →
-  `<data_dir>/seeds_local/*.json`。
+  `<data_dir>/seeds_local/*.json`；下划线开头的簿记文件（`_id_counters.json`）跳过。
+  `_id_counters.json` 记录各学科已发放最大序号、只增不减，删除点也不回退——本地 id 永不复用。
   **P3-1 家长录题只进 SQLite `problem_bank`，不写 seed JSON**；P3-1b 在运行时把
   `problem_bank` 已入库行合并进检索池（seed 文件仍只读、随仓库分发）；P3-1c 后只合并
   `status='active'` 的行，作废题退出池但行与历史保留。
@@ -483,7 +511,7 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
 |---|---|---|---|
 | 家长录题与组卷未打通 | 已关闭（P3-1b） | 审核入库题已合并进运行时题池，参与到期考核、手动组卷与 P3-2 主动加练；统计/coverage 随池重算 | 题目数量仍靠家长继续录题扩充 |
 | 入库题无编辑/作废 | 已关闭（P3-1c） | 家长可在 `/bank` 列表内编辑（重跑同一套闸门）或软作废/撤销；作废题退出检索池，不物理删除、不改写历史 | 后续如需要"当时题面快照"，另开 attempts 展示层工单 |
-| 主动加练污染闭环 | 已关闭（P3-2） | 加练只写 `practice_records(kind=variant)`，不写 attempts/事件/错题本，不影响掌握度/排期/打卡；可整表清空；gap 只提示不硬凑 | 提交幂等键、category/错因/难度筛选可另开增量工单 |
+| 主动加练污染闭环 | 已关闭（P3-2 / P3-2d） | 加练只写 `practice_records(kind=variant)`，不写 attempts/事件/错题本，不影响掌握度/排期/打卡；可整表清空；gap 只提示不硬凑；提交按 `(topic_id, seed, question_id)` 幂等，重复提交不增行并回 `reused=true` | category/错因/难度筛选、「上一组」身份重放可另开增量工单 |
 | 录题审核逐条 | 部分缓解 | 草稿只能逐条通过/驳回，批量录入时家长操作成本高 | 观察真实使用量后决定是否做批量确认；不得改为无人确认自动入库 |
 | 空 seed 学科无法录题挂点 | 已关闭（P1-1b） | 家长可在 `/local-seed` 建语文/化学章级点（`cnl_`/`cnc_`），错题主考点与题库 `topic_id` 均可挂，到期考核闭环打通 | 教材包自动导入/多教材切换仍归 P5-4；细粒度仍走错题受控生长 |
 | P0-1 样本扩容 | 待按 v2.5 重新定义 | 外部转录质量是新的主瓶颈 | 用真实"已批改卷"样本测转录模板 + 核对页漏/错项率 |
@@ -495,7 +523,7 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
 | 主考点未确认 | 部分缓解 | 无主考点只做重做自评，不推同类题 | 核对页引导家长选主考点 |
 | 历史作废/申诉入口 | 部分恢复 | 作废 / 撤销作废已有 HTTP 入口与事件留痕；申诉改判仍未开 | 如需申诉改判，另开"错题状态修订"工单，不复活模型链 |
 | 鉴权 / 本地 PIN | 部分完成 | P2-4 本地家长 PIN 已做（只防误入，非安全边界）；公网鉴权/隔离仍未做 | 公网暴露前走 P5-3 真鉴权或 Tailscale |
-| 化学 / 语文 seed | 已关闭（P1-1b；本地点为家长自建） | 家长按教材目录在 `/local-seed` 建章级点；仓库 seed 保持只读、不覆盖上游行 | 预置教材包（P5-4）可后续补充；章级 40–80 点、单科上限 200 |
+| 化学 / 语文 seed | 已关闭（P1-1b；本地点为家长自建） | 家长按教材目录在 `/local-seed` 建章级点；仓库 seed 保持只读、不覆盖上游行；id 由 `_id_counters.json` 单调发放，删除不复用 | 预置教材包（P5-4）可后续补充；章级 40–80 点、单科上限 200 |
 | Phase 2 剩余 | 部分完成 | 打印导出已随 P2-7 补齐（前端打印视图，非服务端 PDF 文件）；课表/日历只做约束层（不排课、不生成任务）；日队列仅完成“到期复习/考核”组织，背诵铺底 / 作业 deadline / 硬事件抬权重未做（依赖 P3）；番茄钟已完成（纯前端计时 + 事件打点） | 按 TICKETS 顺序 |
 | Phase 3–5 | 部分完成 | P3-1 录题流水线、P3-2 主动加练已交付；英语背诵、听力默写、语文、信奥、长期计划及 Phase 4/5 均未开始 | 按 TICKETS 顺序 |
 
@@ -515,9 +543,11 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
    限流为进程内存计数（重启清零、多实例不共享），会话密钥缺省自动生成到 `data/.session_secret`
    （多实例部署必须显式设置 `WENGU_SESSION_SECRET`）。
 8. **前端无自动化 E2E**：浏览器走查为手工实跑；`npm run build` 只保证类型与打包。
-9. **主动加练的派生表语义**：`practice_records` 无提交幂等键，同一张卷重复提交会重复写行
-   （只影响可整表清空的派生表，不影响闭环事实）；组卷目前只按主考点检索，尚未提供
-   category/错因/难度筛选；"再练一组"每次换随机种子，不保存上一组身份用于重放。
+9. **主动加练的派生表语义**：`practice_records` 已按 `(topic_id, seed, question_id)` 幂等
+   （迁移 0018 部分唯一索引；重复提交回 `reused=true`、不覆盖原作答），只影响可整表清空的
+   派生表、不影响闭环事实；旧行三列为 NULL、不参与幂等也不与新建行冲突。组卷目前只按主考点
+   检索，尚未提供 category/错因/难度筛选；「再练一组」每次换随机种子，不保存上一组身份用于重放；
+   降级到 0017 会丢掉 `topic_id/seed/dedup_key`（升回后为 NULL），需保留幂等数据时先备份。
 9. **P1-12 运行态证据为临时库**：E2E 使用 `.e2e-data` 临时库与 8123 端口，跑完即删；
    容器全栈重建验收待下次部署窗口。
 10. **打卡回退口径的边界**：批量入库确认会写一条无 `completed_on` 的 `attempt_wrong`
@@ -557,11 +587,14 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
     或跨学科聚合。
 17. **家长自建 seed 以 API 为准**：`knowledge_seed` 只是本地 JSON 的装载副本，
     **手工从 `seeds_local/*.json` 删条目不会自动清理旧行**（只有经 `DELETE`
-    端点或重建库才同步）；id 冲突只跳过冲突条目并记 error 日志；被删序号会被
-    `next_local_id` 复用。删除知识点不会改写 `mistake_versions` 历史标签快照
-    （快照 `category_id` 仍在、名称解析为 None，只影响展示）。本地点固定
-    `unaudited=true` / `blind_verified=false`，UI 必须继续透传"家长自建 · 未经教师审核"。
-    本地文件位于 `data/` 随备份走、**不进 git**；`seeds/local` 只用于开发机分发。
+    端点或重建库才同步）；id 冲突只跳过冲突条目并记 error 日志。id 由
+    `_id_counters.json` 单调发放（取 `max(计数器, 文件/DB 最大序号)+1`，先写计数器再落盘，
+    **删除不回退、永不复用**）；计数器文件损坏会 fail-closed 拒绝新建，需人工修复。
+    装载器/导出脚本跳过下划线开头的文件，`_id_counters.json` 不会被当作 topics 读取。
+    删除知识点不会改写 `mistake_versions` 历史标签快照（快照 `category_id` 仍在、
+    名称解析为 None，只影响展示）。本地点固定 `unaudited=true` / `blind_verified=false`，
+    UI 必须继续透传"家长自建 · 未经教师审核"。本地文件位于 `data/` 随备份走、**不进 git**；
+    `seeds/local` 只用于开发机分发。
 
 ## 8. 工程不变量（已落地，后续不得回退）
 
@@ -584,6 +617,12 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
   **不得覆盖上游 seed 行**；删除必须同步文件与行并解绑 `mistakes.primary_topic_id` /
   `problem_bank.topic_id`（返回计数），不改写历史 attempts/事件/排期；
   本地 seed 写端点全部挂 `require_parent`。
+- **本地 seed id 永不复用**：`_id_counters.json` 记录已发放最大序号、只增不减；
+  分配取 `max(计数器, 文件/DB 最大序号)+1`，先原子写计数器再落盘；删除不回退，
+  计数器损坏 fail-closed；装载器/导出脚本跳过下划线开头文件。
+- **加练提交幂等**：`practice_records.dedup_key = variant:{topic_id}:{seed}:{question_id}`
+  + 部分唯一索引（`WHERE dedup_key IS NOT NULL`）；重复提交不新增、回看已有行并
+  返回 `reused=true`，不覆盖原作答；不同 seed 视为另一组。既有 NULL 行不受影响。
 - 日志/事件不落题目全文、答案、文件 URL、个人信息、密钥。
 - 纯查询 GET 零模型调用；内核零模型（无 provider / SDK / 模型审计表）。
 - 变式/加练只进 `practice_records`，绝不进错题本、不排复习；`/api/practice/*` 孩子区免 PIN，

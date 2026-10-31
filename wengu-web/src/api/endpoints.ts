@@ -1,6 +1,8 @@
 import { apiRequest, requestJson } from "./client";
 import type {
   AttemptListResponse,
+  BackupExportResponse,
+  BackupListResponse,
   BankApproveResponse,
   BankChoice,
   BankDraftListResponse,
@@ -508,6 +510,8 @@ export function listAttempts(
 export interface PracticeFilters {
   kind?: "variant" | "extra";
   sourceMistakeId?: number;
+  topicId?: string;
+  seed?: number;
   limit?: number;
   offset?: number;
 }
@@ -521,6 +525,12 @@ export function listPractice(
   }
   if (filters.sourceMistakeId) {
     params.set("mistake_id", String(filters.sourceMistakeId));
+  }
+  if (filters.topicId) {
+    params.set("topic_id", filters.topicId);
+  }
+  if (filters.seed !== undefined) {
+    params.set("seed", String(filters.seed));
   }
   params.set("limit", String(filters.limit ?? 50));
   params.set("offset", String(filters.offset ?? 0));
@@ -574,6 +584,23 @@ export function submitPractice(payload: {
 
 export function clearPractice(): Promise<{ deleted: number }> {
   return requestJson<{ deleted: number }>("/api/practice", "DELETE");
+}
+
+export function exportBackup(): Promise<BackupExportResponse> {
+  return requestJson<BackupExportResponse>(
+    "/api/backup/export",
+    "POST",
+    {},
+    180_000,
+  );
+}
+
+export function listBackups(): Promise<BackupListResponse> {
+  return apiRequest<BackupListResponse>("/api/backup/list", {}, 180_000);
+}
+
+export function backupDownloadUrl(filename: string): string {
+  return `/api/backup/download/${encodeURIComponent(filename)}`;
 }
 
 export function getDashboard(

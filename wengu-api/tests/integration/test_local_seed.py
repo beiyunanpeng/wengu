@@ -29,7 +29,7 @@ from app.core.config import Settings, get_settings
 from app.core.database import create_sqlite_engine, get_session
 from app.main import create_app
 from app.models import Concept, KnowledgeSeed, Mistake, ProblemBankItem, ReviewSchedule
-from app.seed.loader import load_seed, next_local_id
+from app.seed.loader import load_seed, local_seed_files, next_local_id
 from httpx import ASGITransport, AsyncClient
 from scripts.export_topics_junior import DEFAULT_SRC, export
 from sqlalchemy import select
@@ -355,6 +355,96 @@ async def test_local_topic_crud_writes_atomic_file(tmp_path: Path) -> None:
         ).status_code == 404
 
     assert _seed_digest() == before
+
+
+@pytest.mark.integration
+async def test_local_seed_id_counter_never_reuses_deleted_ids(tmp_path: Path) -> None:
+    """DoD：建 001..003 → 删 003 → 再建得到 004；计数器只增不减，重启装载不受影响。"""
+
+    settings = _settings(tmp_path)
+    factory = _migrated(tmp_path)
+    counter_path = settings.data_dir / "seeds_local" / "_id_counters.json"
+
+    async with _client(factory, settings) as client:
+        first = await _create_topic(client, name="春")
+        second = await _create_topic(client, name="济南的冬天")
+        third = await _create_topic(client, name="雨的四季")
+        assert [first["id"], second["id"], third["id"]] == [
+            "cnl_001",
+            "cnl_002",
+            "cnl_003",
+        ]
+        assert json.loads(counter_path.read_text(encoding="utf-8")) == {"语文": 3}
+
+        removed = await client.delete("/api/local-seed/topics/cnl_003")
+        assert removed.status_code == 200, removed.text
+        # 删除不回退计数器
+        assert json.loads(counter_path.read_text(encoding="utf-8")) == {"语文": 3}
+
+        fourth = await _create_topic(client, name="古代诗歌")
+        assert fourth["id"] == "cnl_004"
+        assert json.loads(counter_path.read_text(encoding="utf-8")) == {"语文": 4}
+
+        # 再删一次后仍不复用 004
+        assert (
+            await client.delete("/api/local-seed/topics/cnl_004")
+        ).status_code == 200
+        fifth = await _create_topic(client, name="现代文阅读")
+        assert fifth["id"] == "cnl_005"
+
+        topics_path = settings.data_dir / "seeds_local" / "topics_语文.json"
+        entries = json.loads(topics_path.read_text(encoding="utf-8"))
+        assert [entry["id"] for entry in entries] == [
+            "cnl_001",
+            "cnl_002",
+            "cnl_005",
+        ]
+        assert not list(topics_path.parent.glob("._counters-*.tmp"))
+
+    # 重启：装载器只读 topics_*.json，不把计数器当 seed
+    _write_json(settings.seeds_dir / "data" / "topics.json", [UPSTREAM_TOPIC])
+    _write_json(settings.seeds_dir / "data" / "dependencies.json", [])
+    async with factory() as session:
+        await load_seed(session, settings.seeds_dir, settings.data_dir)
+    async with factory() as session:
+        ids = set((await session.execute(select(KnowledgeSeed.id))).scalars())
+    assert ids == {"cnm_001", "cnl_001", "cnl_002", "cnl_005"}
+
+
+@pytest.mark.integration
+async def test_loader_skips_underscore_files_in_both_local_sources(
+    tmp_path: Path,
+) -> None:
+    """`_id_counters.json` 与其它下划线文件不是 topics 数组，两个本地源都必须跳过。"""
+
+    settings = _settings(tmp_path)
+    _write_json(settings.seeds_dir / "data" / "topics.json", [UPSTREAM_TOPIC])
+    _write_json(settings.seeds_dir / "data" / "dependencies.json", [])
+    _write_json(settings.seeds_dir / "local" / "_hidden.json", [
+        {"id": "cnc_777", "subject": "化学", "name": "不应装载"}
+    ])
+    _write_json(settings.data_dir / "seeds_local" / "_id_counters.json", {"语文": 7})
+    _write_json(settings.data_dir / "seeds_local" / "_hidden.json", [
+        {"id": "cnl_777", "subject": "语文", "name": "不应装载"}
+    ])
+    _write_json(settings.data_dir / "seeds_local" / "topics_语文.json", LOCAL_TOPICS[:1])
+
+    paths = local_seed_files(settings.seeds_dir, settings.data_dir)
+    assert [path.name for path in paths] == ["topics_语文.json"]
+    assert all(not path.name.startswith("_") for path in paths)
+
+    factory = _migrated(tmp_path)
+    async with factory() as session:
+        await load_seed(session, settings.seeds_dir, settings.data_dir)
+    async with factory() as session:
+        ids = set((await session.execute(select(KnowledgeSeed.id))).scalars())
+    assert ids == {"cnm_001", "cnl_001"}
+    # 计数器文件本身未被改写
+    assert json.loads(
+        (settings.data_dir / "seeds_local" / "_id_counters.json").read_text(
+            encoding="utf-8"
+        )
+    ) == {"语文": 7}
 
 
 @pytest.mark.integration

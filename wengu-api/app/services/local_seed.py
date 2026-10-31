@@ -6,12 +6,17 @@
 - 本地行固定 `source='local'`、`unaudited=true`、`blind_verified=false`。
 - 删除只允许 local 行：从文件移除 + 删行，引用侧（`mistakes.primary_topic_id` /
   `problem_bank.topic_id`）显式置 NULL 并返回受影响计数；历史事实本身不动。
+- **id 永不复用**：`<data_dir>/seeds_local/_id_counters.json` 记录每学科已发放过的最大序号，
+  只增不减；删除点不回退。下划线开头的文件不是 seed，装载器会跳过。
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
+import logging
+import os
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -35,8 +40,10 @@ MAX_GRADE = 9
 MIN_GRADE = 7
 MAX_CRITERIA_ITEMS = 20
 MAX_CRITERIA_LENGTH = 200
+COUNTER_FILENAME = "_id_counters.json"
 
 _FILE_LOCK = asyncio.Lock()
+logger = logging.getLogger(__name__)
 
 
 class LocalSeedError(ValueError):
@@ -53,6 +60,53 @@ class LocalSeedConflict(LocalSeedError):
 
 def local_topics_path(settings: Settings, subject: str) -> Path:
     return Path(settings.data_dir) / "seeds_local" / f"topics_{subject}.json"
+
+
+def id_counters_path(settings: Settings) -> Path:
+    return Path(settings.data_dir) / "seeds_local" / COUNTER_FILENAME
+
+
+def read_id_counters(settings: Settings) -> dict[str, int]:
+    """读取"已发放过的最大序号"；文件缺失视为空，内容非法则 fail-closed。"""
+
+    path = id_counters_path(settings)
+    if not path.exists():
+        return {}
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise LocalSeedError(f"id 计数器不可读：{path.name}（{exc}）") from exc
+    if not isinstance(raw, dict):
+        raise LocalSeedError(f"id 计数器格式错误：{path.name} 应为对象")
+    counters: dict[str, int] = {}
+    for subject, value in raw.items():
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise LocalSeedError(
+                f"id 计数器格式错误：{path.name} 中 {subject!r} 必须是非负整数"
+            )
+        counters[str(subject)] = value
+    return counters
+
+
+def write_id_counters(settings: Settings, counters: dict[str, int]) -> None:
+    """原子写计数器（同目录 tmp + fsync + os.replace）。"""
+
+    path = id_counters_path(settings)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = (
+        json.dumps(dict(sorted(counters.items())), ensure_ascii=False, indent=2) + "\n"
+    )
+    fd, tmp_name = tempfile.mkstemp(prefix="._counters-", suffix=".tmp", dir=path.parent)
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(payload)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def _read_entries(path: Path) -> list[dict[str, Any]]:
@@ -246,9 +300,16 @@ async def create_local_topic(
         taken = {str(entry.get("id")) for entry in entries} | await _known_ids(
             session, prefix
         )
-        topic_id = next_local_id(prefix, taken)
+        counters = read_id_counters(settings)
+        issued = counters.get(subject, 0)
+        topic_id = next_local_id(prefix, taken, issued)
         entry = _file_entry(topic_id, fields)
         values = _db_values(entry)
+        # 先预留序号再落盘：即使后续写入失败也只产生空洞，绝不回退复用。
+        sequence = int(topic_id[len(prefix) :])
+        if sequence > issued:
+            counters[subject] = sequence
+            write_id_counters(settings, counters)
         write_local_topics(path, [*entries, entry])
         row = KnowledgeSeed(**values)
         session.add(row)

@@ -48,7 +48,10 @@
   upsert 幂等、冲突拒绝、坏文件只告警；语文 `cnl_` / 化学 `cnc_` 由家长在 `/local-seed`
   页 CRUD（文件原子写、`knowledge_seed` 副本、固定 `source='local'` / `unaudited=true` /
   `blind_verified=false`）；删除联动解绑错题/题库并返回计数；导出脚本合并 local 源。
-  端点全挂 `require_parent`；无迁移。验收证据见 `CHANGELOG.md`（P1-1b 条目）。
+  端点全挂 `require_parent`；无迁移。**id 永不复用（2026-10-31 补齐）**：
+  `<data_dir>/seeds_local/_id_counters.json` 单调记录已发放最大序号，分配取
+  `max(计数器, 文件/DB 最大序号)+1`，先原子写计数器再落盘，删除不回退；装载器与导出
+  脚本跳过下划线开头文件。验收证据见 `CHANGELOG.md`（P1-1b 条目）。
 
 ### P1-2 Provider 层收缩为 mock-only（v2.5 改，原"Provider 适配层 + 成本护栏"）
 - 依赖：P1-0。
@@ -147,7 +150,7 @@
 ## Phase 3 —— 内容扩展（按 ROI）
 > v2.5：**"检索真题组卷"的题库检索引擎已提前到 P1-10、"出同类题考核"到 P1-11**。Phase 3 只保留增量。
 - **P3-1 真题库增量录入流水线**（已完成 2026-10-31）：家长/外部 agent 帮录**新题**入 `problem_bank`（含 `answer/verify/topic_id/难度/错因`）+ 审核队列；入库题走 AST 沙箱 `verify` 核验。**交付**：`doubao_bank_transcribe_v1` 模板、`bank_drafts` 草稿表（迁移 0016）、inbox 按 channel 分派、四个 `require_parent` 端点、家长「题库审核」页 + 手填表单。**红线**：`answer` 只从卷面/答案册转录或家长手填，**模型不得自行解题生成答案**；缺答案拒入库；家长题只进 SQLite，不写 seed JSON。禁：LLM 现编无钥匙题。**P3-1b（已完成 2026-10-31）**：入库题已合并进运行时检索池（`get_runtime_bank`），参与到期考核与手动组卷；approve/手填后清缓存；统计/coverage 随池重算；旧 pick 跨池 `replay` 显式抛 `BankReplayError`。**P3-1c（已完成 2026-10-31）**：题库条目修订 = 编辑 + 软作废（`status ∈ {active, voided}`，迁移 0017 可逆）；`GET/PATCH /api/bank/items` + `void/unvoid`（全挂 `require_parent`）；编辑合并后重跑同一套闸门（缺答案/占位/沙箱/choice key/数值矛盾 → 422 稳定码），不改 `external_id`；作废题退出检索池但不物理删除、不改写历史 attempts/事件/排期；`replay` 按题 id/`pool_ids` 判定，内容修订不回溯；前端 `/bank` 已入库列表 + 编辑 + 作废/撤销。禁：物理删除题目；改写历史事件/attempts；动 seed 文件；把题库审核面暴露给孩子区。
-- **P3-2 主动加练变式（`practice_records`，不影响掌握度）**（已完成 2026-10-31）：错题详情「加练同类题」按 `primary_topic_id` 从运行时题池固定种子抽 1–10 题（可重放、答案不下发）；系统题服务端 `judge_answer` 判分，解答/依赖图题孩子自评。**结果只写 `practice_records(kind='variant')`**——不写 attempts、不产生事件、不新建错题、不计入掌握度/排期/打卡，可整表清空；无主考点或题池为空时入口置灰并提示「该知识点暂无同类题」（200 不报错）。**交付**：`services/practice.py`、`POST /api/practice/start|submit`、`GET/DELETE /api/practice`（全部孩子区免 PIN）、`/practice` 页 + 错题详情入口 + 「练习记录 → 变式/加练」tab 与清空确认；4 条集成测试。**残留**：提交无幂等键、仅按主考点检索（category/错因/难度筛选未做）。禁：与闭环考核混淆；禁 LLM 编题/判分。
+- **P3-2 主动加练变式（`practice_records`，不影响掌握度）**（已完成 2026-10-31）：错题详情「加练同类题」按 `primary_topic_id` 从运行时题池固定种子抽 1–10 题（可重放、答案不下发）；系统题服务端 `judge_answer` 判分，解答/依赖图题孩子自评。**结果只写 `practice_records(kind='variant')`**——不写 attempts、不产生事件、不新建错题、不计入掌握度/排期/打卡，可整表清空；无主考点或题池为空时入口置灰并提示「该知识点暂无同类题」（200 不报错）。**P3-2d（已完成 2026-10-31）提交幂等**：迁移 **0018**（可逆）给 `practice_records` 补 `topic_id`/`seed`/`dedup_key` + 部分唯一索引；同 `(topic_id, seed, question_id)` 重复提交不增行、回看已有行并返回 `reused=true`（不覆盖原作答），不同 seed 各自成行；既有 NULL 行不受影响；`GET /api/practice` 支持 `topic_id`+`seed` 过滤、练习记录页按组展示。**交付**：`services/practice.py`、`POST /api/practice/start|submit`、`GET/DELETE /api/practice`（全部孩子区免 PIN）、`/practice` 页 + 错题详情入口 + 「练习记录 → 变式/加练」tab 与清空确认；迁移 0018；6 条集成测试。**残留**：仅按主考点检索（category/错因/难度筛选未做）；「再练一组」不保存上一组身份用于重放。禁：与闭环考核混淆；禁 LLM 编题/判分；禁给 practice 写事件/attempts。
 - **P3-3 英语背诵**：自评间隔重复（档③）。
 - **P3-4 听力+默写**：默写=卷面批改后走转录导入；听力"教材音频+TTS"+组卷。禁：口语 ASR。
 - **P3-5 语文客观并入**：字音/病句/默写并入转录；作文/阅读理解只走外部讲解不进本。

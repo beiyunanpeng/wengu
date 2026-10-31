@@ -462,6 +462,133 @@ def test_p3_1c_bank_item_lifecycle_up_down_up(tmp_path) -> None:
 
 
 @pytest.mark.integration
+def test_p3_2d_practice_dedup_up_down_up(tmp_path) -> None:
+    """0018：practice_records 加 topic_id/seed/dedup_key + 部分唯一索引；旧行 NULL 可读。"""
+
+    db_path = tmp_path / "practice-dedup.db"
+    config = _alembic_config(db_path)
+    command.upgrade(config, "0017_bank_item_lifecycle")
+
+    engine = create_engine(f"sqlite:///{db_path.as_posix()}")
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO practice_records (kind, problem_text, created_at)"
+                    " VALUES ('variant', '旧加练题', CURRENT_TIMESTAMP)"
+                )
+            )
+    finally:
+        engine.dispose()
+
+    command.upgrade(config, "head")
+    engine = create_engine(f"sqlite:///{db_path.as_posix()}")
+    try:
+        with engine.connect() as connection:
+            inspector = inspect(connection)
+            columns = {
+                column["name"]: column["nullable"]
+                for column in inspector.get_columns("practice_records")
+            }
+            indexes = {
+                index["name"]: index
+                for index in inspector.get_indexes("practice_records")
+            }
+            legacy = connection.execute(
+                text(
+                    "SELECT topic_id, seed, dedup_key FROM practice_records"
+                    " WHERE problem_text = '旧加练题'"
+                )
+            ).one()
+        assert columns["topic_id"] is True
+        assert columns["seed"] is True
+        assert columns["dedup_key"] is True
+        assert bool(indexes["uq_practice_records_dedup_key"]["unique"])
+        assert tuple(legacy) == (None, None, None)
+
+        with engine.begin() as connection:
+            # 多 NULL 不冲突（历史行/通用记录）
+            connection.execute(
+                text(
+                    "INSERT INTO practice_records (kind, problem_text, created_at)"
+                    " VALUES ('extra', '无分组记录', CURRENT_TIMESTAMP)"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO practice_records"
+                    " (kind, problem_text, topic_id, seed, dedup_key, created_at)"
+                    " VALUES ('variant', '题A', 'cnm_001', 7,"
+                    " 'variant:cnm_001:7:q1', CURRENT_TIMESTAMP)"
+                )
+            )
+            with pytest.raises(
+                sqlalchemy.exc.IntegrityError,
+                match="practice_records.dedup_key",
+            ):
+                connection.execute(
+                    text(
+                        "INSERT INTO practice_records"
+                        " (kind, problem_text, topic_id, seed, dedup_key, created_at)"
+                        " VALUES ('variant', '题A重复', 'cnm_001', 7,"
+                        " 'variant:cnm_001:7:q1', CURRENT_TIMESTAMP)"
+                    )
+                )
+            # 不同 seed 同题 → 不同 dedup_key，各自一行
+            connection.execute(
+                text(
+                    "INSERT INTO practice_records"
+                    " (kind, problem_text, topic_id, seed, dedup_key, created_at)"
+                    " VALUES ('variant', '题A', 'cnm_001', 8,"
+                    " 'variant:cnm_001:8:q1', CURRENT_TIMESTAMP)"
+                )
+            )
+            assert (
+                connection.scalar(text("SELECT COUNT(*) FROM practice_records")) == 4
+            )
+    finally:
+        engine.dispose()
+
+    command.downgrade(config, "0017_bank_item_lifecycle")
+    engine = create_engine(f"sqlite:///{db_path.as_posix()}")
+    try:
+        with engine.connect() as connection:
+            inspector = inspect(connection)
+            columns = {
+                column["name"] for column in inspector.get_columns("practice_records")
+            }
+            indexes = {
+                index["name"] for index in inspector.get_indexes("practice_records")
+            }
+            remaining = connection.scalar(
+                text("SELECT COUNT(*) FROM practice_records")
+            )
+        assert {"topic_id", "seed", "dedup_key"}.isdisjoint(columns)
+        assert "uq_practice_records_dedup_key" not in indexes
+        assert remaining == 4
+    finally:
+        engine.dispose()
+
+    command.upgrade(config, "head")
+    engine = create_engine(f"sqlite:///{db_path.as_posix()}")
+    try:
+        with engine.connect() as connection:
+            columns = {
+                column["name"]
+                for column in inspect(connection).get_columns("practice_records")
+            }
+            dedup_values = set(
+                connection.execute(
+                    text("SELECT dedup_key FROM practice_records")
+                ).scalars()
+            )
+        assert {"topic_id", "seed", "dedup_key"} <= columns
+        assert dedup_values == {None}
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.integration
 def test_grading_versions_append_only_guard(tmp_path) -> None:
     db_path = tmp_path / "grading-guard.db"
     command.upgrade(_alembic_config(db_path), "head")

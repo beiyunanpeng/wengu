@@ -14,6 +14,7 @@ const NAV: { to: string; label: string; parentOnly?: boolean }[] = [
   { to: "/records", label: "练习记录" },
   { to: "/bank", label: "题库审核", parentOnly: true },
   { to: "/local-seed", label: "学科 seed", parentOnly: true },
+  { to: "/backup", label: "备份", parentOnly: true },
 ];
 
 export default function AppLayout() {
