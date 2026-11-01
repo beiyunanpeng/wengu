@@ -171,6 +171,7 @@
 ## Phase 5 —— 开源分发与打包
 - **P5-1 首次运行向导 + 热配置**：孩子/年级→勾选学科→选教材 seed；**v2.5 内核零模型、通常无需 API Key**（仅当家长选装 P4-3 本地模型时才配）；产出配置不逼手改 .env。**运行时参数走 `config/app-config.json` 热加载、优先 .env、UI 内改免重启**；密钥仍只 .env。
 - **P5-2 一键备份/恢复（UI 内 + 可选云备份）**：本地导出 SQLite + 图片目录 + `data/inbox` zip / 导入恢复；可选云备份（KuroTutor 模式）AESGCM+scrypt 逐文件加密 → 每日独立 git commit 推家长私有仓库 → `git checkout` 回滚；清空级联清理原文/派生/证据/`practice_records`（`attempts` 里 `source=system_quiz` 的行随错题级联）。
+  **已完成（2026-10-31，v1）**：家长区「备份」页导出 `VACUUM INTO` 一致性快照 + `uploads/` + `seeds_local/`（含 `_id_counters.json`）+ 未处理 `inbox/` + `manifest.json`（各文件 sha256、alembic 版本、表计数），只留最近 10 份；导出全程只读、不写业务表。恢复走 `scripts/restore.ps1` + `docs/deploy/backup-restore.md`（停服 → 安全副本 → 整库替换 → `/health` 核对），**明确不做运行中热恢复**；三端点挂 `require_parent`，下载名做路径遍历防护。**剩余**：可选加密云备份/回滚、清空级联清理、在线导入 UI。
 - **P5-3 可选密码 session 鉴权开关**（默认关）；README/首页醒目警告公网须先加鉴权与隔离或走 Tailscale。禁：做用户体系/多租户。
 - **P5-4 教材 seed 包机制**：多教材 JSON/YAML 可安装可切换。
 - **P5-5 开源基线**：LICENSE + 中英 README（一行安装）+ 隐私声明（数据不出户、云转录仅送题目图）+ CHANGELOG + `.env.example`；合规点名《个人信息保护法》《未成年人网络保护条例》；**第三方数据 License 署名 + NC 声明**强制。

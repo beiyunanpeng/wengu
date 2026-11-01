@@ -31,9 +31,15 @@ git archive --format=zip -o D:\MyProducts\wengu.zip HEAD
 - **迁移**：停掉旧机服务 → 把旧机 `<仓库>/data/` 整个目录拷到新机 `<仓库>/data/` → 新机启动时容器会自动 `alembic upgrade head` 把库升到最新（含 0013 DROP 表）。
 - **全新开始**：不拷 data，首次启动自动建空库。
 - **备份（每次升级/迁移前都做）**：
-```powershell
-Copy-Item -Recurse .\data .\backups\pre-deploy-$(Get-Date -Format yyyyMMdd-HHmmss)
-```
+  - 推荐：家长区解锁 →「备份」→ 立即导出（`VACUUM INTO` 一致性快照，**服务运行中可安全执行**），
+    产物在 `<仓库>/data/backups/wengu-backup-<时间戳>.zip`，含 `manifest.json`（sha256/表计数）。
+  - 停机整目录拷贝（不经过应用时的兜底）：
+    ```powershell
+    docker compose stop api
+    Copy-Item -Recurse .\data .\backups\pre-deploy-$(Get-Date -Format yyyyMMdd-HHmmss)
+    docker compose up -d api
+    ```
+  - **恢复 = 停机整库替换**，按 [`backup-restore.md`](./backup-restore.md) 操作；本系统不做运行中热恢复。
 
 ## 3. 启动
 在 `wengu` 目录（含 `docker-compose.yml`）：
@@ -69,7 +75,7 @@ docker compose logs -f web        # 前端/nginx 日志
 docker compose restart api        # 只重启后端
 docker compose down               # 停止（数据在 ./data，不丢）
 ```
-**更新到新版**：`git pull`（或替换代码）→ 备份 `./data` → `docker compose up -d --build`（启动自动跑新迁移）。
+**更新到新版**：`git pull`（或替换代码）→ 家长区「备份」导出（或停服拷 `./data`）→ `docker compose up -d --build`（启动自动跑新迁移）。
 **开机自启**：compose 里 `restart: unless-stopped`，Docker Desktop 开机启动后 wengu 会自动拉起。
 
 ## 7. 跨设备访问 & 公网安全（重要）

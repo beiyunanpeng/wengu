@@ -11,6 +11,7 @@ from fastapi import FastAPI
 
 from app import __version__
 from app.api.attempts import router as attempts_router
+from app.api.backup import router as backup_router
 from app.api.bank import router as bank_router
 from app.api.concepts import router as concepts_router
 from app.api.dashboard import router as dashboard_router
@@ -88,6 +89,7 @@ def create_app() -> FastAPI:
     application.include_router(session_router)
     application.include_router(schedule_router)
     application.include_router(pomodoro_router)
+    application.include_router(backup_router)
     return application
 
 

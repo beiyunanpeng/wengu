@@ -689,3 +689,31 @@ export interface PomodoroResponse {
   id: number;
   duration_minutes: number;
 }
+
+export interface BackupManifestSummary {
+  version: number;
+  created_at: string;
+  alembic_version: string | null;
+  counts: Record<string, number>;
+  file_count: number;
+}
+
+export interface BackupExportResponse {
+  filename: string;
+  sha256: string;
+  size_bytes: number;
+  manifest: BackupManifestSummary;
+}
+
+export interface BackupFileInfo {
+  filename: string;
+  created_at: string;
+  size_bytes: number;
+  sha256: string;
+}
+
+export interface BackupListResponse {
+  items: BackupFileInfo[];
+  total: number;
+  keep: number;
+}

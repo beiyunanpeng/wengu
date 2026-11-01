@@ -56,7 +56,7 @@ docker compose up -d --build --wait
 
 > 国内网络建议在 Docker Desktop → Settings → Docker Engine 配置 registry mirrors（如 `https://docker.m.daocloud.io`），否则拉取基础镜像会很慢或失败。API 镜像构建默认走清华 pip 源，可用 `--build-arg PIP_INDEX_URL=...` 覆盖。
 
-> **查库/备份先停 API**：Docker Desktop 的共享挂载下，容器运行期间从宿主机用 SQLite 读写 `data/wengu.db` 会让容器侧 WAL/SHM 失效，可能丢失尚未 checkpoint 的写入（已实测）。备份前先 `docker compose stop api`；容器运行中查库请走 `docker exec wengu-api python -c "..."`。
+> **查库先停 API；备份走内置导出**：Docker Desktop 的共享挂载下，容器运行期间从宿主机用 SQLite 读写 `data/wengu.db` 会让容器侧 WAL/SHM 失效，可能丢失尚未 checkpoint 的写入（已实测）。家长区「备份」页的导出用 `VACUUM INTO` 生成一致性快照，**服务运行中可安全执行**；手工整目录拷贝 `data/` 仍必须先 `docker compose stop api`；容器运行中查库请走 `docker exec wengu-api python -c "..."`。
 
 ### 本地开发（不用 Docker）
 
@@ -95,6 +95,7 @@ Windows 上若 `make` 不在 PATH，重开终端或安装 [GNU Make](https://win
 - ✅ **P3-1 家长录题（真题入库流水线）**（2026-10-31）：家长拍**空白真题 / 教师版** → 外部 agent 按新模板 `doubao_bank_transcribe_v1` 转录 → `data/inbox/` 监听导入到 `bank_drafts` → **家长「题库审核」页逐条确认** → 写入 SQLite `problem_bank`（**不写 seed JSON**）；家长手填表单兜底。**红线：模型不得自行解题生成答案**——模板只在照片明确含答案时转录 `answer`，否则留空由家长补填，缺答案一律拒绝入库。入库统一过 AST `verify` 白名单沙箱（拒绝 `__import__`/赋值/属性访问与纯数值矛盾）、choice 答案必须命中选项、`topic_id` 必须存在于知识点 seed，入库题固定标 `unaudited=true` / `blind_verified=false`。审核与手填端点全部挂 `require_parent`（未解锁 403），孩子区导航不可见。迁移 **0016**（可逆）新增 `bank_drafts` 并给 `problem_bank` 补 `topic_id/question_type/difficulty/choices_json/figure/hide_choice_text/percent`。**P3-1b**：入库题已合并进运行时检索池，参与到期考核与手动组卷；seed 文件仍只读，旧记录跨池 `replay` 显式失败、绝不静默换题。**P3-1c**：`/bank` 页新增「已入库题目（可修订）」区——可按状态/考点筛选、行内编辑（合并后重跑同一套审核闸门）、作废/撤销作废；作废按钮只把题移出检索池（`status=voided`），**不物理删除、不改写历史 attempts/事件/排期**；编辑不改 `external_id`，内容修订不回溯。迁移 **0017**（可逆）给 `problem_bank` 补 `status` + `updated_at`。
 - ✅ **P1-1b 家长自建章级 seed（语文/化学空 seed 起步）**（2026-10-31）：家长解锁后导航新增「学科 seed」页，按语文/化学录教材章级知识点（语文 `cnl_` / 化学 `cnc_`，40–80 点即止，不做细粒度树）。**JSON 文件是唯一真源**（`<data_dir>/seeds_local/topics_<学科>.json`，同目录 tmp + `os.replace` 原子写、重启后按文件恢复），SQLite `knowledge_seed` 只是装载副本。装载器按 `仓库 seed → seeds/local → data/seeds_local` 多源合并、按 id upsert 幂等；id 冲突拒绝、坏文件只告警不阻塞服务，本地行固定 `source='local'` / `unaudited=true` / `blind_verified=false`。**id 永不复用**：同目录 `_id_counters.json` 单调记录已发放最大序号（删除不回退），装载器/导出脚本跳过下划线开头文件。语文/化学错题从此可挂主考点、题库可挂 `topic_id`，到期考核与手动组卷闭环打通；删除知识点会同步移除文件与行、解绑错题/题目（置 NULL，历史不动）并在确认框显示受影响计数。导出脚本同步合并 local 源，转录模板的 `suggested_topic_id` 可选到语文/化学点。**无迁移**。
 - ✅ **P3-2 主动加练变式**（2026-10-31）：错题详情新增「加练同类题」——按错题主考点从**运行时题池**（seed + 家长题）固定种子抽 1–10 题，可重放且**绝不下发答案**；客观题服务端 `judgeAnswer` 判分，解答/依赖图题在纸上完成后自评。**加练结果只写 `practice_records`（`kind='variant'`）**：不写 attempts、不产生作答事件、不新建错题、**不影响掌握度/复习排期/打卡**，可整表清空；无主考点或该点无题时入口置灰并提示「该知识点暂无同类题」，不报错、不硬凑。**P3-2d**：提交按 `(topic_id, seed, question_id)` 幂等——同卷重复提交不新增行、响应 `reused=true` 并回看已有作答；不同 seed 各自成行；迁移 **0018**（可逆）补 `topic_id`/`seed`/`dedup_key` + 部分唯一索引，旧 NULL 行不受影响；`GET /api/practice` 可按组过滤，练习记录页按「这一组」展示。`/api/practice/*` 全部孩子区免 PIN；「练习记录」页新增「变式 / 加练」tab 与带二次确认的清空按钮。
+- ✅ **P5-2 备份 v1（导出一致性快照 + 停机恢复）**（2026-10-31）：家长区新增「备份」页——`VACUUM INTO` 一致性快照 + `uploads/`、`seeds_local/`、未处理 `inbox/` 打成 `data/backups/wengu-backup-<时间戳>.zip`，附 `manifest.json`（各文件 sha256、alembic 版本、表计数），只保留最近 10 份；导出全程只读业务库、不写任何表。恢复走 [`scripts/restore.ps1`](./scripts/restore.ps1) + [`docs/deploy/backup-restore.md`](./docs/deploy/backup-restore.md)：停服 → 安全副本 → 整库替换 → 起服核对，**不做运行中热恢复**。三个端点全部家长 PIN 保护，下载名做路径遍历防护。
 - ⏳ 下一张工单：**P3-3 英语背诵**（自评间隔重复）；P0-1 样本扩容 + P1-7b 前置回溯诊断仍待做；**P1-7c 自动排复习仍受 Phase 0 闸门阻塞**。
 
 > 完整的工单状态、实测数字、阻塞项与下一步建议见 [`docs/STATUS.md`](./docs/STATUS.md)。
@@ -107,6 +108,7 @@ Windows 上若 `make` 不在 PATH，重开终端或安装 [GNU Make](https://win
 | [`TICKETS.md`](./TICKETS.md) | 分 Phase 工单（P0-1 到 P5-5），每条含 目标·依赖·交付·DoD·禁止事项 |
 | [`docs/STATUS.md`](./docs/STATUS.md) | 开发计划与完成情况快照（工单状态、实测数字、阻塞与下一步） |
 | [`docs/specs/architecture/StudyDesk-设计说明文档-v2.md`](./docs/specs/architecture/StudyDesk-设计说明文档-v2.md) | **唯一事实来源**（v2.5，§16 为零模型改向定稿）——16 轮拷问敲定的完整设计树 |
+| [`docs/deploy/backup-restore.md`](./docs/deploy/backup-restore.md) | 备份导出与停机整库恢复（含 Windows 脚本、手动步骤、回滚与核对清单） |
 | [`docs/methodology/phase0.md`](./docs/methodology/phase0.md) | Phase 0 实测方法论（手写识别 & 分题型判分，历史记录） |
 | [`docs/templates/`](./docs/templates/) | 外部 agent 转录模板（frontmatter `id`+`version`，改语义必递增） |
 | [`THIRD-PARTY-NOTICES.md`](./THIRD-PARTY-NOTICES.md) | 第三方数据源归属（`cn-math-taxonomy` CC BY-NC 4.0） |

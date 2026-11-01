@@ -1,8 +1,8 @@
 # STATUS.md — 开发计划与完成情况
 
-> 快照日期：2026-10-31（P3-2 加练幂等 + 本地 seed id 不复用交付后）
-> 分支 / HEAD：`main` / `539bac3`（本票改动尚未提交，工作区含本票变更）
-> 全量测试：**391 passed**（本机 2026-10-31）；`ruff check .` 全绿；`npm run build` 绿
+> 快照日期：2026-11-01（P3-2d 幂等硬化与 P5-2 备份 v1 **分票**交付后）
+> 分支 / HEAD：P3-2d 已走 PR #23（`feat/p3-2d-idempotency`）；P5-2 备份代码 + 本档更新走本 PR（`feat/p5-2-backup`）
+> 全量测试：**397 passed**（本机 2026-11-01 实跑；`ruff check --no-cache .` 全绿；`npm run build` 绿）
 > Alembic head：`0018_practice_dedup`；业务表 22 张（0018 给 `practice_records` 补 `topic_id` / `seed` / `dedup_key` + 部分唯一索引）
 
 本文件是**状态快照**，不替代以下事实源；冲突时以它们为准：
@@ -103,7 +103,7 @@
 | Phase 2 | 每日任务 + 家长看板 | 进行中 | P2-5 家长看板、P2-4 两角色 + 本地 PIN、P2-6 极简打卡、P2-1 日队列（本轮仅到期复习/考核）、P2-3 课表/日历约束层、P2-2 番茄钟执行、P2-7 打印导出已完成；日队列的背诵/作业/硬事件权重未开始 |
 | Phase 3 | 内容与扩展 | 进行中 | P3-1 家长录题（真题入库审核流水线）+ P3-1b 家长题接入检索池 + P3-1c 题库修订/软作废 + P3-2 主动加练变式已完成；P3-5 前置（语文/化学家长自建章级 seed）已交付；英语背诵、听力默写、语文客观题、信奥、长期计划未开始 |
 | Phase 4 | 基础设施演进 | 未开始 | Tailscale、可移植部署、可选本地 GPU |
-| Phase 5 | 开源分发与打包 | 未启动（部分基线已有） | LICENSE / README / CHANGELOG / `.env.example` / 第三方署名已就位；首次运行向导、备份恢复、鉴权开关、教材包安装器未做 |
+| Phase 5 | 开源分发与打包 | 部分完成 | LICENSE / README / CHANGELOG / `.env.example` / 第三方署名已就位；P5-2 备份 v1（导出一致性快照 + 停机恢复脚本）已交付；首次运行向导、在线恢复、云备份 / 清空级联、鉴权开关、教材包安装器未做 |
 
 ## 3. Phase 1 工单完成情况（v2.5 收口后）
 
@@ -203,7 +203,7 @@
 - **纪律**：streak 绝不入库，每次请求由 `services/streak.py` 纯函数现算；只做习惯展示，
   **不用于学习效果结论**；无手动签到按钮、无写库路径、无积分/徽章/等级/排行榜。
 
-### 4.7 前端（九页导航 + 错题详情，家长解锁另有题库审核、学科 seed）
+### 4.7 前端（十页导航 + 错题详情，家长解锁另有题库审核、学科 seed、备份）
 
 - `/dashboard` 看板；`/import` 导入说明 + 家长手填最小表单；`/intake` 核对入本；
   `/mistakes` + `/:id` 错题本；`/review` 到期三态 + 今日进度/顺延提示 + 手工组卷；
@@ -212,6 +212,7 @@
   含草稿审核与「已入库题目（可修订）」列表/编辑/作废）；
   `/local-seed` 学科 seed（**仅家长解锁后可见**；语文/化学切换，列出家长自建章级点 +
   新增/编辑/删除，删除弹窗显示「将解绑错题 N 道、题库 N 道」）；
+  `/backup` 备份（**仅家长解锁后可见**；立即导出 + 备份列表 + 下载，明示恢复需停机按文档操作）；
   `/print/mistakes`、`/print/paper` 打印视图（AppLayout 之外，无导航壳）；
   数学 KaTeX 渲染，同源 `/api` 代理。看板曲线为内联 SVG，不引入图表库。
 - 导航右侧"家长区"入口：未设 PIN 首次引导设置，已设则解锁；解锁态存 cookie、刷新保持；
@@ -223,7 +224,7 @@
 
 - `learning_events` 只追加 + UNIQUE 幂等键 + UPDATE/DELETE 触发器。
 - 掌握度 / 毕业 / 统计由事实确定性重算；同源改判只取最高版本。
-- SQLite WAL + Alembic（head 0017）；迁移含备份/回退说明与迁移测试。
+- SQLite WAL + Alembic（head 0018）；迁移含备份/回退说明与迁移测试。
 - 日志/事件 payload 不落题目全文、答案、文件 URL、PII；`attempts.answer_text` 恒 NULL。
 
 ### 4.9 课表 / 日历约束层（P2-3）
@@ -435,6 +436,52 @@
   加练前后 `attempts/learning_events/review_schedules/mistakes` 均 0 → 0，
   `practice_records` 0 → 4；`/api/dashboard` 与 `/api/reviews/due` 响应完全一致。
 
+### 4.17 备份与恢复（P5-2 v1）
+
+- **定位**：只做**导出一致性快照 + 停机整库替换**；**不做运行中热替换 SQLite 的 UI 恢复**
+  （WAL/SHM 与活跃连接极易把库弄坏），也不上传任何外部服务。
+- **快照**：`app/services/backup.py` 用 SQLite `VACUUM INTO` 在
+  `<data_dir>/backups_tmp/` 生成快照（不拷 `-wal/-shm`，已含全部已提交数据）；
+  临时目录 `finally` 清理。快照只执行 `VACUUM INTO`，**不写业务表**；测试用全列快照断言
+  导出前后各表零变化。
+- **包内容**：`wengu.db` + `uploads/` 全量 + `seeds_local/`（含 `_id_counters.json`）+
+  `inbox/` 根目录未处理文件（`.processed/` 不进包）+ `manifest.json`（`version` /
+  `created_at` / `alembic_version` / 各表计数 / 每个文件 `sha256` + `size_bytes`）。
+  成品 `os.replace` 原子落到 `<data_dir>/backups/wengu-backup-<UTC 时间戳>.zip`；
+  只保留最近 **10** 份，轮转只删 `backups/` 下匹配命名的 zip，日志只记文件名。
+- **API（路由级 `require_parent`）**：`POST /api/backup/export`、
+  `GET /api/backup/list`、`GET /api/backup/download/{name}`。未解锁一律 403；
+  下载名只接受 `wengu-backup-YYYYMMDDTHHMMSSffffffZ.zip`，含 `/`、`\`、`:`、NUL、`..`
+  或解析后不在 `backups/` → 400/404。
+- **恢复**：`scripts/restore.ps1`（PowerShell 5.1 + UTF-8 BOM；默认要求输入 `RESTORE`
+  确认，支持 `-Force` / `-SkipServiceControl` / `-SkipHealthCheck` 做离线演练）：
+  zip 条目防路径遍历 + manifest 核对 `wengu.db` sha256 → `docker compose stop api` →
+  现有数据拷到 `backups/pre-restore-<时间戳>/` → 解包覆盖 → 起服务轮询 `/health`。
+  Linux/macOS 手动步骤与回滚见 `docs/deploy/backup-restore.md`。
+- **边界**：`seeds/data`（随代码分发）与 `.session_secret`（本机密钥）不进包；
+  `inbox/.processed/` 已处理归档不备份；恢复是整库替换，备份包里没有的可选目录会被置空；
+  备份 zip 含全部错题与家长 PIN 哈希，禁止上传网盘/群聊/公网。
+- **实测**：导出 `wengu-backup-20261031T131049098216Z.zip`（122557 字节，
+  sha256 `8dc1196f5bb43fed8b59298a24f0af9bd323c53a225ee1a02f6616a8304e27eb`，
+  `knowledge_seed=664` / `learning_events=3`）；包内快照 `PRAGMA integrity_check=ok`，
+  manifest sha256 与实际文件一致；未解锁 export/list/download 全 403，`../` 与绝对路径
+  下载被拒；导出前后业务库零变化。恢复演练在临时副本上替换成功、旧数据进入安全副本、
+  第二次运行 exit 0（幂等）。并发写事件时快照仍一致（集成测试覆盖）。
+- **测试**：`tests/integration/test_backup_api.py` 6 条（只读且内容完整、并发写入、
+  轮转保留 10 份、文件名/路径遍历、403、导出→列表→下载闭环）。
+- **审核发现（v1 未做，留后续）**：
+  ① `config/app-config.json`（`daily_review_limit` / `exam_day_limit_factor` 热参数）在仓库根
+  `config/` 下、不在 `data_dir` 内，因此**不进备份包**，换机恢复后回到默认值——要么纳入包内
+  （不含密钥，安全），要么在文档里点名为"需手工另拷"。
+  ② 恢复文档原本只覆盖 Docker 路径；**本机原生试用（无 Docker）必须带
+  `-SkipServiceControl -SkipHealthCheck`** 并自行停起 uvicorn / vite，已在
+  `docs/deploy/backup-restore.md` 补一节。
+  ③ `backups/pre-restore-<时间戳>/` 安全副本**不参与轮转**，全量数据副本会无上限堆积
+  （`backups/` 已在 `.gitignore`，不会误提交，但要手工清）。
+  ④ `data/backups_tmp/snapshot-*` 只清本次运行目录，崩溃残留需下次导出前手工清理。
+  ⑤ 列表接口每次重算每份 zip 的 sha256，备份多时偏慢（自用规模可接受）。
+  ⑥ 并发写入快照那条测试偶发 pytest warning（397 全量跑三次出现一次，无失败断言），暂观察。
+
 ## 5. API 与数据现状
 
 ### 5.1 API 面
@@ -458,6 +505,7 @@
 | 练习记录 | `GET /api/attempts`、`DELETE /api/attempts`、`GET/POST/DELETE /api/practice-records`（兼容旧前端） |
 | 主动加练（P3-2） | `POST /api/practice/start`、`POST /api/practice/submit`（幂等：重复提交回 `reused=true`）、`GET /api/practice?mistake_id=&kind=&topic_id=&seed=&limit=&offset=`、`DELETE /api/practice`（全部孩子区免 PIN；只写 `practice_records`，提交响应不含答案钥匙） |
 | 看板 | `GET /api/dashboard`（只读，可选 `today` / `curve_days` 1–90；响应含 `streak`、`pomodoros_today`、`focus_minutes_this_week`） |
+| 备份（P5-2） | `POST /api/backup/export`、`GET /api/backup/list`、`GET /api/backup/download/{name}`（全部 `require_parent`；下载名做路径遍历防护） |
 | 会话 / 家长 PIN | `GET /api/session/status`、`POST /api/session/pin/set`、`POST /api/session/unlock`、`POST /api/session/lock` |
 
 家长区（`require_parent`，未解锁 403）：`POST /api/mistakes/{id}/void|unvoid`、
@@ -466,7 +514,8 @@
 `POST/DELETE /api/calendar/events*`、`GET /api/bank/drafts`、
 `POST /api/bank/drafts/{id}/approve|reject`、`POST /api/bank/items`、
 `GET /api/bank/items`、`PATCH /api/bank/items/{id}`、`POST /api/bank/items/{id}/void|unvoid`、
-`GET/POST /api/local-seed/topics`、`PATCH/DELETE /api/local-seed/topics/{id}`。
+`GET/POST /api/local-seed/topics`、`PATCH/DELETE /api/local-seed/topics/{id}`、
+`POST /api/backup/export`、`GET /api/backup/list`、`GET /api/backup/download/{name}`。
 其余端点（导入、核对确认、到期、考核提交/自评、主动加练、错题/看板/课表/日历/seed 只读）
 孩子区免 PIN。
 
@@ -525,7 +574,7 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
 | 鉴权 / 本地 PIN | 部分完成 | P2-4 本地家长 PIN 已做（只防误入，非安全边界）；公网鉴权/隔离仍未做 | 公网暴露前走 P5-3 真鉴权或 Tailscale |
 | 化学 / 语文 seed | 已关闭（P1-1b；本地点为家长自建） | 家长按教材目录在 `/local-seed` 建章级点；仓库 seed 保持只读、不覆盖上游行；id 由 `_id_counters.json` 单调发放，删除不复用 | 预置教材包（P5-4）可后续补充；章级 40–80 点、单科上限 200 |
 | Phase 2 剩余 | 部分完成 | 打印导出已随 P2-7 补齐（前端打印视图，非服务端 PDF 文件）；课表/日历只做约束层（不排课、不生成任务）；日队列仅完成“到期复习/考核”组织，背诵铺底 / 作业 deadline / 硬事件抬权重未做（依赖 P3）；番茄钟已完成（纯前端计时 + 事件打点） | 按 TICKETS 顺序 |
-| Phase 3–5 | 部分完成 | P3-1 录题流水线、P3-2 主动加练已交付；英语背诵、听力默写、语文、信奥、长期计划及 Phase 4/5 均未开始 | 按 TICKETS 顺序 |
+| Phase 3–5 | 部分完成 | P3-1 录题流水线、P3-2 主动加练、P5-2 备份 v1 已交付；英语背诵、听力默写、语文、信奥、长期计划及 Phase 4 均未开始 | 按 TICKETS 顺序 |
 
 ## 7. 残留风险与技术债
 
@@ -595,6 +644,12 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
     名称解析为 None，只影响展示）。本地点固定 `unaudited=true` / `blind_verified=false`，
     UI 必须继续透传"家长自建 · 未经教师审核"。本地文件位于 `data/` 随备份走、**不进 git**；
     `seeds/local` 只用于开发机分发。
+18. **备份只能停机恢复，且是整库替换**：P5-2 v1 只提供导出一致性快照 + `scripts/restore.ps1`，
+    **不做运行中热替换 SQLite 的在线恢复**；恢复时备份包里没有的可选目录（如 `inbox/`）
+    会被置空而非合并。`inbox/.processed/`（已处理归档）、`seeds/data`（随代码）与
+    `.session_secret`（本机密钥）**不进包**；换机需同时拷贝仓库。备份 zip 含全部错题与
+    家长 PIN 哈希，**禁止上传网盘/群聊/外部服务**；`GET /api/backup/list` 每次现算每份 zip
+    的 sha256，备份很多时略慢。云备份、加密与清空级联清理仍属 P5-2 后续，未实现。
 
 ## 8. 工程不变量（已落地，后续不得回退）
 
@@ -651,12 +706,13 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
 5. **Phase 2 剩余**：日队列的背诵铺底、作业 deadline、硬事件抬权重待 P3；
    P2-1 收窄口径、P2-2 番茄钟、P2-3 课表/日历、P2-4 两角色、P2-5 看板、P2-6 打卡、
    P2-7 打印已完成。
-6. **P5-3 公网鉴权**（本地 PIN 已做，但非安全边界）与桌面备份恢复，随分发需求穿插。
+6. **P5-3 公网鉴权**（本地 PIN 已做，但非安全边界）；P5-2 备份 v1（导出 + 停机恢复）
+   已交付，云备份/加密与清空级联仍待做，随分发需求穿插。
 7. **P3-5 语文客观题并入**：前置已就位（P1-1b：家长自建语文章级点 → 题库挂点 → 语文错题
    到期 `quiz` 闭环已实跑），可按模板接入字音/病句/默写；作文/阅读理解仍只走外部讲解、
    不进本。
 
-## 10. 后续阶段工单清单（均未开始）
+## 10. 后续阶段工单清单（目标与当前状态）
 
 > 这里只列目标，验收标准、依赖与禁止事项以 [`TICKETS.md`](../TICKETS.md) 为准。
 
@@ -697,7 +753,7 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
 | 工单 | 状态 | 目标 |
 |---|---|---|
 | P5-1 | 未开始 | 首次运行向导：孩子/年级 → 学科 → 教材 seed → 可选外部 agent 配置；热配置 |
-| P5-2 | 未开始 | 一键备份/恢复（本地 zip；可选加密云备份）；清空级联清理 |
+| P5-2 | 部分完成 | 已完成：家长区导出 `VACUUM INTO` 一致性快照 + `uploads`/`seeds_local`/未处理 `inbox` 打包 + manifest（sha256/表计数/迁移版本），保留最近 10 份；`scripts/restore.ps1` 停机整库替换 + 恢复文档。未做：在线热恢复、可选加密云备份、清空级联清理 |
 | P5-3 | 未开始 | 可选密码 session 鉴权（默认关）；README 醒目警告公网暴露风险 |
 | P5-4 | 未开始 | 教材 seed 包机制：多教材可安装可切换（mappings 机制已有，安装 UI 未做） |
 | P5-5 | 部分已有 | 开源基线：LICENSE / 中英 README / 安全合规声明 / CHANGELOG / `.env.example` 已就位；独立隐私声明与发布打包待补 |

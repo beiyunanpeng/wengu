@@ -1,6 +1,8 @@
 import { apiRequest, requestJson } from "./client";
 import type {
   AttemptListResponse,
+  BackupExportResponse,
+  BackupListResponse,
   BankApproveResponse,
   BankChoice,
   BankDraftListResponse,
@@ -582,6 +584,23 @@ export function submitPractice(payload: {
 
 export function clearPractice(): Promise<{ deleted: number }> {
   return requestJson<{ deleted: number }>("/api/practice", "DELETE");
+}
+
+export function exportBackup(): Promise<BackupExportResponse> {
+  return requestJson<BackupExportResponse>(
+    "/api/backup/export",
+    "POST",
+    {},
+    180_000,
+  );
+}
+
+export function listBackups(): Promise<BackupListResponse> {
+  return apiRequest<BackupListResponse>("/api/backup/list", {}, 180_000);
+}
+
+export function backupDownloadUrl(filename: string): string {
+  return `/api/backup/download/${encodeURIComponent(filename)}`;
 }
 
 export function getDashboard(
