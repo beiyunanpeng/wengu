@@ -12,3 +12,9 @@
 - `0011_v25_intake_and_quiz`（v2.5 导入与考核）：只增 `attempts.source` /
   `attempts.problem_bank_id` / `mistakes.primary_topic_id` 三列与两个索引，回退
   `downgrade -1` 只删这些列与索引，不清业务数据。
+- `0018_practice_dedup`（P3-2d 加练幂等）：给 `practice_records` 补
+  `topic_id` / `seed` / `dedup_key` 三列 + 部分唯一索引
+  `uq_practice_records_dedup_key`（`WHERE dedup_key IS NOT NULL`）。升级只补缺失列/索引，
+  既有行三列保持 NULL、可继续回看；降级 `downgrade -1` 删索引与三列，**业务行保留**，
+  但已写入的幂等键/分组信息随列丢失——需要保留时先复制 `wengu.db` 到仓库外。
+  up/down/up 已实测可重入（`tests/integration/test_migrations.py` 覆盖）。

@@ -73,6 +73,8 @@ def _local_files(directories: list[Path]) -> list[Path]:
         if not Path(directory).is_dir():
             continue
         for path in sorted(Path(directory).glob("*.json")):
+            if path.name.startswith("_"):  # `_id_counters.json` 等簿记文件不是 topics
+                continue
             resolved = path.resolve()
             if resolved in seen:
                 continue
