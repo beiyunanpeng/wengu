@@ -39,7 +39,7 @@
   approve/手填提交后清缓存，下一条到期任务即见新题；统计从合并题集重算，
   `coverage`/`thin`/`bank_gap` 随池更新。`BankPick.pool_ids` 随池增长，旧记录在新池下
   `replay` 显式抛 `BankReplayError`（绝不静默换题），旧记录仍可用只读 seed 池复现。
-- **P1-1b 家长自建章级 seed 已交付**：语文/化学不再只能"空 seed 起步"——家长在
+- **P3-8 家长自建章级 seed 已交付**：语文/化学不再只能"空 seed 起步"——家长在
   `/local-seed`「学科 seed」页按教材目录建章级点（语文 `cnl_` / 化学 `cnc_`），
   **文件真源 = `<data_dir>/seeds_local/topics_<学科>.json`**，装载器按
   `仓库 seeds/data/topics.json → seeds/local/*.json → data/seeds_local/*.json` 多源合并、
@@ -111,7 +111,7 @@
 |---|---|---|
 | P1-0 Repo 骨架 | 已完成 | FastAPI + `/health` + SQLite WAL + Alembic + React + Docker Compose + CI |
 | P1-1 数据模型 + 事件溯源/幂等 | 已完成 | `learning_events` 只追加；确定性重算；幂等写入 |
-| P1-1b 知识点 seed 装载 | 已完成（含家长自建） | 664 个初中知识点 + 1018 条先修边；`unaudited` / `blind_verified` 透传；多源装载 `仓库 seed → seeds/local → data/seeds_local`，语文 `cnl_` / 化学 `cnc_` 家长自建章级点（文件真源、原子写、CRUD API + `/local-seed` 页） |
+| P1-1b 知识点 seed 装载 | 已完成 | 664 个初中知识点 + 1018 条先修边；`unaudited` / `blind_verified` 透传；多源装载 `仓库 seed → seeds/local → data/seeds_local`（**家长自建章级点已独立为 P3-8**：语文 `cnl_` / 化学 `cnc_`，文件真源、原子写、CRUD API + `/local-seed` 页） |
 | P1-2 / P1-2b / P1-2c Provider 与模型分档 | **已退役（P1-12）** | 依赖注入式 provider、故障转移、成本护栏、`model_runs` 全部删除 |
 | P1-3 / P1-3b / P1-3c 采集与切片 | **已退役（P1-12）** | 上传、OCR 行聚类切题、配图切片几何全部删除；入本改走外部转录 |
 | P1-4 结构化提取 + 质量闸门 | **已退役（P1-12）** | VLM 提取等删除；质量闸门语义由导入契约 + 核对页承接 |
@@ -348,7 +348,7 @@
 - **API（`require_parent`）**：`GET /api/bank/items`、`PATCH /api/bank/items/{id}`、
   `POST /api/bank/items/{id}/void|unvoid`。
 
-### 4.15 家长自建章级 seed（P1-1b / P3-5 前置）
+### 4.15 家长自建章级 seed（P3-8 / P3-5 前置）
 
 - **定位**：语文/化学从**空 seed 起步**，家长按教材目录录章级粗粒度知识点（40–80 点即止，
   不做细粒度树）；有了本地点，语文/化学错题可挂主考点、题库可挂 `topic_id`，
@@ -489,7 +489,7 @@
 | 域 | 端点 |
 |---|---|
 | 健康 / seed | `GET /health`、`GET /api/seed/summary`、`GET /api/seed/topics` |
-| 本地 seed（P1-1b） | `GET /api/local-seed/topics?subject=`、`POST /api/local-seed/topics`、`PATCH /api/local-seed/topics/{id}`、`DELETE /api/local-seed/topics/{id}`（全部 `require_parent`；仅语文/化学，文件真源 + `knowledge_seed` 副本同步） |
+| 本地 seed（P3-8） | `GET /api/local-seed/topics?subject=`、`POST /api/local-seed/topics`、`PATCH /api/local-seed/topics/{id}`、`DELETE /api/local-seed/topics/{id}`（全部 `require_parent`；仅语文/化学，文件真源 + `knowledge_seed` 副本同步） |
 | 导入 | `POST /api/imports`、`GET /api/imports/{batch_id}`、`GET /api/imports/inbox` |
 | 核对入本 | `GET /api/imports/drafts`、`GET /api/imports/{batch_id}/drafts`、`POST /api/imports/drafts/{draft_id}/confirm` |
 | 错题 / 标签 | `GET /api/mistakes`、`GET /api/mistakes/{id}`、`GET /api/mistakes/options`、`POST /api/mistakes/{id}/labels`、`POST /api/mistakes/{id}/void`、`POST /api/mistakes/{id}/unvoid` |
@@ -562,7 +562,7 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
 | 入库题无编辑/作废 | 已关闭（P3-1c） | 家长可在 `/bank` 列表内编辑（重跑同一套闸门）或软作废/撤销；作废题退出检索池，不物理删除、不改写历史 | 后续如需要"当时题面快照"，另开 attempts 展示层工单 |
 | 主动加练污染闭环 | 已关闭（P3-2 / P3-2d） | 加练只写 `practice_records(kind=variant)`，不写 attempts/事件/错题本，不影响掌握度/排期/打卡；可整表清空；gap 只提示不硬凑；提交按 `(topic_id, seed, question_id)` 幂等，重复提交不增行并回 `reused=true` | category/错因/难度筛选、「上一组」身份重放可另开增量工单 |
 | 录题审核逐条 | 部分缓解 | 草稿只能逐条通过/驳回，批量录入时家长操作成本高 | 观察真实使用量后决定是否做批量确认；不得改为无人确认自动入库 |
-| 空 seed 学科无法录题挂点 | 已关闭（P1-1b） | 家长可在 `/local-seed` 建语文/化学章级点（`cnl_`/`cnc_`），错题主考点与题库 `topic_id` 均可挂，到期考核闭环打通 | 教材包自动导入/多教材切换仍归 P5-4；细粒度仍走错题受控生长 |
+| 空 seed 学科无法录题挂点 | 已关闭（P3-8） | 家长可在 `/local-seed` 建语文/化学章级点（`cnl_`/`cnc_`），错题主考点与题库 `topic_id` 均可挂，到期考核闭环打通 | 教材包自动导入/多教材切换仍归 P5-4；细粒度仍走错题受控生长 |
 | P0-1 样本扩容 | 待按 v2.5 重新定义 | 外部转录质量是新的主瓶颈 | 用真实"已批改卷"样本测转录模板 + 核对页漏/错项率 |
 | P0-2 黄金评测集 | 未开始（需重新界定） | 系统内核已无模型，原 prompt/供应商回归失去对象 | 若做，只针对外部转录质量与题库/判分回归 |
 | P1-7b 前置回溯诊断 | 未开始 | 无法定位根因先修 | `prerequisite_edges` 就绪 |
@@ -572,7 +572,7 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
 | 主考点未确认 | 部分缓解 | 无主考点只做重做自评，不推同类题 | 核对页引导家长选主考点 |
 | 历史作废/申诉入口 | 部分恢复 | 作废 / 撤销作废已有 HTTP 入口与事件留痕；申诉改判仍未开 | 如需申诉改判，另开"错题状态修订"工单，不复活模型链 |
 | 鉴权 / 本地 PIN | 部分完成 | P2-4 本地家长 PIN 已做（只防误入，非安全边界）；公网鉴权/隔离仍未做 | 公网暴露前走 P5-3 真鉴权或 Tailscale |
-| 化学 / 语文 seed | 已关闭（P1-1b；本地点为家长自建） | 家长按教材目录在 `/local-seed` 建章级点；仓库 seed 保持只读、不覆盖上游行；id 由 `_id_counters.json` 单调发放，删除不复用 | 预置教材包（P5-4）可后续补充；章级 40–80 点、单科上限 200 |
+| 化学 / 语文 seed | 已关闭（P3-8；本地点为家长自建） | 家长按教材目录在 `/local-seed` 建章级点；仓库 seed 保持只读、不覆盖上游行；id 由 `_id_counters.json` 单调发放，删除不复用 | 预置教材包（P5-4）可后续补充；章级 40–80 点、单科上限 200 |
 | Phase 2 剩余 | 部分完成 | 打印导出已随 P2-7 补齐（前端打印视图，非服务端 PDF 文件）；课表/日历只做约束层（不排课、不生成任务）；日队列仅完成“到期复习/考核”组织，背诵铺底 / 作业 deadline / 硬事件抬权重未做（依赖 P3）；番茄钟已完成（纯前端计时 + 事件打点） | 按 TICKETS 顺序 |
 | Phase 3–5 | 部分完成 | P3-1 录题流水线、P3-2 主动加练、P5-2 备份 v1 已交付；英语背诵、听力默写、语文、信奥、长期计划及 Phase 4 均未开始 | 按 TICKETS 顺序 |
 
@@ -708,7 +708,7 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
    P2-7 打印已完成。
 6. **P5-3 公网鉴权**（本地 PIN 已做，但非安全边界）；P5-2 备份 v1（导出 + 停机恢复）
    已交付，云备份/加密与清空级联仍待做，随分发需求穿插。
-7. **P3-5 语文客观题并入**：前置已就位（P1-1b：家长自建语文章级点 → 题库挂点 → 语文错题
+7. **P3-5 语文客观题并入**：前置已就位（P3-8：家长自建语文章级点 → 题库挂点 → 语文错题
    到期 `quiz` 闭环已实跑），可按模板接入字音/病句/默写；作文/阅读理解仍只走外部讲解、
    不进本。
 
@@ -736,7 +736,7 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
 | P3-2 | 已完成：主动加练变式。错题详情按主考点从运行时题池固定种子抽题，系统题服务端判分、自评题收孩子结论；结果只写 `practice_records(kind=variant)`，不进 attempts/事件/错题本、不影响掌握度/排期/打卡，可整表清空；无题知识点只提示不硬凑；端点孩子区免 PIN。LLM 不参与出题/判分。category/错因/难度筛选未做 |
 | P3-3 | 英语背诵：自评间隔重复（档③） |
 | P3-4 | 听力 + 默写：默写复用批改；听力用教材音频 + TTS；不做口语 ASR |
-| P3-5 | 语文客观题并入（字音/病句/默写）；作文/阅读理解只讲解不入本。**前置已交付（P1-1b）**：家长自建语文/化学章级 seed，语文错题可挂主考点、题库可挂 `topic_id` |
+| P3-5 | 语文客观题并入（字音/病句/默写）；作文/阅读理解只讲解不入本。**前置已交付（P3-8）**：家长自建语文/化学章级 seed，语文错题可挂主考点、题库可挂 `topic_id` |
 | P3-6 | 信奥独立流：卡壳 → 引导 → 待重做清单；外部判题，不建判题 infra |
 | P3-7 | 长期计划：覆盖型（图谱 + 掌握度）+ 积累型（streak），家长与 AI 共创 |
 

@@ -1,6 +1,6 @@
 """运行时装载器：seeds/data/*.json（分发真源）→ SQLite 装载副本 + 内存索引。
 
-纪律（AGENTS §2.6 / TICKETS P1-1b / P3-5 前置）：
+纪律（AGENTS §2.6 / TICKETS P1-1b + P3-8 / P3-5 前置）：
 - JSON 文件是 seed 的唯一真源，SQLite knowledge_seed / prerequisite_edges 是装载副本
   （装载副本给 concepts/mistake_versions 提供 FK 锚点与 SQL 检索能力）。
 - 幂等可重入：重复装载行数不变；知识点 upsert（有引用挂着的行不删），

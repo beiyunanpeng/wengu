@@ -1,7 +1,7 @@
-# Qoder 施工计划 · v2.5（MVP 8 批 + P2 存档，每卡可直接复制）
+# Qoder 施工计划 · v2.5（MVP 8 批 + P2/P3 存档，每卡可直接复制）
 
 > **本文件是唯一有效的批次工单**——每张卡都已内联"读哪些文件 + 全局护栏 + 验收口径"，**复制整段贴给 Qoder 即可，无需再补任何上下文**。（聊天记录里的旧版含已作废的 `primary_concept_id` 写法，别用。）
-> 结构：**上半部 = MVP 八批**（批次①~⑧，已全部合并）；**下半部 = P2 批次存档**（补票 B + P2-5/4/6/1/3/2/7，PR#9–#16 已全部合并，保留决策/边界/红线供追溯与重建）。
+> 结构：**上半部 = MVP 八批**（批次①~⑧，已全部合并）；**中部 = P2 批次存档**（补票 B + P2-5/4/6/1/3/2/7，PR#9–#16 已全部合并）；**下部 = P3 批次存档**（P3-1a/1b/1c/8/2/2d + P5-2，PR#17–#24 已全部合并）+ 投单纪律附录。三段都只是**已交付工单的存档**，保留决策/边界/红线/DoD 供追溯与重建，不是待办。
 > 依据：`TICKETS.md`（v2.5）+ 设计文档 §16 + `AGENTS.md` 顶部 v2.5 横幅 + 真实 `app/models/*` 读码校准。冲突以设计文档 §16 为准。
 > 统一口径（全卡一致）：主考点列 = `primary_topic_id`（FK `knowledge_seed.id`，如 `cnm_042`）；作答来源 = `attempts.source ∈ {student_self, system_quiz, manual}`；闭环同类题考核复用 `attempts`、**不建 `quiz_attempts`**；主动加练变式走 `practice_records`；导入通道 `channel="agent_transcribe_v1"`（兼容旧 `doubao_json`）。
 > 顺序：①→②→③→④→⑤→⑥→⑦→（家用跑顺）→⑧。每批一个 PR，人审"实际 diff 范围 + 运行态证据 + DoD"三件事，全绿再进下一批。
@@ -324,3 +324,153 @@ dashboard 增 pomodoros_today / focus_minutes_this_week（从事件现算）。
 【红线】练习卷默认视图绝不渲染答案；答案页仅家长解锁后可得。
 【禁止】引入 PDF 生成库；服务端产文件；在既有端点里塞答案字段。
 ```
+
+---
+
+# P3 批次存档（已合并：PR#17–#24）
+
+> 以下 7 张是 P3 阶段实际投给 Qoder 并已通过四重验证（静态审读 / 沙箱外实跑 / CI / 浏览器冒烟）
+> squash 合并的工单存档，保留决策、边界、红线与 DoD 要点，供追溯与重建；**不是待办**。
+> PR#22 已关闭（P3-2d 与 P5-2 混进同一提交），拆成 PR#23 / PR#24 重开——教训记在文末附录。
+
+## P3-1a —— 家长录题与审核入库（PR#17）
+
+```
+决策（红线）：模型不得自行解题生成答案；answer 只能从卷面/答案册转录或家长手填；缺答案一律拒入库。
+【任务】新模板 docs/templates/doubao_bank_transcribe_v1.md（frontmatter id+version，模板只引用不内嵌）。
+迁移 0016（可逆）：建 bank_drafts（import_batch_id+seq+normalized_json+has_placeholder+status，
+UNIQUE(import_batch_id,seq)）；给 problem_bank 补 topic_id/question_type/difficulty/choices_json/
+figure/hide_choice_text/percent。
+services/bank_import.py 两段闸门：normalize_bank_items → check_approvable → classify_verify
+（AST 白名单沙箱跑 verify，仅四则/推导式/下标，禁 import/属性/赋值，2s 超时；纯数值矛盾也拒）。
+inbox 按 channel 分派到 bank_drafts（草稿永不自动转正）。
+api/bank.py：草稿列表/详情/approve/手填创建，**路由级 require_parent**；前端 /bank 审核页 + 手填表单。
+【DoD】入库题固定 unaudited=true / blind_verified=false；choice 答案必须命中选项 key；
+topic_id 必须存在于 knowledge_seed；沙箱拒绝 __import__ 等；家长题只进 SQLite、不写 seed JSON。
+【禁止】LLM 生成题或答案；草稿自动转正；写 seed 文件；把审核面暴露给孩子区。
+```
+
+## P3-1b —— 运行时题池合并（PR#18）
+
+```
+【任务】services/bank.py 增 get_runtime_bank(session)：seed 只读索引 + problem_bank 已入库行
+映射成 BankQuestion 合并进内存池。_dynamic_question 把 DB 行当不可信输入再校验一遍
+（id/topic/type/prompt/answer 任一非法 → 计入 stats.dropped 并跳过，不抛异常）；
+跨考点缺 meta 时回查 knowledge_seed 补 topics。approve / 手填提交后 reset_bank_cache() 失效。
+mulberry32 必须是 JS 语义的位精确移植（uint32、>>>0），find_same_type / paper_picks 只用它。
+replay / paper 重放按"题 id 序列 + pool_ids 身份"比较，池变了抛 BankReplayError，**绝不静默换题**。
+【DoD】家长题参与到期考核与手动组卷；coverage / thin 统计随池重算；同 seed 重放得到同一张卷。
+【禁止】回写 seed JSON；池变化后静默重选题；把 seed 题库塞进 SQLite（SQLite 只存动态数据 + external_id 溯源）。
+```
+
+## P3-1c —— 题库编辑与软作废（PR#19）
+
+```
+【任务】迁移 0017（可逆）：problem_bank 补 status TEXT NOT NULL default 'active'
+（CHECK active|voided）+ updated_at NULL，既有行回填 active。
+GET/PATCH /api/bank/items + void/unvoid，全挂 require_parent。
+编辑 = 合并后**重跑同一套入库闸门**（缺答案/占位/沙箱/choice key/数值矛盾 → 422 稳定码），
+不改 external_id；作废只把题退出检索池，**不物理删除、不改写历史 attempts/事件/排期**；
+replay 按题 id / pool_ids 判定，内容修订不回溯。
+前端 /bank 增「已入库题目（可修订）」区：状态/考点筛选、行内编辑、作废/撤销作废。
+【禁止】物理删除题目；改写历史；因编辑变更 external_id 使旧组卷重放漂移。
+```
+
+## P3-8 —— 家长自建章级 seed（PR#20；幂等硬化见 P3-2d）
+
+```
+决策：JSON 文件是唯一真源，SQLite knowledge_seed 只是装载副本；章级 40–80 点即止、单科上限 200；
+无迁移（knowledge_seed.source 已存在）。
+【任务】seed/loader.py 多源装载顺序 seeds/data/topics.json（仓库只读）→ seeds/local/*.json（可选）
+→ <data_dir>/seeds_local/*.json（家长运行时），按 id upsert 幂等；本地条目强制
+source='local' / unaudited=true / blind_verified=false；id 与上游或先前本地冲突 → error 日志拒绝该条；
+坏文件只 warning 跳过不阻塞其余源；**跳过下划线开头的簿记文件**。
+services/local_seed.py：同目录 tmp + fsync + os.replace 原子写、进程内锁串行；
+语文 cnl_ / 化学 cnc_ 前缀零填充三位递增；删除同步移除文件与行、解绑
+mistakes.primary_topic_id 与 problem_bank.topic_id（SET NULL，历史不动）并返回受影响计数，
+仍被 mistake_versions 标签引用则 409。
+api/local_seed.py 全挂 require_parent；前端 /local-seed 页（仅家长解锁可见）带
+「家长自建·未经教师审核」提示与解绑计数确认框。scripts/export_topics_junior.py 合并 local 源，
+且不得改动仓库 seed 字节。
+【禁止】写回 seeds/data；把细粒度知识点树做成家长手工录入（细粒度仍走错题受控生长）；用 DB 反向覆盖文件真源。
+```
+
+## P3-2 —— 主动加练变式（PR#21）
+
+```
+【任务】POST /api/practice/start（mistake_id 或 topic_id + count 1..10 + seed）：按
+primary_topic_id 从 get_runtime_bank 固定种子取题（复用 paper_picks）；无主考点或池空
+→ items=[] + message「该知识点暂无同类题」，200 不报错、不硬凑；题面走 quiz_view，
+**绝不含 answer / accept / explanation / verify**。
+POST /api/practice/submit 重建同卷并校验题目归属（重复/外来题 422）：mode=system 由服务端
+judge_answer 判分（空白跳过、uncertain 不写行）、mode=self_eval 收孩子自评；
+每题写一行 practice_records(kind='variant')，seed 题 problem_bank_id=NULL、
+家长题按 external_id 反查回填。
+GET /api/practice?mistake_id=&kind=&limit=&offset= 与 DELETE /api/practice（整表清空）。
+服务层**不得 import record_event / Attempt**——从代码路径上保证零事件、零掌握度影响。
+/api/practice/* 全部孩子区免 PIN。
+前端 /practice 页复用 QuizQuestionCard；错题详情入口先探测 count=1，gap 时置灰 + 文案解释；
+「练习记录」页加「变式/加练」tab 与带二次确认的清空按钮。
+【DoD】加练前后 attempts / learning_events / review_schedules / mistakes 行数零变化；
+清空后仅 practice_records 归零，看板与到期队列完全不变。
+【禁止】与闭环考核混淆（变式不进错题本、不计掌握度/排期/streak）；LLM 编题或判分；写事件/attempts。
+```
+
+## P3-2d —— 幂等与身份硬化（PR#23）
+
+```
+【任务】① 迁移 0018（可逆）给 practice_records 补 topic_id / seed / dedup_key +
+部分唯一索引 uq_practice_records_dedup_key（WHERE dedup_key IS NOT NULL，多 NULL 不冲突），
+既有行三列保持 NULL 仍可回看；submit 每题先算 dedup_key = variant:{topic_id}:{seed}:{question_id}，
+命中唯一冲突 → 不新增、回看已有行并返回 reused=true（**不覆盖原作答**，即使本次答案不同），
+并发走 savepoint + 唯一索引兜底；GET /api/practice 支持 topic_id+seed 过滤，记录页按「这一组」展示。
+② 本地 seed id 永不复用：<data_dir>/seeds_local/_id_counters.json 单调记录各学科已发放最大序号，
+分配取 max(计数器, 文件与 DB 同前缀最大序号)+1，**先原子预留再落盘**，删除不回退，
+计数器损坏 fail-closed 抛 LocalSeedError；装载器与导出脚本跳过下划线开头文件。
+③ 工具链：仓库根一旦出现 scripts/ 目录，ruff 的 isort 会把 scripts 判成 first-party 并翻转
+全仓 import 分组（连本次未改动的老测试文件一起 I001）；pyproject 钉 known-third-party = ["scripts"]。
+【DoD】重复提交行数不增且 reused=true；换 seed 各自成行；删除后新建不回退号；
+_id_counters 不被当 seed 读取有单测覆盖。
+【禁止】覆盖历史作答；池或计数器变化后静默改判；本机 lint 不带 --no-cache 就当绿（.ruff_cache 假绿）。
+```
+
+## P5-2 —— 一键备份 v1（PR#24）
+
+```
+决策：**不做运行中热替换 SQLite 的在线恢复**（WAL/SHM + 活跃连接极易毁库）；
+恢复 = 停服 → 全量安全副本 → 整库替换 → /health，走脚本 + 文档，不做 UI 恢复。
+【任务】services/backup.py：VACUUM INTO 在 <data_dir>/backups_tmp 生成一致性快照
+（mode=ro / PRAGMA query_only 会让 VACUUM INTO 报只读错，故用普通连接但**只执行这一条语句**、
+不写业务表）；打包 wengu.db + uploads/ + seeds_local/（**必须含 _id_counters.json**，
+否则恢复后"id 永不复用"失效）+ inbox/ 根目录未处理文件（.processed/ 不进包）+ manifest.json
+（version / created_at / alembic_version / 各表计数 / 每文件 sha256+size_bytes）；
+os.replace 原子落到 backups/wengu-backup-<UTC 时间戳>.zip；轮转只留 10 份、只删匹配规范名的 zip。
+api/backup.py：export / list / download，**路由级 require_parent**；下载名四重校验
+（规范名正则 fullmatch + / \ : NUL .. 黑名单 + Path(name).name == name + resolved.parent == backups/）。
+scripts/restore.ps1：PowerShell 5.1 + **UTF-8 BOM**；zip 条目防遍历（绝对路径/盘符/.. 段）
+→ manifest 核对 wengu.db sha256 → docker compose stop api → 现有数据全量安全副本
+→ 先删 -wal/-shm 再替换 → up -d 并轮询 /health；失败时打印回滚路径，退出码非 0。
+docs/deploy/backup-restore.md：包结构、导出下载、Docker 恢复、原生试用机恢复、Linux 手动、核对清单、回滚。
+前端 /backup 页（导航 parentOnly，未解锁只显示家长专属提示）。
+【DoD】导出前后全表逐行不变；快照 PRAGMA integrity_check=ok；并发写入下快照仍一致；
+未解锁三端点 403；../ 与绝对路径下载 400/404；轮转不误删 backups/ 下其他文件。
+【禁止】把 .env / data/.session_secret 打进包；日志记题目正文或 PII；在线热替换 DB；上传任何外部服务。
+已知边界：config/app-config.json 不在 data_dir 内故不进包；backups/pre-restore-* 安全副本不参与轮转、
+需手工清；backups_tmp/snapshot-* 崩溃残留需手工清；列表每次重算每份 zip 的 sha256。
+```
+
+---
+
+## 附：P3 阶段新增的投单纪律（踩过才写下来的）
+
+- **一票一分支，审核期冻结**：上一张票在审时不得在同一工作区继续写下一张票；开新票先
+  `git switch -c feat/<新票> origin/main`。PR#22 就是 P3-2d 与 P5-2 并行开发挤进同一提交，
+  只能事后拆分、关闭重开。
+- **票号四处一致**：CHANGELOG / TICKETS / 分支名 / PR 标题用同一个号。曾出现提交叫 P3-9、
+  CHANGELOG 叫 P3-2d；本地章级 seed 被误挂 `P1-1b`（与 2026-10-24 真正的 P1-1b 知识点 seed
+  装载撞号）——现已统一为 P3-2d / P3-8。
+- **lint 只认 `ruff check --no-cache`**：`.ruff_cache` 会给出与 CI 相反的假绿；代理自报"全绿"
+  可能是工作区状态而非被推送的 HEAD，验收只认推上去的那个 commit。
+- **部署只从合并后的 main 或标签取**：未合并的 PR 分支不算交付。
+- **PowerShell 脚本必须 UTF-8 with BOM**：PS 5.1 无 BOM 会按 GBK 解码中文并截断字符串字面量，
+  `Parser::ParseFile` 直接报语法错（run-trial.ps1 曾因此根本跑不起来）。

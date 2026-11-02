@@ -43,15 +43,10 @@
 - **化学、语文** = 复用同 JSON 契约，家长对课本目录录章级粗粒度 40–80 点（`unaudited: true`、无题），不另找源、不自建细粒度题库。
 - 教材包（`mappings/<版本id>.json` + `status: example|draft|reviewed`）：现网 `mappings` 0 条、示例不得引用——机制照抄、数据家长自建。
 - DoD：License 署名 + 原项目 URL + NC 声明写入 seed 包内嵌 `_source.json`；`unaudited` / `blind_verified` 透传到 UI。**题目本身不在此票载入**（见 P1-10）。禁止：硬编码学科树；把 seed 数据塞进 SQLite（应 JSON 文件随仓库分发 + 内存索引）。
-- **已完成（2026-10-31，家长自建章级 seed 补齐化学/语文空 seed 起步）**：装载器多源合并
-  `seeds/data/topics.json` → `seeds/local/*.json` → `<data_dir>/seeds_local/*.json`，按 id
-  upsert 幂等、冲突拒绝、坏文件只告警；语文 `cnl_` / 化学 `cnc_` 由家长在 `/local-seed`
-  页 CRUD（文件原子写、`knowledge_seed` 副本、固定 `source='local'` / `unaudited=true` /
-  `blind_verified=false`）；删除联动解绑错题/题库并返回计数；导出脚本合并 local 源。
-  端点全挂 `require_parent`；无迁移。**id 永不复用（2026-10-31 补齐）**：
-  `<data_dir>/seeds_local/_id_counters.json` 单调记录已发放最大序号，分配取
-  `max(计数器, 文件/DB 最大序号)+1`，先原子写计数器再落盘，删除不回退；装载器与导出
-  脚本跳过下划线开头文件。验收证据见 `CHANGELOG.md`（P1-1b 条目）。
+- **家长自建章级 seed（化学/语文）已独立成票 P3-8**（2026-10-31 交付，见 Phase 3）。此前误挂在
+  本票号下，与 2026-10-24 的"P1-1b 知识点 seed 装载"撞号，已于本次统一改标 P3-8。
+
+### P1-2 Provider 层收缩为 mock-only（v2.5 改，原"Provider 适配层 + 成本护栏"）
 
 ### P1-2 Provider 层收缩为 mock-only（v2.5 改，原"Provider 适配层 + 成本护栏"）
 - 依赖：P1-0。
@@ -151,10 +146,25 @@
 > v2.5：**"检索真题组卷"的题库检索引擎已提前到 P1-10、"出同类题考核"到 P1-11**。Phase 3 只保留增量。
 - **P3-1 真题库增量录入流水线**（已完成 2026-10-31）：家长/外部 agent 帮录**新题**入 `problem_bank`（含 `answer/verify/topic_id/难度/错因`）+ 审核队列；入库题走 AST 沙箱 `verify` 核验。**交付**：`doubao_bank_transcribe_v1` 模板、`bank_drafts` 草稿表（迁移 0016）、inbox 按 channel 分派、四个 `require_parent` 端点、家长「题库审核」页 + 手填表单。**红线**：`answer` 只从卷面/答案册转录或家长手填，**模型不得自行解题生成答案**；缺答案拒入库；家长题只进 SQLite，不写 seed JSON。禁：LLM 现编无钥匙题。**P3-1b（已完成 2026-10-31）**：入库题已合并进运行时检索池（`get_runtime_bank`），参与到期考核与手动组卷；approve/手填后清缓存；统计/coverage 随池重算；旧 pick 跨池 `replay` 显式抛 `BankReplayError`。**P3-1c（已完成 2026-10-31）**：题库条目修订 = 编辑 + 软作废（`status ∈ {active, voided}`，迁移 0017 可逆）；`GET/PATCH /api/bank/items` + `void/unvoid`（全挂 `require_parent`）；编辑合并后重跑同一套闸门（缺答案/占位/沙箱/choice key/数值矛盾 → 422 稳定码），不改 `external_id`；作废题退出检索池但不物理删除、不改写历史 attempts/事件/排期；`replay` 按题 id/`pool_ids` 判定，内容修订不回溯；前端 `/bank` 已入库列表 + 编辑 + 作废/撤销。禁：物理删除题目；改写历史事件/attempts；动 seed 文件；把题库审核面暴露给孩子区。
 - **P3-2 主动加练变式（`practice_records`，不影响掌握度）**（已完成 2026-10-31）：错题详情「加练同类题」按 `primary_topic_id` 从运行时题池固定种子抽 1–10 题（可重放、答案不下发）；系统题服务端 `judge_answer` 判分，解答/依赖图题孩子自评。**结果只写 `practice_records(kind='variant')`**——不写 attempts、不产生事件、不新建错题、不计入掌握度/排期/打卡，可整表清空；无主考点或题池为空时入口置灰并提示「该知识点暂无同类题」（200 不报错）。**P3-2d（已完成 2026-10-31）提交幂等**：迁移 **0018**（可逆）给 `practice_records` 补 `topic_id`/`seed`/`dedup_key` + 部分唯一索引；同 `(topic_id, seed, question_id)` 重复提交不增行、回看已有行并返回 `reused=true`（不覆盖原作答），不同 seed 各自成行；既有 NULL 行不受影响；`GET /api/practice` 支持 `topic_id`+`seed` 过滤、练习记录页按组展示。**交付**：`services/practice.py`、`POST /api/practice/start|submit`、`GET/DELETE /api/practice`（全部孩子区免 PIN）、`/practice` 页 + 错题详情入口 + 「练习记录 → 变式/加练」tab 与清空确认；迁移 0018；6 条集成测试。**残留**：仅按主考点检索（category/错因/难度筛选未做）；「再练一组」不保存上一组身份用于重放。禁：与闭环考核混淆；禁 LLM 编题/判分；禁给 practice 写事件/attempts。
+- **P3-8 家长自建章级 seed（语文 / 化学，文件真源 + 受控 CRUD）**（已完成 2026-10-31，PR#20；
+  幂等硬化补齐于 PR#23）：补齐"化学、语文空 seed 起步"缺口，是 P3-5 语文客观并入的前置。
+  **JSON 文件是唯一真源**（`<data_dir>/seeds_local/topics_<学科>.json`），SQLite `knowledge_seed`
+  只是装载副本；装载顺序 `seeds/data/topics.json`（仓库只读）→ `seeds/local/*.json`（开发机可选）
+  → `<data_dir>/seeds_local/*.json`（家长运行时），按 id upsert 幂等、id 冲突拒绝并记 error、
+  单文件坏 JSON 只告警跳过不阻塞其余源。语文前缀 `cnl_`、化学 `cnc_`（与 `cnm_`/`cne_`/`cnp_` 隔离），
+  本地行强制 `source='local'` / `unaudited=true` / `blind_verified=false`。
+  **id 永不复用**：`_id_counters.json` 单调记录各学科已发放最大序号，分配取
+  `max(计数器, 文件与 DB 同前缀最大序号)+1`，先原子预留再落盘，删除不回退，计数器损坏 fail-closed；
+  装载器与导出脚本跳过下划线开头的簿记文件。CRUD 原子写（同目录 tmp + fsync + `os.replace` + 进程内锁）；
+  删除知识点同步移除文件与行、解绑错题/题目（`SET NULL`，历史不动）并返回受影响计数；
+  被 `mistake_versions` 标签引用时 409。端点 `GET/POST/PATCH/DELETE /api/local-seed/topics*`
+  **全挂 `require_parent`**；前端 `/local-seed` 页（仅家长解锁可见）带"家长自建·未经教师审核"提示。
+  单科上限 200 点、章级 40–80 点即止。**无迁移**。
+  禁：写回 `seeds/data`（上游只读）；复用已发放 id；把细粒度知识点树做成家长手工录入（细粒度仍走错题受控生长）。
 - **P3-3 英语背诵**：自评间隔重复（档③）。
 - **P3-4 听力+默写**：默写=卷面批改后走转录导入；听力"教材音频+TTS"+组卷。禁：口语 ASR。
 - **P3-5 语文客观并入**：字音/病句/默写并入转录；作文/阅读理解只走外部讲解不进本。
-  **前置已交付（P1-1b，2026-10-31）**：家长可自建语文章级 seed（`cnl_`）、语文题可挂
+  **前置已交付（P3-8，2026-10-31）**：家长可自建语文章级 seed（`cnl_`）、语文题可挂
   `topic_id`、语文错题可挂主考点，到期考核 `quiz` 闭环已实跑；本票只剩题库内容接入。
 - **P3-6 信奥独立流**：卡壳→外部引导→"待重做清单"（复用转录）；需要时手动组卷（C++ 题库检索）；C++ 技能图谱 seed。禁：判题 infra、自动排复习。
 - **P3-7 长期计划**：覆盖型（seed 图谱+掌握度自适应）+ 积累型（streak）；家长与 AI（外部）共创、AI 生成后审核。
