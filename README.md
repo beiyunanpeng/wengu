@@ -107,6 +107,7 @@ Windows 上若 `make` 不在 PATH，重开终端或安装 [GNU Make](https://win
 | [`AGENTS.md`](./AGENTS.md) | 给 AI 编码 agent 的**施工规约与缰绳**（硬约束/已砍清单/不可动设计决定/DoD） |
 | [`TICKETS.md`](./TICKETS.md) | 分 Phase 工单（P0-1 到 P5-5），每条含 目标·依赖·交付·DoD·禁止事项 |
 | [`docs/STATUS.md`](./docs/STATUS.md) | 开发计划与完成情况快照（工单状态、实测数字、阻塞与下一步） |
+| [`docs/audit/pr1-24-retrospective.md`](./docs/audit/pr1-24-retrospective.md) | 交付回顾审计报告（PR#1–#24：票↔卡↔提交↔盘上证据映射、七条红线逐条核对、与设计不符的缺口与文档过实清单） |
 | [`docs/specs/architecture/StudyDesk-设计说明文档-v2.md`](./docs/specs/architecture/StudyDesk-设计说明文档-v2.md) | **唯一事实来源**（v2.5，§16 为零模型改向定稿）——16 轮拷问敲定的完整设计树 |
 | [`docs/deploy/backup-restore.md`](./docs/deploy/backup-restore.md) | 备份导出与停机整库恢复（含 Windows 脚本、手动步骤、回滚与核对清单） |
 | [`docs/methodology/phase0.md`](./docs/methodology/phase0.md) | Phase 0 实测方法论（手写识别 & 分题型判分，历史记录） |
