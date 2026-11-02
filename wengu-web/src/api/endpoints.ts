@@ -508,6 +508,8 @@ export function listAttempts(
 export interface PracticeFilters {
   kind?: "variant" | "extra";
   sourceMistakeId?: number;
+  topicId?: string;
+  seed?: number;
   limit?: number;
   offset?: number;
 }
@@ -521,6 +523,12 @@ export function listPractice(
   }
   if (filters.sourceMistakeId) {
     params.set("mistake_id", String(filters.sourceMistakeId));
+  }
+  if (filters.topicId) {
+    params.set("topic_id", filters.topicId);
+  }
+  if (filters.seed !== undefined) {
+    params.set("seed", String(filters.seed));
   }
   params.set("limit", String(filters.limit ?? 50));
   params.set("offset", String(filters.offset ?? 0));

@@ -30,6 +30,36 @@ const PRACTICE_KIND_LABELS: Record<string, string> = {
   variant: "变式",
   extra: "加练",
 };
+const UNGROUPED = "__ungrouped__";
+
+interface PracticeGroup {
+  key: string;
+  topicId: string | null;
+  seed: number | null;
+  items: PracticeRecordInfo[];
+}
+
+function groupPractice(records: PracticeRecordInfo[]): PracticeGroup[] {
+  const groups = new Map<string, PracticeGroup>();
+  for (const item of records) {
+    const key =
+      item.topic_id !== null && item.seed !== null
+        ? `${item.topic_id}:${item.seed}`
+        : UNGROUPED;
+    const existing = groups.get(key);
+    if (existing) {
+      existing.items.push(item);
+      continue;
+    }
+    groups.set(key, {
+      key,
+      topicId: item.topic_id,
+      seed: item.seed,
+      items: [item],
+    });
+  }
+  return [...groups.values()];
+}
 
 function CorrectnessBadge({ correct }: { correct: boolean | null }) {
   if (correct === null) {
@@ -294,39 +324,66 @@ export default function RecordsPage() {
                 这些记录只作回看，不影响错题本与复习排期。
               </Alert>
             )}
-            {practice.map((item) => (
-              <Card key={item.id} withBorder>
-                <Stack gap="xs">
-                  <Group justify="space-between" align="flex-start" wrap="wrap">
-                    <Group gap="xs">
-                      <Badge variant="light">
-                        {PRACTICE_KIND_LABELS[item.kind] ?? item.kind}
+            {groupPractice(practice).map((group) => (
+              <Stack key={group.key} gap="xs">
+                <Group gap="xs" wrap="wrap">
+                  {group.topicId !== null && group.seed !== null ? (
+                    <>
+                      <Badge color="blue" variant="light">
+                        知识点 {group.topicId}
                       </Badge>
-                      <CorrectnessBadge correct={item.is_correct} />
-                    </Group>
-                    <Text size="xs" c="dimmed">
-                      {new Date(item.created_at).toLocaleString()}
-                    </Text>
-                  </Group>
-                  <MathText text={item.problem_text} />
-                  <Text size="sm" c="dimmed">
-                    作答：{item.student_answer || "（未记录）"}
-                  </Text>
-                  {item.source_mistake_id && (
-                    <Group>
-                      <Button
-                        size="compact-sm"
-                        variant="subtle"
-                        onClick={() =>
-                          navigate(`/mistakes/${item.source_mistake_id}`)
-                        }
-                      >
-                        查看来源错题 #{item.source_mistake_id}
-                      </Button>
-                    </Group>
+                      <Badge color="gray" variant="light">
+                        seed {group.seed}
+                      </Badge>
+                      <Text size="xs" c="dimmed">
+                        这一组 {group.items.length} 条
+                      </Text>
+                    </>
+                  ) : (
+                    <Badge color="gray" variant="light">
+                      历史记录（无分组）
+                    </Badge>
                   )}
-                </Stack>
-              </Card>
+                </Group>
+                {group.items.map((item) => (
+                  <Card key={item.id} withBorder>
+                    <Stack gap="xs">
+                      <Group
+                        justify="space-between"
+                        align="flex-start"
+                        wrap="wrap"
+                      >
+                        <Group gap="xs">
+                          <Badge variant="light">
+                            {PRACTICE_KIND_LABELS[item.kind] ?? item.kind}
+                          </Badge>
+                          <CorrectnessBadge correct={item.is_correct} />
+                        </Group>
+                        <Text size="xs" c="dimmed">
+                          {new Date(item.created_at).toLocaleString()}
+                        </Text>
+                      </Group>
+                      <MathText text={item.problem_text} />
+                      <Text size="sm" c="dimmed">
+                        作答：{item.student_answer || "（未记录）"}
+                      </Text>
+                      {item.source_mistake_id && (
+                        <Group>
+                          <Button
+                            size="compact-sm"
+                            variant="subtle"
+                            onClick={() =>
+                              navigate(`/mistakes/${item.source_mistake_id}`)
+                            }
+                          >
+                            查看来源错题 #{item.source_mistake_id}
+                          </Button>
+                        </Group>
+                      )}
+                    </Stack>
+                  </Card>
+                ))}
+              </Stack>
             ))}
             {practiceTotal > PAGE_SIZE && (
               <Group justify="center">

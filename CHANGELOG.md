@@ -58,9 +58,44 @@ Phase 1 只剩 P1-7b（前置回溯诊断）与受闸门阻塞的 P1-7c。
     `schedules=1`、`mistakes=1`、`practice_records=2`，清空后仅 `practice_records=0`，
     `attempts/events/schedules/mistakes` 与 dashboard、`/api/reviews/due` **完全不变**。
     无主考点错题 #2 的入口置灰并显示「该知识点暂无同类题」；临时服务已停止、临时库已删除。
-  - **残留风险**：加练提交**无幂等键**——同一张卷重复提交会重复写 `practice_records`
-    （仅影响可整表清空的派生表，不影响闭环事实）；组卷目前只按"主考点"检索，
-    category/错因/难度筛选尚未提供；每次"再练一组"换随机种子，不保存"上一组"身份用于重放。
+  - **残留风险**：组卷目前只按"主考点"检索，category/错因/难度筛选尚未提供；
+    每次"再练一组"换随机种子，不保存"上一组"身份用于重放。
+  - **P3-2d 补充（2026-10-31）**：提交已加幂等键，见下一条。
+
+- **P3-2d 加练提交幂等 + 本地 seed id 永不复用**（2026-10-31）：两个风险清单项的收口，
+  不改任何既有信号语义。
+  - **迁移 0018（可逆）**：`practice_records` 增 `topic_id TEXT NULL`、`seed INTEGER NULL`、
+    `dedup_key TEXT NULL` + 部分唯一索引 `uq_practice_records_dedup_key`
+    （`WHERE dedup_key IS NOT NULL`，多 NULL 不冲突）。升级只补缺失列/索引，既有行三列保持
+    NULL；降级删索引与三列、业务行保留（但幂等键信息随列丢失，需保留时先备份）。
+  - **提交幂等**：`submit_practice` 每题写行前算
+    `dedup_key=f"variant:{topic_id}:{seed}:{question_id}"`；命中唯一冲突 → 不新增、回看
+    已有行并返回 `reused=true`。同题重复提交**不覆盖原作答**（即使本次答案不同）；并发重复
+    走 `session.begin_nested()` savepoint + 唯一索引兜底再回看。不同 seed 视为另一组练习，
+    各自成行。响应新增 `reused`；题目结果项/记录信息新增 `topic_id` / `seed`。
+  - **回看分组**：`GET /api/practice` 支持 `topic_id` + `seed` 过滤；练习记录页按
+    `(topic_id, seed)` 分组显示「这一组 N 条」，旧 NULL 行归「历史记录（无分组）」。
+  - **本地 seed id 永不复用**：`services/local_seed.py` 新增
+    `<data_dir>/seeds_local/_id_counters.json`（`{"学科": 已发放最大序号}`），
+    `next_local_id` 取 `max(计数器, 文件与 DB 中同前缀最大序号) + 1`；创建时**先原子写
+    计数器再落盘**，后续失败只留空号；删除点**不回退**。计数器损坏/格式非法 fail-closed。
+    `seed/loader.py` 与 `scripts/export_topics_junior.py` 跳过下划线开头文件，
+    `_id_counters.json` 不会被当作 topics 数组装载。本地 topics 文件仍保持纯数组契约。
+  - **验证**：迁移测试 `test_p3_2d_practice_dedup_up_down_up`（0017→head 建列/部分唯一索引、
+    旧行 NULL 可读、多 NULL 并存、重复 dedup_key 冲突、不同 seed 可并存、down 后行保留、
+    re-up 列恢复）；集成测试新增提交幂等（重复提交行数不增 + `reused=true` + 记录 id 不变、
+    换 seed 各自成行、GET 分组过滤、facts/dashboard/due 不变）与旧 NULL 行可回看；
+    local seed 新增 id 不复用（001→002→003→删 003→**004**→删 004→005、重启装载不变）
+    与 loader 双 local 源跳过下划线文件。全量 pytest **391 passed**、`ruff check .` 绿、
+    `import app.main` OK、`npm run build` 绿。
+  - **运行态证据**：临时库 head `0018` + uvicorn `127.0.0.1:8111`。建 `cnl_001..003` →
+    删 `cnl_003`（计数器仍 3）→ 再建得 **`cnl_004`**（计数器 4）→ 重启后装载仍见
+    `cnl_001/002/004` 且 `_id_counters.json` 未被当 seed → 再建得 `cnl_005`。
+    同 `cnm_001` + seed 7 连提两次：`rows=2/reused=false` → `rows=2/reused=true`（记录 id
+    不变）；换 seed 8 → `rows=4`；GET 按 `topic_id+seed` 各回 2 条。加练前后
+    `attempts/learning_events/review_schedules/mistakes` 均 0、`practice_records` 0→4，
+    dashboard 与到期队列响应完全一致。迁移在独立临时库实跑 up → down 0017 → up：
+    列/索引按预期增删、业务行数不变、旧行仍为 NULL。临时服务已停止、临时库已删除。
 
 - **P1-1b 家长自建章级 seed（语文/化学空 seed 起步）**（2026-10-31）：
   补上"语文/化学空 seed 起步"的最后一段——家长可在 `data/seeds_local/` 维护章级知识点，

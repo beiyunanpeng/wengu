@@ -498,6 +498,8 @@ export interface PracticeRecordInfo {
   problem_text: string;
   student_answer: string | null;
   is_correct: boolean | null;
+  topic_id: string | null;
+  seed: number | null;
   created_at: string;
 }
 
@@ -531,6 +533,7 @@ export interface PracticeAnswerInfo {
   mode: "system" | "self_eval";
   status: "correct" | "wrong" | "uncertain" | "skipped";
   practice_record_id: number | null;
+  reused: boolean;
 }
 
 export interface PracticeSubmitResponse {

@@ -32,6 +32,12 @@ ignore = [
     "RUF003",
 ]
 
+[tool.ruff.lint.isort]
+# 仓库根一旦出现与 Python 包同名的目录（例如运维脚本放 `scripts/`），ruff 的 isort 会把
+# 该名字判成 first-party（源根 = 配置文件所在目录），连带翻转 `wengu-api/scripts/*` 的
+# 分组，使本次没碰过的老测试文件突然 I001。显式钉住分组，让 lint 结果与目录布局无关。
+known-third-party = ["scripts"]
+
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
 
