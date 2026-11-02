@@ -1,4 +1,4 @@
-# Qoder 施工计划 · v2.5（MVP 8 批 + P2/P3 存档，每卡可直接复制）
+# Qoder 施工计划 · v2.5（MVP 8 批 + P2/P3 存档 + 4 张待投卡，每卡可直接复制）
 
 > **本文件是唯一有效的批次工单**——每张卡都已内联"读哪些文件 + 全局护栏 + 验收口径"，**复制整段贴给 Qoder 即可，无需再补任何上下文**。（聊天记录里的旧版含已作废的 `primary_concept_id` 写法，别用。）
 > 结构：**上半部 = MVP 八批**（批次①~⑧，已全部合并）；**中部 = P2 批次存档**（补票 B + P2-5/4/6/1/3/2/7，PR#9–#16 已全部合并）；**下部 = P3 批次存档**（P3-1a/1b/1c/8/2/2d + P5-2，PR#17–#24 已全部合并）+ 投单纪律附录。三段都只是**已交付工单的存档**，保留决策/边界/红线/DoD 供追溯与重建，不是待办。
@@ -474,3 +474,86 @@ docs/deploy/backup-restore.md：包结构、导出下载、Docker 恢复、原�
 - **部署只从合并后的 main 或标签取**：未合并的 PR 分支不算交付。
 - **PowerShell 脚本必须 UTF-8 with BOM**：PS 5.1 无 BOM 会按 GBK 解码中文并截断字符串字面量，
   `Parser::ParseFile` 直接报语法错（run-trial.ps1 曾因此根本跑不起来）。
+
+---
+
+# 待投工单卡（v2.6 决策轮登记，**未开工**）
+
+> 来源：`docs/audit/pr1-24-retrospective.md` 的交付回顾审计 + 用户拍板（砍 PWA、归并补 UI、按建议顺序推进）。
+> 投单顺序 = **P5-6 → P0-3 → P5-1（既有票）→ P1-3e → P1-13**。每张卡可整段复制给 Qoder。
+
+## P5-6 —— 交付口径与盘上一致性清理（含孤儿表退役）
+
+```
+你在 wengu 仓库工作。开工前完整读：AGENTS.md（§3 技术栈、§8 提交规约）+ TICKETS.md 的 P5-6
++ docs/audit/pr1-24-retrospective.md 的 §4-B3。
+【全局纪律】一条 ticket = 一个 PR；DROP 表的迁移必须先出备份说明、必须可逆（up/down/up 实测）。
+禁止引入新依赖。禁止顺手 DROP 任何仍被读的表——本票只动下面点名的两张。
+【任务】photo_captures / photo_capture_items 是 v2.5 视觉栈退役后的孤儿表（models/ingestion.py 里 ORM 类
+仍在、迁移仍建表，但 app/ 业务代码零引用）。出迁移 0019 DROP 这两张表（含其索引），downgrade 重建
+表结构（不承诺找回数据）；同步删除这两个 ORM 类与 models/__init__.py 的导出；
+services/backup.py 的 COUNT_TABLES 去掉这两项；tests 里若引用这两个模型一并清理。
+再核对并修正文档口径：docs/STATUS.md 的"业务表 22 张"改为 20 张并在 §5.2 迁移说明里写清 0019；
+CHANGELOG 记一条 Changed（含"为何现在才删"一句）。
+【DoD】migrations 测试覆盖 0019 up/down/up 可重入；`alembic upgrade head` 后表清单与 STATUS 一致；
+全测试绿（当前基线 397 passed，本票删表后允许因移除相关断言而小幅变动，必须在 PR 里逐条说明原因）；
+`ruff check --no-cache .` 绿（本机不带 --no-cache 会假绿，不可用作证据）。
+【禁止】手改生产 wengu.db；把迁移写成不可逆；DROP photo_captures 之外的任何表；
+为了"数字好看"删测试断言而不说明。
+```
+
+## P0-3 —— 端到端回归三条（把空转的 e2e marker 用起来）
+
+```
+你在 wengu 仓库工作。开工前完整读：AGENTS.md §5（事实源/幂等）+ §8 DoD + TICKETS.md 的 P0-3
++ 设计文档 §16-A（新闭环图）。
+【全局纪律】一条 ticket = 一个 PR。禁止引入 Playwright/Selenium/任何浏览器栈或新依赖；
+禁止 mock 服务层（e2e 的价值就在于走真实 ASGI + 真实 SQLite + 真实迁移）。
+【任务】新建 tests/e2e/ 三条用例（marker 已在 pyproject 声明但目前 0 条）：
+① 投递一段含 2 题的 agent_transcribe_v1 JSON → 落草稿 → 核对页端点确认入本 → 到期队列出 quiz →
+   提交作答 → 服务端判分写 attempts(source=system_quiz) → 看板与 streak 数字与手工推导一致；
+② 错题作废 → 退出活跃列表与到期队列 → 撤销 → 回到期队列，全程历史事件与 versions 不增不改；
+③ 家长解锁 → POST /api/backup/export → 解出快照 PRAGMA integrity_check=ok → manifest 表计数
+   与库内实际计数逐项相等。
+用真迁移到 head（含 0018/0019）+ 临时库 + ASGITransport，参照 tests/integration 现有 fixture 风格。
+【DoD】`pytest -m e2e` 收集数 = 3 且全绿；`pytest -q` 全量绿；CI 绿。断言必须落在**跨引擎一致性**上
+（导入→确认→排期→判分→统计 五处数字互相咬合），不得只断"接口 200"。
+【禁止】把已有 integration 用例改名凑数；assert True；引入模型/网络调用；修改业务代码来迁就测试
+（若发现业务真有 bug，停下来单独报告，不要顺手改）。
+```
+
+## P1-3e —— 移动端投递入口：粘贴整段转录 JSON（PWA 的替代票）
+
+```
+你在 wengu 仓库工作。开工前完整读：AGENTS.md §2.4（可信网络默认）+ §5（导入即不可信输入）
++ TICKETS.md 的 P1-3e 与设计文档 §17-A（为何砍 PWA、本票补的是什么）。
+【全局纪律】一条 ticket = 一个 PR。禁止新写任何绕过 services/inbox.py `ingest_raw_payload` 的入库路径；
+禁止引入文件上传框架/对象存储；禁止引入 manifest/service worker（已进 §12 反清单）。
+【任务】/import 页新增"粘贴转录 JSON"区：Textarea 贴整段（或选择本地 .json 文件读进同一个提交函数）
+→ 调已存在的 POST /api/imports（前端封装见 api/endpoints.ts:252）→ 回显 accepted_count 与
+errors[]（逐条 index/field/reason，复用 P1-9b 的错误呈现）→ 给"跳核对页"链接。
+窄屏可用：按钮不溢出、错误清单可横向滚动、不依赖 hover。
+【DoD】贴一段含 3 题（其中 1 题缺 standard_answer）的 JSON → 2 条成草稿、1 条逐字段报错、
+**错题本行数不变**；同一段再贴一次 → 命中 sha256 去重 duplicate=true、不重复建批；
+手机浏览器（窄视口）实测截图；全测试绿 + `npm run build` 绿。
+【禁止】让这个入口自动转正/自动建错题；把原始报文写进日志（PII 纪律）；前端解析后再拼一遍字段
+（应原样透传给后端，校验只有一套）。
+```
+
+## P1-13 —— 知识点归并 UI（补受控生长的另一半）
+
+```
+你在 wengu 仓库工作。开工前完整读：AGENTS.md §6（知识点两级 + 受控生长：优先复用·不覆盖确认值·
+归并需人工确认）+ §5（AI 建议值与用户确认值分离）+ TICKETS.md 的 P1-13。
+【全局纪律】一条 ticket = 一个 PR。禁止物理删除 concept 行；禁止改写 append-only 的
+mistake_versions 标签快照；禁止引入"相似度自动检测建议合并"这类猜测逻辑——归并必须是人工动作。
+【任务】后端：把 POST /api/concepts/merge 挂上 require_parent（归并 = 家长专属；
+POST /api/concepts 建点/复用仍留孩子区，别一并改掉）。
+前端：错题详情的知识点区（或 /mistakes 页）新增"归并知识点"入口，仅家长解锁后可见 →
+选源 concept + 目标 concept → 预览影响面（受影响错题数 / 别名数）→ 二次确认 → 调 merge。
+【DoD】归并后列表只出目标点、源点带 merged_into_id 且不再出现；历史 mistake_versions 的
+category_id/标签快照**一字未改**（用全表快照断言）；名称解析走合并家族（旧 id 仍能解析出目标名称）；
+未解锁调用 403；对已归并的源再调一次幂等、不产生新行；全测试绿 + build 绿。
+【禁止】把建点入口也锁上 PIN（会破坏孩子边做边长标签的路径）；顺手改 recompute/排期逻辑；
+把归并做成"删除多余点"。
+```

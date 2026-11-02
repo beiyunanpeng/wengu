@@ -31,7 +31,7 @@
 |---|---|
 | 后端 | Python 3.11+ · FastAPI · async · 模块化单体 |
 | 数据库 | SQLite + WAL · SQLAlchemy 2 · Alembic 迁移 |
-| 前端 | React 19 · Vite · TypeScript · Mantine · KaTeX · PWA |
+| 前端 | React 19 · Vite · TypeScript · Mantine · KaTeX |
 | 内核 | **零模型**：后端不调用任何云端 VLM/OCR/文本模型，无 provider 抽象、无模型审计表 |
 | 判分 | 系统只判自造同类题：运行时 `judgeAnswer` 归一化比对；**AST 白名单沙箱跑 `verify`**（题库入库时） |
 | 部署 | Docker Compose 一键起；远程访问 Tailscale / Cloudflare Tunnel |

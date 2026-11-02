@@ -27,7 +27,7 @@
 ## 3. 技术栈（已定，勿擅改）
 - 后端 **Python + FastAPI + async**；数据 **SQLite + WAL**（foreign_keys/busy_timeout，单可写实例）+ **SQLAlchemy + Alembic** 迁移（迁移须可重入、含备份/回退说明与迁移测试）。
 - 存储 **本地磁盘目录默认**，MinIO/S3 为可选插件（非默认）。
-- 前端 **React + Vite + TypeScript + Mantine + KaTeX + PWA**；信奥编辑 **Monaco**。
+- 前端 **React + Vite + TypeScript + Mantine + KaTeX**；信奥编辑 **Monaco**。（~~PWA~~ 已于 v2.6 砍：数据只在服务端、离线壳无价值；移动端要的是 P4-1 可达性 + P1-3e 投递入口，见设计文档 §17-A 与 §12 反清单）
 - 复习调度 MVP 用 **固定间隔阶梯（可插拔接口，FSRS 为将来升级）**。
 - 部署 **Docker Compose** 一条命令起全栈；远程先 **Tailscale**。
 - **知识点 seed 与题库初始源** = 外部开源数据 `cn-math-taxonomy`（见设计文档 §14）——`knowledge_seed` 与题库**以 JSON 文件形态随仓库分发**，运行时按需读入内存索引；SQLite 只存**动态数据**（错题挂载、掌握度、复习排期）。化学、语文**空 seed 起步**，通过教材包机制补齐。

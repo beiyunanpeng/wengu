@@ -537,6 +537,27 @@ Phase 1 只剩 P1-7b（前置回溯诊断）与受闸门阻塞的 P1-7c。
 
 ### Changed
 
+- **v2.6 决策轮：交付回顾审计 + 砍 PWA + 登记 4 张新票（doc-only，无代码改动）**（2026-11-02）：
+  - 新增 `docs/audit/pr1-24-retrospective.md`：对 PR#1–#24 做回顾验收，**七条红线全部通过**
+    （零模型 / 唯一写入路径 / 答案不下发 / 事实源 append-only / PIN 边界 / practice 隔离 / seed 只读，
+    每条指到 `文件:行号`），作废票六个文件确认删净、无死代码；同时列出 9 条 A 类真缺口、
+    4 条 B 类文档过实、5 条 C 类治理瑕疵。运行态证据为审计方本机实跑：`ruff check --no-cache` 绿、
+    `pytest` 397 passed（unit 266 / integration 131 / **e2e 0**）、`npm run build` 绿。
+  - **砍掉 PWA**（设计文档新增 §17 v2.6 修订记录 + §12 反清单 + §2/§3 措辞 + AGENTS §3 + README 技术栈表）。
+    理由：原动机"手机/iPad 拍题"已被 v2.5 架构改向消解（拍照与转录在系统外）；数据只在服务端 SQLite，
+    service worker 能缓存的只有空壳；"添加到主屏幕"不依赖 manifest。真需求换名重登记为
+    P4-1（Tailscale 可达性）与 P1-3e（投递入口）。
+  - **登记 4 张新票并配好可复制的施工卡**（`TICKETS.md` + `docs/tooling/qoder-build-plan.md` 末段）：
+    **P0-3** 端到端回归三条（`e2e` marker 此前 0 用例）、**P1-3e** 移动端粘贴转录 JSON 入口
+    （`POST /api/imports` 已在、导入页只有手填）、**P1-13** 知识点归并 UI（merge 后端早在 P1-6 就有、
+    前端零调用；裁决为"归并 = 家长动作"挂 `require_parent`）、**P5-6** 口径一致性清理
+    （含孤儿表 `photo_captures`/`photo_capture_items` 出可逆迁移 0019）。
+  - **修四处文档与盘上不符**：`STATUS.md` 的"中英 README 已就位"（实际只有中文）、
+    "P1-7c 仍受 Phase 0 闸门阻塞"（v2.5 已作废，与 TICKETS 不一致）、`wengu-web/README.md`
+    整篇脚手架时代假文案（只列 6/14 页、称 P2-5 未实现、列了五个不存在的目录含 `public/` PWA manifest）、
+    `TICKETS.md` 里 `### P1-2` 标题重复两行。另给 P1-12 加状态注：其"保留 providers/mock.py"
+    的禁止项已被 AGENTS v2.5 横幅取代（实际整目录删除）。
+  - **P5-5 措辞去伪**：删掉"云转录仅送题目图"的旧表述（v2.5 后无任何云推理）。
 - **工单口径与存档一致性（doc-only，无功能改动）**（2026-11-02）：
   - **票号去撞**：家长自建章级 seed 此前被误挂在 `P1-1b`，与 2026-10-24 的"P1-1b 知识点 seed
     装载"撞号；现统一改标 **P3-8**，`TICKETS.md` Phase 3 补独立 P3-8 条目（含 id 永不复用），

@@ -1,9 +1,9 @@
 # STATUS.md — 开发计划与完成情况
 
-> 快照日期：2026-11-01（P3-2d 幂等硬化与 P5-2 备份 v1 **分票**交付后）
-> 分支 / HEAD：P3-2d 已走 PR #23（`feat/p3-2d-idempotency`）；P5-2 备份代码 + 本档更新走本 PR（`feat/p5-2-backup`）
-> 全量测试：**397 passed**（本机 2026-11-01 实跑；`ruff check --no-cache .` 全绿；`npm run build` 绿）
-> Alembic head：`0018_practice_dedup`；业务表 22 张（0018 给 `practice_records` 补 `topic_id` / `seed` / `dedup_key` + 部分唯一索引）
+> 快照日期：2026-11-02（**v2.6 决策轮**：PR#1–#24 交付回顾审计 + 砍 PWA + 登记 4 张新票）
+> 基线：`main` = 审计报告 PR#25 之后；本轮为 doc-only 决策落盘（无代码改动）
+> 全量测试：**397 passed**（2026-11-02 审计方本机实跑，unit 266 / integration 131 / **e2e 0**）；`ruff check --no-cache .` 全绿；`npm run build` 绿
+> Alembic head：`0018_practice_dedup`；业务表 22 张（含 2 张孤儿表 `photo_captures`/`photo_capture_items`，待 P5-6 出迁移 0019 退役）
 
 本文件是**状态快照**，不替代以下事实源；冲突时以它们为准：
 
@@ -91,8 +91,12 @@
 - **P2-4 两角色 + 本地家长 PIN 已交付**：孩子区免 PIN；作废/撤销错题、题库导入/审核、
   手动组卷需在导航"家长区"解锁（scrypt 哈希 + HMAC 签名 cookie，12h，连续 5 次错误锁 60s）。
   PIN **只防误入、不是安全边界**，不做登录/账号/多租户；公网暴露仍须鉴权隔离或 Tailscale。
-- **Phase 1 剩余**：P1-7b 前置回溯诊断（未开始）；P1-7c 自动排复习仍受 Phase 0 闸门阻塞。
-- **下一步**：P3-3 英语背诵；并行的长期项仍是 P0-1 样本扩容（v2.5 口径）+ P1-7b。
+- **Phase 1 剩余**：P1-7b 前置回溯诊断（未开始）；P1-6 遗留的**知识点归并无 UI**（新票 P1-13）；
+  P1-3e 移动端投递入口（新票）。~~P1-7c 自动排复习~~ **已于 v2.5 作废**（入本一律经核对页人工确认，
+  "未确认自动入库"场景消失）——本行此前写"仍受 Phase 0 闸门阻塞"与 `TICKETS.md` 作废清单不一致，2026-11-02 修正。
+- **下一步（v2.6 决策轮定的顺序）**：① P5-6 口径清理（孤儿表 + 文档过实）→ ② P0-3 端到端回归三条
+  → ③ P5-1 首次运行向导 + 英文 README + 独立隐私声明（开源分发票）→ ④ P1-3e 移动端投递 →
+  ⑤ P1-13 归并 UI → ⑥ 回功能线 P3-3/P3-4。**PWA 已砍**（设计文档 §17-A / §12 反清单）。
 
 ## 2. 总体路线图状态
 
@@ -756,7 +760,8 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
 | P5-2 | 部分完成 | 已完成：家长区导出 `VACUUM INTO` 一致性快照 + `uploads`/`seeds_local`/未处理 `inbox` 打包 + manifest（sha256/表计数/迁移版本），保留最近 10 份；`scripts/restore.ps1` 停机整库替换 + 恢复文档。未做：在线热恢复、可选加密云备份、清空级联清理 |
 | P5-3 | 未开始 | 可选密码 session 鉴权（默认关）；README 醒目警告公网暴露风险 |
 | P5-4 | 未开始 | 教材 seed 包机制：多教材可安装可切换（mappings 机制已有，安装 UI 未做） |
-| P5-5 | 部分已有 | 开源基线：LICENSE / 中英 README / 安全合规声明 / CHANGELOG / `.env.example` 已就位；独立隐私声明与发布打包待补 |
+| P5-5 | 部分完成 | **已在盘上**：LICENSE / 中文 README / CHANGELOG / `wengu-api/.env.example` / 第三方署名（`THIRD-PARTY-NOTICES.md`）/ 两法点名（README §安全与合规）。**仍缺**：**英文 README**（此前本行写"中英 README 已就位"属过实，2026-11-02 审计修正）、**独立隐私声明文档**、发布打包 |
+| P5-6 | 未开始 | 交付口径与盘上一致性清理（v2.6 审计新增）：孤儿表 `photo_captures`/`photo_capture_items` 出可逆迁移 0019、表数与 STATUS 对齐；见 `docs/audit/pr1-24-retrospective.md` |
 
 ## 11. 维护约定
 

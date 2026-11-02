@@ -21,6 +21,12 @@
 - DoD：改提取模板（P1-4b）/升 Schema/换判分规则时可一键回归；CI 可调用。
 - 禁止：只立结构不填样本；用 AI 自宣"通过"。
 
+### P0-3 端到端回归（把已声明的 `e2e` marker 用起来；v2.6 审计新增）
+- 背景：`pyproject.toml` 声明了 `e2e` marker，但 `pytest -m e2e` 收集到 **0 条**（266 unit + 131 integration + 0 e2e）。AGENTS §8 DoD 写了"E2E"，实际端到端只在批次⑧当时手工验过一次、不可重放。
+- 交付：三条 e2e ——①投递 JSON → 核对页确认入本 → 到期队列出 quiz → 服务端判分 → streak/看板计数一致；②错题作废 → 退出到期队列 → 撤销 → 恢复；③家长导出备份 → 快照 `integrity_check=ok` 且表计数与 manifest 一致。
+- DoD：`pytest -m e2e` 收集数 > 0 且全绿；三条用例走真实 ASGI + 临时库 + 真迁移到 head，不 mock 服务层；CI 已跑（同一 job 内）。
+- 禁止：为凑数写 `assert True`；把单测重贴一遍改名 e2e；引入 Playwright/浏览器栈（前端另议）。
+
 ---
 
 ## Phase 1 —— 核心闭环（批改外置 + 确定性内核 + 同类题考核）
@@ -47,8 +53,6 @@
   本票号下，与 2026-10-24 的"P1-1b 知识点 seed 装载"撞号，已于本次统一改标 P3-8。
 
 ### P1-2 Provider 层收缩为 mock-only（v2.5 改，原"Provider 适配层 + 成本护栏"）
-
-### P1-2 Provider 层收缩为 mock-only（v2.5 改，原"Provider 适配层 + 成本护栏"）
 - 依赖：P1-0。
 - 交付：保留 `providers/base.py` + `providers/mock.py`（供测试）；**`doubao/qwen_vl/tencent` adapter、`llm_prompts/*.md`、成本护栏（每日上限/内容哈希缓存）、`model_runs` 写入路径在本票标记为"待退役"**（实际删除集中在 P1-12，先切断业务引用）。`ai_jobs` 若无在环模型调用则保留空表不强删。
 - DoD：应用启动不再要求任何 provider API Key 即可跑核心闭环；`/health` 正常；无云调用发生。
@@ -67,6 +71,18 @@
 - 交付：wengu 后台扫描 `data/inbox/`（路径可配）→ 发现 `*.json` → 复用 `ingestion.validate_envelope/validate_and_normalize`（**补 `standard_answer` 必填 + 长度校验 + `〔?〕` 标记**）→ `import_batches`（**sha256 对原始报文去重，重复导入返回旧 batch + `duplicate=true`**）+ `ingestion_drafts` → 归档源文件到 `data/inbox/.processed/`。**导入全程不调模型、不自动转正**。
 - DoD：把一个合法 JSON 放进 inbox → 秒级落草稿、报告 `accepted_count/errors[]`；同一文件再放一次 → 命中去重 `duplicate=true`；坏项逐条报告 index/field/reason、不静默截断。服务停机时文件不丢（重启后补处理）。
 - 禁止：导入时调模型/自动建错题/自动转正；跳过 `standard_answer` 校验。
+
+### P1-3e 移动端投递入口：粘贴整段转录 JSON（v2.6 审计新增，PWA 的替代票）
+- 背景：PWA 当初为"安卓手机 / iPad 拍题"而选（已砍，见设计文档 §17-A）。但 v2.5 后拍照与转录都在系统外完成，
+  手机侧真正缺的是**把外部 agent 产出的整段 JSON 送进 `data/inbox` 等价物**——今天 `POST /api/imports` 端点已存在
+  （`api/imports.py:144`）且前端已在用（`endpoints.ts:252`），但导入页只有"手填一条"表单，**没有粘贴 JSON 的入口**。
+- 交付：`/import` 页新增"粘贴转录 JSON"区（Textarea + 文件选择二选一）→ 走**同一个** `POST /api/imports` →
+  复用 `ingest_raw_payload` 全套校验与 sha256 去重 → 回显 `accepted_count / errors[]`（逐条 index/field/reason）→
+  提供"跳核对页"链接。移动端可用：窄屏不破版、按钮可点、错误清单可读。
+- DoD：手机浏览器（经 Tailscale 或局域网）贴一段含 3 题的模板 JSON → 落 3 条草稿、其中坏项逐条报错不静默丢弃；
+  同一段再贴一次 → 命中去重 `duplicate=true` 不重复建批；**绝不产生错题本行**（仍只能经核对页转正）。
+- 禁止：新写一条绕过 `ingest_raw_payload` 的入库路径；给这个入口加自动转正；引入文件上传/对象存储；
+  为"看起来像 App"重新引入 manifest/service worker（已进 §12 反清单）。
 
 ### P1-4b 版本化外部提取模板 `docs/templates/doubao_transcribe_v1.md`（v2.5 新增）
 - 依赖：P1-1b（知识点 id 空间）。
@@ -128,6 +144,19 @@
 - 依赖：**P1-3d + P1-10 + P1-11 全部跑通、闭环实跑通过之后**才做（防断档）。
 - 交付：删除 `preprocess/ocr.py`、`services/slicer.py`、`services/extraction.py`、`api/captures.py`、`api/extractions.py`、`models/extraction.py`；删 `providers/{doubao,qwen_vl,tencent,failover,http,openai_vision}.py`、成本护栏、`model_runs`、`llm_prompts/`；清路由与 DI 引用；更新 CHANGELOG + `.env.example`（去掉模型 Key 必填）。
 - DoD：删后服务能起、`/health` 200、全测试绿、闭环实跑不回归；单张票可整体回滚。禁止：在新入口未跑通前删；顺手删 `providers/mock.py`（保留供测试）。
+- **状态注（2026-11-02 审计）**：上面"保留 `providers/mock.py`"一条已被 AGENTS v2.5 横幅取代——实际交付把 `providers/` **整目录删除**（含 mock），因为零模型后无任何 importer。以 AGENTS 横幅为准，勿再照本行恢复 mock。
+
+### P1-13 知识点归并 UI（补受控生长的另一半；v2.6 审计新增）
+- 背景：AGENTS §6"细粒度受控生长（优先复用·不覆盖确认值·**归并需人工确认**）"只交付了半条腿——
+  `POST /api/concepts/merge` 后端早在 P1-6 就有了（CHANGELOG:1037），但前端**零调用**（`endpoints.ts` 只调
+  `GET /api/concepts` 与 `POST /api/concepts`），家长没有任何入口把重复建出来的细粒度点并掉。
+- 交付：`/mistakes` 或错题详情的"知识点"区新增**归并入口（仅家长解锁可见）**：选源 concept + 目标 concept →
+  预览影响面（受影响错题数、别名数）→ 二次确认 → 调 `POST /api/concepts/merge`。
+  后端把该端点从"未挂 PIN"改为**挂 `require_parent`**（归并 = 家长动作；建点/复用仍留孩子区）。
+- DoD：归并后 `merged_into_id` 与别名生效、列表只出目标点、历史 `mistake_versions` 标签快照**一字不改**
+  （append-only 纪律）、名称解析走合并家族；未解锁调用返回 403；重复归并幂等（已归并的源再并不产生新行）。
+- 禁止：物理删除 concept 行；改写 append-only 历史标签；把归并开放给孩子区；引入"自动检测重复点并合并"的
+  模型/相似度猜测（归并必须是人工确认动作）。
 
 ---
 
@@ -184,7 +213,18 @@
   **已完成（2026-10-31，v1）**：家长区「备份」页导出 `VACUUM INTO` 一致性快照 + `uploads/` + `seeds_local/`（含 `_id_counters.json`）+ 未处理 `inbox/` + `manifest.json`（各文件 sha256、alembic 版本、表计数），只留最近 10 份；导出全程只读、不写业务表。恢复走 `scripts/restore.ps1` + `docs/deploy/backup-restore.md`（停服 → 安全副本 → 整库替换 → `/health` 核对），**明确不做运行中热恢复**；三端点挂 `require_parent`，下载名做路径遍历防护。**剩余**：可选加密云备份/回滚、清空级联清理、在线导入 UI。
 - **P5-3 可选密码 session 鉴权开关**（默认关）；README/首页醒目警告公网须先加鉴权与隔离或走 Tailscale。禁：做用户体系/多租户。
 - **P5-4 教材 seed 包机制**：多教材 JSON/YAML 可安装可切换。
-- **P5-5 开源基线**：LICENSE + 中英 README（一行安装）+ 隐私声明（数据不出户、云转录仅送题目图）+ CHANGELOG + `.env.example`；合规点名《个人信息保护法》《未成年人网络保护条例》；**第三方数据 License 署名 + NC 声明**强制。
+- **P5-5 开源基线**：LICENSE + 中英 README（一行安装）+ 隐私声明（数据不出户；**v2.5 后无任何云转录/云推理，题目图片不进网络**——旧表述"云转录仅送题目图"已作废）+ CHANGELOG + `.env.example`；合规点名《个人信息保护法》《未成年人网络保护条例》；**第三方数据 License 署名 + NC 声明**强制。
+  **现状（2026-11-02 审计）**：LICENSE / 中文 README / CHANGELOG / `wengu-api/.env.example` / 第三方署名 / 合规点名 **已在盘上**；**英文 README 与独立隐私声明文档仍缺**（本票未完结）。
+- **P5-6 交付口径与盘上一致性清理（v2.6 审计新增）**：把审计报告里 B/C 类"文档说的和代码不一致"一次性收干。
+  - **孤儿表退役**：`photo_captures` / `photo_capture_items` 是 v2.5 视觉栈退役后的遗留（`models/ingestion.py:21,40`
+    定义仍在、迁移仍建表，但业务代码**零引用**）→ 出**可逆迁移 0019** DROP 两表（`downgrade` 重建表结构，
+    不承诺找回数据），同步删 `models/ingestion.py` 里的两个 ORM 类与 `__init__` 导出；`backup.py` 的
+    `COUNT_TABLES` 同步去掉这两张表。
+  - **口径复核**：`docs/STATUS.md` 的 Phase 5 行与 §7 表格按盘上事实改写（不许再出现"中英 README 已就位"这类过实）；
+    `wengu-web/README.md` 的目录/页面清单已按实际修正（2026-11-02）。
+  - DoD：迁移 up/down/up 可重入并有 `test_migrations.py` 覆盖；DROP 前文档写明"先跑家长区导出备份"；
+    全测试绿；表清单与 STATUS 一致（业务表数随之从 22 变 20，需在 STATUS 明写）。
+  - 禁止：顺手 DROP 任何仍被读的表；手改生产 `wengu.db`；把迁移写成不可逆。
 
 ---
 
