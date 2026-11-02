@@ -1,44 +1,50 @@
 # wengu-web · 前端工程
 
-**React 19 + Vite + TypeScript + Mantine + KaTeX + PWA**——本目录是 wengu 项目的前端。
+**React 19 + Vite + TypeScript + Mantine + KaTeX**——本目录是 wengu 项目的前端。
 
-> **实现约束请严格遵守仓库根的 [`AGENTS.md`](../AGENTS.md)**：React + Mantine + KaTeX（数学渲染刚需），**不引入 Redux/Zustand 之外的重型状态库**；PWA 支持离线；两角色 + 本地 PIN（不做公网账号体系）。
+> **实现约束请严格遵守仓库根的 [`AGENTS.md`](../AGENTS.md)**：React + Mantine + KaTeX（数学渲染刚需），**不引入 Redux/Zustand 之外的重型状态库**；两角色 + 本地 PIN（不做公网账号体系）。
 > **v2.5 零模型**：前端不触发任何模型调用；真实作业的批改与讲解在系统外完成。
+> **v2.6 砍 PWA**（设计文档 §17-A）：无 manifest / service worker；移动端可用靠"能连到家里那台机器"（P4-1）+ 导入页投递（P1-3e），不靠离线壳。
+> ~~`/settings` 向导（P5-1）~~ 仍未实现；`stores/`、`hooks/`、`router/`、`assets/` 目录**当前不存在**（旧脚手架文案，2026-11-02 按盘上事实修正）。
 
-## 页面清单
+## 页面清单（14 页，与 `src/App.tsx` 路由一致）
 
 | 路由 | 页面 | 说明 |
 |---|---|---|
-| `/import` | 导入 | inbox 路径/单批上限说明 + 家长手填最小表单（只生成草稿） |
-| `/intake` | 入库核对 | 题目 / 错答 / 正答三栏回显 + 主考点 + 错因 + 细标签 → 一键确认入本 |
-| `/mistakes` | 错题本 | 按 category / concept / 错因 / 时间筛选 |
-| `/mistakes/:id` | 错题详情 | 卷面订正回放 + 标签 + 复习状态（只读） |
+| `/import` | 导入 | inbox 路径/单批上限说明 + 家长手填最小表单（只生成草稿）；默认落地页 |
+| `/intake` | 入库核对 | 题目 / 错答 / 正答回显 + 主考点 + 错因 + 细标签 → 一键确认入本（**唯一写入路径**） |
+| `/mistakes` | 错题本 | 按 category / concept / 错因 / 时间筛选 + 导出打印入口 |
+| `/mistakes/:id` | 错题详情 | 卷面订正回放 + 标签 + 复习状态 + 加练入口 + 作废/撤销（家长） |
 | `/review` | 复习考核 | 到期三态（同类题作答·服务端判分 / 纸上自评 / 原题重做）+ 手动组卷 |
-| `/records` | 练习记录 | 同类题考核 / 变式加练两档回看（不进错题本） |
-
-规划中（未实现）：`/` 今日队列（P2-1/2-2）、`/dashboard` 看板（P2-5）、`/parent/**`（P2-4/2-5）、`/settings` 向导（P5-1）。
+| `/practice` | 主动加练 | 按主考点固定种子抽 1–10 题，只写 `practice_records` |
+| `/schedule` | 课表/日历 | 家长解锁可增删，未解锁只读；考试日放宽复习上限 |
+| `/records` | 练习记录 | 考核 / 变式加练两档回看（不进错题本），加练按「这一组」分组 |
+| `/dashboard` | 家长看板 | 只读确定性统计（曲线为内联 SVG，无图表库） |
+| `/bank` | 题库审核 | **仅家长解锁可见**：草稿审核 + 已入库题目编辑/软作废 |
+| `/local-seed` | 学科 seed | **仅家长解锁可见**：语文/化学章级点 CRUD（文件真源） |
+| `/backup` | 备份 | **仅家长解锁可见**：导出一致性快照 + 列表 + 下载（恢复需停机按文档） |
+| `/print/mistakes` | 打印视图 | 四区块，无导航壳（浏览器"打印→另存为 PDF"） |
+| `/print/paper` | 练习卷打印 | 默认无答案；家长答案页单独分页且需解锁 |
 
 已删除（P1-12）：`/capture`、`/grading/:id`、`/explain/:id` 及对应页面 / API 客户端。
 
-## 目录约定
+## 目录约定（2026-11-02 按盘上实际修正）
 
 ```
 wengu-web/
 ├─ src/
-│  ├─ pages/          # Import / Intake / Mistakes / MistakeDetail / Review / Records
-│  ├─ components/     # Mantine 组件封装 + KaTeX 数学渲染组件
-│  ├─ hooks/          # 数据加载与轮询等
-│  ├─ api/            # 后端调用封装（endpoints.ts / types.ts）
-│  ├─ stores/         # 状态（推荐 Mantine context 或 Zustand，勿引 MobX/Redux）
-│  ├─ router/
-│  ├─ assets/
-│  ├─ App.tsx
-│  └─ main.tsx
-├─ public/            # PWA manifest + sw.js + 图标
-├─ index.html
-├─ vite.config.ts
+│  ├─ pages/          # 14 个页面（见上表）
+│  ├─ components/     # AppLayout / MathText(KaTeX) / QuizQuestionCard / CategoryPicker /
+│  │                  # QuizTopicPicker / ExplanationSlot / PomodoroTimer / ParentGate / ScheduleBrief
+│  ├─ parent/         # ParentSession.tsx（两角色与解锁态）
+│  ├─ api/            # client.ts / endpoints.ts / types.ts
+│  ├─ lib/            # dates.ts
+│  ├─ print.css       # @page A4、分组另起页、题卡不跨页
+│  ├─ App.tsx / main.tsx / vite-env.d.ts
+├─ index.html         # 含 viewport meta（响应式靠 Mantine 栅格，无 manifest/SW）
+├─ vite.config.ts     # /api 代理到 127.0.0.1:8000
 ├─ Dockerfile
-└─ package.json
+└─ package.json       # 零 PDF 依赖、零图表库
 ```
 
 ## 快速开始
