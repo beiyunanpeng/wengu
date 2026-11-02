@@ -16,6 +16,54 @@ Phase 1 只剩 P1-7b（前置回溯诊断）与受闸门阻塞的 P1-7c。
 
 ### Added
 
+- **P5-2 备份 v1：导出一致性快照 + 停机恢复脚本**（2026-10-31）：
+  补上"家长无法自助备份、换机只能整目录拷 WAL 库"的缺口。备份 = **SQLite `VACUUM INTO`
+  一致性快照** + zip 打包；恢复 = **停服务后整库替换**（脚本 + 文档），
+  **不做运行中热替换 SQLite 的 UI 恢复**。
+  - **服务** `app/services/backup.py`：`create_backup` 用 `VACUUM INTO` 在
+    `<data_dir>/backups_tmp/` 生成快照（不拷 `-wal/-shm`，已含全部已提交数据），
+    打包 `wengu.db` + `uploads/` 全量 + `seeds_local/`（含 `_id_counters.json`）+
+    `inbox/` 根目录未处理文件（`.processed/` 不进包）+ `manifest.json`
+    （`version` / `created_at` / `alembic_version` / 各表计数 / 每个文件的 sha256）。
+    成品经 `os.replace` 原子落到 `<data_dir>/backups/wengu-backup-<UTC 时间戳>.zip`，
+    临时目录 `finally` 清理。**全程只读业务库、不写任何表**；日志只记文件名/大小/sha256/
+    计数，不记题目内容或 PII。只保留最近 **10** 份，超出按 `(mtime, name)` 删最旧，
+    删除日志只记文件名。
+  - **API**（`app/api/backup.py`，**路由级 `Depends(require_parent)`**）：
+    `POST /api/backup/export`（回文件名/sha256/大小/manifest 摘要）、
+    `GET /api/backup/list`、`GET /api/backup/download/{name}`。下载名只接受
+    `wengu-backup-YYYYMMDDTHHMMSSffffffZ.zip`；含 `/`、`\`、`:`、NUL、`..` 或解析后
+    不在 `backups/` 一律 400/404（路径遍历防护）。
+  - **前端**：家长区新增「备份」页（导航仅解锁后可见）——立即导出（显示文件名/大小/
+    sha256/错题与事件计数）、备份列表与下载；页面明示"恢复请按文档停机操作，
+    本系统不做在线热恢复"。
+  - **恢复**：`scripts/restore.ps1`（PowerShell 5.1，UTF-8 BOM）+
+    [`docs/deploy/backup-restore.md`](docs/deploy/backup-restore.md)：校验 zip 无路径遍历并
+    核对 `manifest.json` 里 `wengu.db` 的 sha256 → `docker compose stop api` → 先把现有数据
+    拷到 `backups/pre-restore-<时间戳>/` → 解包覆盖 `wengu.db` / `uploads` / `seeds_local` /
+    `inbox` → 起服务轮询 `/health`；支持 `-SkipServiceControl` / `-SkipHealthCheck` 做离线
+    演练，默认要求输入 `RESTORE` 确认。
+  - **验证**：新增 `tests/integration/test_backup_api.py`（6 条：只读且内容完整、并发写入下
+    快照完整、轮转只保留 10 份、文件名/路径遍历拒绝、未解锁 403、导出→列表→下载闭环）。
+    zip 内快照可被 sqlite3 打开且 `PRAGMA integrity_check=ok`；manifest sha256 与实际文件
+    一致；导出前后各表全列快照相同；临时目录已清理。全量 pytest **397 passed**、
+    `ruff check .` 绿、`import app.main` OK、`npm run build` 绿；**无迁移**
+    （head 仍 `0018_practice_dedup`）。
+  - **运行态证据**：临时库 + uvicorn 8112 + Vite 5174。未解锁 export/list/download 全 403；
+    导出 `wengu-backup-20261031T131049098216Z.zip`（122557 字节，
+    sha256 `8dc1196f5bb43fed8b59298a24f0af9bd323c53a225ee1a02f6616a8304e27eb`，
+    `knowledge_seed=664` / `learning_events=3`），列表与下载 sha 一致；包内含 `manifest.json` /
+    `wengu.db` / `uploads/sample.txt` / `seeds_local/*`；快照 `integrity_check=ok`；
+    `../` 与绝对路径下载被拒；导出前后业务库零变化；`backups_tmp/` 已清空。
+    恢复演练在临时副本上跑通：原库 `stale-event` 被备份内容替换，安全副本
+    `pre-restore-20261031T210644120Z` 保留旧数据；`uploads` 只剩包内 `drill.txt`，
+    `_id_counters.json=2`、`inbox/pending.json` 恢复；第二次运行 exit 0（幂等）；服务已停止。
+  - **残留风险**：没有在线恢复；`inbox/.processed/`（已处理归档）不进备份；`seeds/data`
+    与 `.session_secret` 不进包（前者随代码分发、后者留本机）；`config/app-config.json`
+    在仓库根 `config/` 下、不在数据目录内，因此**也不进包**（换机需手工另拷，否则热参数回默认）；
+    恢复脚本的 `backups/pre-restore-*` 安全副本不参与轮转、需手工清理；列表每次现算每份 zip 的
+    sha256，备份很多时略慢；备份含全部错题与家长 PIN 哈希，**禁止上传网盘/群聊/外部服务**。
+
 - **P3-2 主动加练变式（只写 `practice_records`）**（2026-10-31）：
   补上"错题详情只能去复习、不能主动加练"的缺口。加练 = **按错题主考点取同类题**
   （固定种子可重放），结果只进 `practice_records`（`kind='variant'`），

@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 
 import AppLayout from "./components/AppLayout";
+import BackupPage from "./pages/BackupPage";
 import BankPage from "./pages/BankPage";
 import DashboardPage from "./pages/DashboardPage";
 import ImportPage from "./pages/ImportPage";
@@ -35,6 +36,7 @@ export default function App() {
           <Route path="records" element={<RecordsPage />} />
           <Route path="bank" element={<BankPage />} />
           <Route path="local-seed" element={<LocalSeedPage />} />
+          <Route path="backup" element={<BackupPage />} />
           <Route path="*" element={<Navigate to="/import" replace />} />
         </Route>
       </Routes>
