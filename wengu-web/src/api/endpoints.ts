@@ -44,6 +44,7 @@ import type {
   QuizPaperResponse,
   QuizTopicListResponse,
   RecitationDueResponse,
+  RecitationImportResponse,
   RecitationItem,
   RecitationListResponse,
   RecitationReviewResponse,
@@ -701,6 +702,17 @@ export function reviewRecitation(
     `/api/recitations/${itemId}/review`,
     "POST",
     { actor: "student", ...payload },
+  );
+}
+
+export function importRecitations(payload: {
+  subject: string;
+  text: string;
+}): Promise<RecitationImportResponse> {
+  return requestJson<RecitationImportResponse>(
+    "/api/recitations/import",
+    "POST",
+    payload,
   );
 }
 

@@ -9,6 +9,42 @@
 
 ### Added
 
+- **P3-3b 教材词表批量导入：CSV / TSV 一次性入库 + 逐行报告**（2026-11-03）：
+  在 P3-3a 的自评闭环上补齐内容来源 A 的批量入口；**无迁移、不动 0020 表结构**，
+  解析与校验全部在服务端，前端只上传/粘贴原文。
+  - **解析** `services/recitation_import.py`（stdlib `csv`，零新依赖）：按首个非空/非注释行
+    是否含 TAB 决定 TSV 或 CSV；支持引号转义与引号内换行，行号按**物理行**回报；
+    可选表头（首行 ≥2 个非空单元格且全部命中 `prompt/answer/unit` 才跳过，避免把单词
+    `unit` 误判成表头）；空行、`#` 注释整行跳过；首列 `prompt` 必填，`answer` / `unit` 可选。
+  - **限额（超限整批 422，带行号/字段/原因）**：单次 ≤500 行、body ≤256KB、
+    `prompt ≤200 / answer ≤500 / unit ≤40` 字符；编码只收 UTF-8（BOM 可带），
+    含 U+FFFD 时提示用 Excel「CSV UTF-8」重新导出。
+  - **逐行语义**：坏行（空 prompt、>3 列）与重复行（命中 `UNIQUE(subject,prompt)`）
+    只记入报告、**不阻断好行**；重复**不静默丢弃、不更新已有行**。批量写复用
+    `create_item` 的 SAVEPOINT，坏行回滚只影响本行。同文本重复提交 → 全部 duplicate，
+    不产生第二条数据（天然幂等）。
+  - **信任边界（代码注释固定）**：词表来自家长本人 = 可信来源，直接入库 + 逐行报告，
+    **不走**外部 agent 转录的草稿/核对页；体积与字段校验照抄「导入即不可信输入」。
+  - **API**：`POST /api/recitations/import`（`require_parent`），body
+    `{subject, text}`，响应 `{imported, duplicates:[{line,prompt}], errors:[{line,field?,reason}]}`；
+    `subject` 只接受 `MEMORY_SUBJECTS`，否则 422。
+  - **前端**：`/recitations` 家长区新增「批量导入（CSV / TSV）」——文件选择与粘贴文本框
+    二选一、共用同一提交函数；学科下拉默认英语；报告显示成功 N / 重复 N（前 5 条 prompt +
+    行号）/ 错误逐条；附 UTF-8 导出提示（文件会替换文本框内容）。
+  - **测试**：`tests/unit/test_recitation_import_parse.py` 11 条（TSV 判定、表头与单词
+    `unit`、引号/换行行号、坏行不阻断、三类超长、BOM+CRLF、U+FFFD、500/501 边界、
+    未闭合引号）+ `tests/integration/test_recitation_import.py` 11 条（CSV/TSV+BOM 全成功、
+    混合批次且不覆盖已有行、超 500 行 422、三类超长 422、超体积 422、同文本幂等、
+    非法学科 422、未解锁 403 且零写入）；`pytest -m e2e` 新增第 5 条（导入 3 行含 1 重复
+    1 坏 → 报告正确 → 孩子端 `/due` 见新条目 → 自评进第 2 档）。
+  - **实测**：全量 **465 passed**（unit 304 / integration 156 / e2e 5）；
+    `pytest -m e2e` **5** 条全绿；`ruff check --no-cache .` 全绿；`npm run build` 绿。
+  - **运行态证据**：浏览器实走——粘贴 4 行（含 1 条已存在、1 条空 prompt）→ 报告
+    「成功 2 条 / 重复 0 条 / 第 4 行（prompt）：prompt 不能为空」，今日到期 2 条；
+    再次提交同文本 → 「成功 0 条 / 重复 2 条（abandon 第 2 行、ability 第 3 行）」，
+    列表仍 2 条；点「记得」→ `下次复习 2026-11-06（第 2 档）`、进度 1/5；
+    看板「今日背诵 1/5」、连续 1 天。
+
 - **P3-3a 英语背诵：家长手填条目 + 记忆阶梯自评闭环**（2026-11-03）：
   v2.6 把英语背诵定为"自评间隔重复（档③）"，内容来源按 B → A → C 三阶段推进；
   本票先交付 **A（家长手填）**：零模型、零相似度猜测，背诵条目**不是错题**。

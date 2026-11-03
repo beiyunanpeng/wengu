@@ -1,9 +1,9 @@
 # STATUS.md — 开发计划与完成情况
 
-> 快照日期：2026-11-03（**P3-3a 英语背诵**：家长手填条目 + 记忆阶梯自评闭环；迁移 0020；`e2e` 4 条）
-> 基线：`main` = `df7bc8a`（P0-3 / PR #28 已合并）；本切片在 `feat/p3-3a-recitation` 分支，合并前工作区状态
-> 全量测试：**442 passed**（2026-11-03 本机实跑，unit 293 / integration 145 / **e2e 4**）；`pytest -m e2e` 收集 **4** 条全绿；`ruff check --no-cache .` 全绿；`npm run build` 绿
-> Alembic head：`0020_recitation`；业务表 **21 张**（0019 退役 3 张视觉栈孤儿表，0020 新增 2 张背诵表）
+> 快照日期：2026-11-03（**P3-3b 教材词表批量导入**：CSV/TSV + 逐行报告；无迁移；`e2e` 5 条）
+> 基线：`main` = `88d4570`（P3-3a / PR #29 已合并，P3-3b 卡已出）；本切片在 `feat/p3-3b-recitation-import` 分支，合并前工作区状态
+> 全量测试：**465 passed**（2026-11-03 本机实跑，unit 304 / integration 156 / **e2e 5**）；`pytest -m e2e` 收集 **5** 条全绿；`ruff check --no-cache .` 全绿；`npm run build` 绿
+> Alembic head：`0020_recitation`；业务表 **21 张**（P3-3b 无迁移、未改 0020 DDL）
 
 本文件是**状态快照**，不替代以下事实源；冲突时以它们为准：
 
@@ -113,10 +113,14 @@
   `daily_recitation_limit`（默认 5、上限 20），到期队列按此截断、在复习页排在考核之后；
   看板加"今日背诵 x/N"。打卡口径**显式变更**为"有学习动作的日子"（含背诵）。
   `/recitations` 页孩子可自评、家长解锁后可增改退役；窄屏单列可用。
+- **P3-3b 教材词表批量导入已交付**：家长在 `/recitations` 上传或粘贴 CSV/TSV，服务端
+  `POST /api/recitations/import`（`require_parent`）解析入库；逐行报告成功 / 重复 /
+  错误，坏行与重复行不阻断好行、不覆盖已有条目；限额（500 行 / 256KB / 字段长度）
+  超限整批 422；UTF-8（含 BOM）唯一编码。无迁移、未改 0020 表结构、未引入新依赖。
 - **下一步（v2.6 决策轮定的顺序）**：① ~~P5-6 口径清理~~、~~P0-3 端到端回归~~、
-  ~~P3-3a 手填背诵~~ 已完成 → ② P5-1 首次运行向导 + 英文 README + 独立隐私声明（开源分发票）
-  → ③ P1-3e 移动端投递 → ④ P1-13 归并 UI → ⑤ P3-3b 教材词表导入 / P3-3c 从错题抽词 /
-  P3-4 听力默写。**PWA 已砍**（设计文档 §17-A / §12 反清单）。
+  ~~P3-3a 手填背诵~~、~~P3-3b 词表导入~~ 已完成 → ② P5-1 首次运行向导 + 英文 README +
+  独立隐私声明（开源分发票）→ ③ P1-3e 移动端投递 → ④ P1-13 归并 UI →
+  ⑤ P3-3c 从错题抽词 / P3-4 听力默写。**PWA 已砍**（设计文档 §17-A / §12 反清单）。
 
 ## 2. 总体路线图状态
 
@@ -125,7 +129,7 @@
 | Phase 0 | 摸底 + 回归基线 | 部分完成 | 首轮实测结论已在 `docs/methodology/phase0.md`；v2.5 后"识别瓶颈"由批改外移绕过，边界表不再是入本前置；**P0-3 端到端回归已交付**（e2e 3 条 + 迁移 DDL 文对比），P0-1/P0-2 待按新口径重定义 |
 | Phase 1 | 核心闭环 | 进行中 | P1-0～P1-12 完成（模型在环旧链路已退役）；仅剩 P1-7b，P1-7c 阻塞 |
 | Phase 2 | 每日任务 + 家长看板 | 进行中 | P2-5 家长看板、P2-4 两角色 + 本地 PIN、P2-6 极简打卡、P2-1 日队列（本轮仅到期复习/考核）、P2-3 课表/日历约束层、P2-2 番茄钟执行、P2-7 打印导出已完成；背诵铺底已随 P3-3a 以独立到期端点 + 复习页入口交付；作业 deadline 与硬事件抬权重未开始 |
-| Phase 3 | 内容与扩展 | 进行中 | P3-1 家长录题（真题入库审核流水线）+ P3-1b 家长题接入检索池 + P3-1c 题库修订/软作废 + P3-2 主动加练变式 + **P3-3a 家长手填英语背诵**已完成；P3-5 前置（语文/化学家长自建章级 seed）已交付；P3-3b 教材词表导入、P3-3c 从错题抽词、听力默写、语文客观题、信奥、长期计划未开始 |
+| Phase 3 | 内容与扩展 | 进行中 | P3-1 家长录题（真题入库审核流水线）+ P3-1b 家长题接入检索池 + P3-1c 题库修订/软作废 + P3-2 主动加练变式 + **P3-3a 家长手填英语背诵** + **P3-3b 词表批量导入**已完成；P3-5 前置（语文/化学家长自建章级 seed）已交付；P3-3c 从错题抽词、听力默写、语文客观题、信奥、长期计划未开始 |
 | Phase 4 | 基础设施演进 | 未开始 | Tailscale、可移植部署、可选本地 GPU |
 | Phase 5 | 开源分发与打包 | 部分完成 | LICENSE / README / CHANGELOG / `.env.example` / 第三方署名已就位；P5-2 备份 v1（导出一致性快照 + 停机恢复脚本）已交付；首次运行向导、在线恢复、云备份 / 清空级联、鉴权开关、教材包安装器未做 |
 
@@ -233,7 +237,7 @@
 
 - `/dashboard` 看板；`/import` 导入说明 + 家长手填最小表单；`/intake` 核对入本；
   `/mistakes` + `/:id` 错题本；`/review` 到期三态 + 今日进度/顺延提示 + 手工组卷 +
-  今日背诵入口；`/recitations` 英语背诵（孩子自评，家长解锁可增改退役）；
+  今日背诵入口；`/recitations` 英语背诵（孩子自评，家长解锁可增改退役、批量导入 CSV/TSV）；
   `/schedule` 课表/日历（家长解锁可增删，未解锁只读）；`/records` 练习记录；
   `/bank` 题库审核（**仅家长解锁后出现在导航**，未解锁只显示家长专属提示；
   含草稿审核与「已入库题目（可修订）」列表/编辑/作废）；
@@ -606,6 +610,36 @@
   （第 2 档）`（11-03 + 3 天）→ 看板「今日背诵 1/5」、仅背诵即点亮打卡、掌握度仍 0%、
   活跃错题 0 → 复习页在到期任务之后显示「今日背诵 1 条」。
 
+### 4.21 教材词表批量导入：CSV / TSV + 逐行报告（P3-3b）
+
+- **定位**：P3-3a 内容来源 A 的批量入口；词表来自家长本人 = **可信来源**，直接入库 +
+  逐行报告，**不走**外部 agent 转录的草稿/核对页（与「导入即不可信输入」是两种信任级）；
+  但体积、字段长度、编码校验照抄该纪律（家长也会手滑）。无迁移、不动 0020 DDL。
+- **解析（服务端唯一真源，`services/recitation_import.py`，stdlib `csv`）**：首个非空/
+  非注释行含 TAB → TSV，否则 CSV；`csv.reader(strict=True)` 支持引号转义与引号内换行，
+  错误行号按**物理行**（`reader.line_num` 累计 + 换行归一）回报；可选表头仅当首行 ≥2 个
+  非空单元格且全部命中 `prompt/answer/unit` 才跳过；空行与 `#` 注释整行跳过；
+  1–3 列依次为 `prompt`（必填）/ `answer` / `unit`，>3 列按坏行报告。
+- **限额**：单次 ≤500 行、body ≤256KB、`prompt ≤200 / answer ≤500 / unit ≤40` 字符；
+  超限**整批 422**，detail 带 `line / field / reason`。编码只收 UTF-8（BOM 可带），
+  含 U+FFFD 即拒并提示 Excel「CSV UTF-8」导出。`subject` 必须属于 `MEMORY_SUBJECTS`。
+- **逐行语义**：命中 `UNIQUE(subject,prompt)` → 该行 `duplicate`（**不静默丢弃、不更新
+  已有行**）；结构坏行 → `{line, field?, reason}`；两者都不阻断好行。写库复用
+  `create_item`（内含 SAVEPOINT），单行失败只回滚本行。同文本重复提交 → 全部 duplicate，
+  不新增数据（天然幂等）。
+- **API**：`POST /api/recitations/import`（`require_parent`），body `{subject, text}`，
+  响应 `{imported, duplicates:[{line,prompt}], errors:[{line,field?,reason}]}`；
+  未解锁 403（校验先于解析，零写入）。
+- **前端**：`/recitations` 家长区「批量导入（CSV / TSV）」——文件选择与粘贴文本二选一、
+  共用 `runImport()`；学科下拉默认英语（字段保留通用）；报告成功 N / 重复 N（前 5 条
+  prompt + 行号）/ 错误逐条；显示文件名与 UTF-8 导出提示（选文件会替换文本框内容）。
+- **实测**：全量 **465 passed**（unit 304 / integration 156 / e2e 5）；`pytest -m e2e`
+  **5** 条全绿；`ruff check --no-cache .` 全绿；`npm run build` 绿。
+- **运行态证据**：浏览器实走——粘贴 4 行（1 行已存在、1 行空 prompt）→ 报告
+  「成功 2 条 / 重复 0 条 / 第 4 行（prompt）：prompt 不能为空」，今日到期 2 条；
+  同文本再提交 → 「成功 0 条 / 重复 2 条（abandon 第 2 行、ability 第 3 行）」，列表仍 2 条；
+  点「记得」→ `下次复习 2026-11-06（第 2 档）`、进度 1/5；看板「今日背诵 1/5」、连续 1 天。
+
 ## 5. API 与数据现状
 
 ### 5.1 API 面
@@ -626,7 +660,7 @@
 | 日历 | `GET /api/calendar/events?from=&to=`（缺省今天起 30 天）、`POST /api/calendar/events`、`DELETE /api/calendar/events/{id}` |
 | 番茄 | `POST /api/pomodoros`（追加 `pomodoro_completed`，201 `{id, duration_minutes}`；孩子区免 PIN） |
 | 组卷 | `GET /api/quizzes/topics`、`GET /api/quizzes/paper`、`GET /api/quizzes/paper/answers`（家长答案钥匙：同卷只回正答 + 可接受别名，不含解析/verify）、`POST /api/quizzes/paper/submit` |
-| 背诵（P3-3a） | `GET /api/recitations?subject=&status=&limit=&offset=`、`GET /api/recitations/due?today=`（孩子区免 PIN；到期按 `daily_recitation_limit` 截断）、`POST /api/recitations`、`PATCH /api/recitations/{id}`（`require_parent`）、`POST /api/recitations/{id}/review`（孩子区免 PIN，幂等键 `recitation:{item_id}:{reviewed_on}`） |
+| 背诵（P3-3a / P3-3b） | `GET /api/recitations?subject=&status=&limit=&offset=`、`GET /api/recitations/due?today=`（孩子区免 PIN；到期按 `daily_recitation_limit` 截断）、`POST /api/recitations`、`PATCH /api/recitations/{id}`、`POST /api/recitations/import`（`require_parent`；CSV/TSV body `{subject,text}`，逐行报告 duplicate/error，限额超限整批 422）、`POST /api/recitations/{id}/review`（孩子区免 PIN，幂等键 `recitation:{item_id}:{reviewed_on}`） |
 | 练习记录 | `GET /api/attempts`、`DELETE /api/attempts`、`GET/POST/DELETE /api/practice-records`（兼容旧前端） |
 | 主动加练（P3-2） | `POST /api/practice/start`、`POST /api/practice/submit`（幂等：重复提交回 `reused=true`）、`GET /api/practice?mistake_id=&kind=&topic_id=&seed=&limit=&offset=`、`DELETE /api/practice`（全部孩子区免 PIN；只写 `practice_records`，提交响应不含答案钥匙） |
 | 看板 | `GET /api/dashboard`（只读，可选 `today` / `curve_days` 1–90；响应含 `streak`、`pomodoros_today`、`focus_minutes_this_week`） |
@@ -640,7 +674,7 @@
 `POST /api/bank/drafts/{id}/approve|reject`、`POST /api/bank/items`、
 `GET /api/bank/items`、`PATCH /api/bank/items/{id}`、`POST /api/bank/items/{id}/void|unvoid`、
 `GET/POST /api/local-seed/topics`、`PATCH/DELETE /api/local-seed/topics/{id}`、
-`POST /api/recitations`、`PATCH /api/recitations/{id}`、
+`POST /api/recitations`、`PATCH /api/recitations/{id}`、`POST /api/recitations/import`、
 `POST /api/backup/export`、`GET /api/backup/list`、`GET /api/backup/download/{name}`。
 其余端点（导入、核对确认、到期、考核提交/自评、主动加练、背诵列表/到期/自评、
 错题/看板/课表/日历/seed 只读）孩子区免 PIN。
@@ -709,7 +743,7 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
 | 鉴权 / 本地 PIN | 部分完成 | P2-4 本地家长 PIN 已做（只防误入，非安全边界）；公网鉴权/隔离仍未做 | 公网暴露前走 P5-3 真鉴权或 Tailscale |
 | 化学 / 语文 seed | 已关闭（P3-8；本地点为家长自建） | 家长按教材目录在 `/local-seed` 建章级点；仓库 seed 保持只读、不覆盖上游行；id 由 `_id_counters.json` 单调发放，删除不复用 | 预置教材包（P5-4）可后续补充；章级 40–80 点、单科上限 200 |
 | Phase 2 剩余 | 部分完成 | 打印导出已随 P2-7 补齐（前端打印视图，非服务端 PDF 文件）；课表/日历只做约束层（不排课、不生成任务）；日队列仅完成“到期复习/考核”组织，背诵铺底已随 P3-3a 以独立到期端点交付，作业 deadline / 硬事件抬权重未做（依赖 P3）；番茄钟已完成（纯前端计时 + 事件打点） | 按 TICKETS 顺序 |
-| Phase 3–5 | 部分完成 | P3-1 录题流水线、P3-2 主动加练、**P3-3a 手填背诵**、P5-2 备份 v1 已交付；P3-3b/c、听力默写、语文、信奥、长期计划及 Phase 4 均未开始 | 按 TICKETS 顺序 |
+| Phase 3–5 | 部分完成 | P3-1 录题流水线、P3-2 主动加练、**P3-3a 手填背诵**、**P3-3b 词表批量导入**、P5-2 备份 v1 已交付；P3-3c、听力默写、语文、信奥、长期计划及 Phase 4 均未开始 | 按 TICKETS 顺序 |
 
 ## 7. 残留风险与技术债
 
@@ -738,8 +772,9 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
     （代表既往错题），按 P2-6 规则回退 `occurred_at` 计入当天，因此家长“确认导入”也可能
     点亮当日打卡；P3-3a 起 `recitation_reviewed` 也计入（只背诵也算打卡）。streak 仅做习惯
     展示，**不得据此推断学习效果**（与掌握度解耦）。
-11. **背诵无内容质量校验**：条目内容完全由家长手填，系统只校验非空/长度/重复
-    （`UNIQUE(subject,prompt)`），不判断释义正确性；`answer` 可空、不参与任何判分。
+11. **背诵无内容质量校验**：条目内容完全由家长手填或从其词表导入（P3-3b 只做格式/
+    体积/长度校验），系统只校验非空/长度/重复（`UNIQUE(subject,prompt)`），不判断释义
+    正确性；`answer` 可空、不参与任何判分。
 11. **日队列配置与统计成本**：`config/app-config.json` 被 gitignore（本机配置），默认值兜底；
     当前无“改配置”端点/UI，需手改文件（UI 热配置归 P5-1）。`today_completed` 每次 GET 扫描
     `attempt_*` 事件并解析 payload，家庭规模可接受，事件量大时需改为按 `completed_on` 建索引列
@@ -839,9 +874,10 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
 
 ## 9. 下一步建议（按依赖与风险排序）
 
-1. ~~**P3-3a 英语背诵（家长手填）**~~ 已完成（2026-11-03）：自评间隔重复（档③），
-   零模型、不进错题本。**下一步 P3-3b 教材词表导入**（依赖 P5-4 教材包定稿）与
-   **P3-3c 从错题抽词**（须可整批撤销、不覆盖手工条目）；不引入语音/ASR。
+1. ~~**P3-3a 英语背诵（家长手填）**~~、~~**P3-3b 教材词表导入**~~ 已完成（2026-11-03）：
+   自评间隔重复（档③），零模型、不进错题本；词表 CSV/TSV 由服务端解析、逐行报告、
+   不依赖 P5-4 教材包。**下一步 P3-3c 从错题抽词**（须可整批撤销、不覆盖手工条目）；
+   不引入语音/ASR。
 2. **P1-7b 前置回溯诊断**：`prerequisite_edges` 已装载，固定种子 `replay` 必须可重建。
 3. **复习掌握度归因**：把已确认 concept 写入事实，让 mastery 不再恒 0.0。
 4. **外部转录质量实测（P0-1 新口径）**：用真实已批改卷 / 空白真题跑两个模板，统计 `〔?〕` 率、
@@ -877,7 +913,7 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
 |---|---|
 | P3-1 | 已完成：家长录题（真题入库审核流水线）。外部转录 `agent_bank_transcribe_v1` → `bank_drafts` → 家长 `/bank` 逐条确认 → SQLite `problem_bank`；手填兜底；缺答案/choice 不命中/未知 topic/AST 沙箱拒/数值矛盾一律拒绝；固定 `unaudited`/`blind_verified`；迁移 0016。**模型不得生成答案**；P3-1b 已把入库题合并进运行时检索池（到期考核/手动组卷），旧记录跨池 `replay` 显式抛 `BankReplayError`；**P3-1c（已完成 2026-10-31）**：题库列表/编辑/软作废/撤销（迁移 0017），编辑重跑同一套闸门、作废只退出检索池、不物理删除且不改写历史 |
 | P3-2 | 已完成：主动加练变式。错题详情按主考点从运行时题池固定种子抽题，系统题服务端判分、自评题收孩子结论；结果只写 `practice_records(kind=variant)`，不进 attempts/事件/错题本、不影响掌握度/排期/打卡，可整表清空；无题知识点只提示不硬凑；端点孩子区免 PIN。LLM 不参与出题/判分。category/错因/难度筛选未做 |
-| P3-3 | 英语背诵：自评间隔重复（档③）。**P3-3a 已完成（2026-11-03）**：家长手填条目 + 记忆阶梯自评（迁移 0020），100% 确定性、不进错题本/attempts、不计掌握度；P3-3b 教材词表导入、P3-3c 从错题抽词未开始 |
+| P3-3 | 英语背诵：自评间隔重复（档③）。**P3-3a 已完成（2026-11-03）**：家长手填条目 + 记忆阶梯自评（迁移 0020），100% 确定性、不进错题本/attempts、不计掌握度；**P3-3b 已完成（2026-11-03）**：CSV/TSV 批量导入（`POST /api/recitations/import`，逐行 duplicate/error 报告，不覆盖已有行，无迁移）；P3-3c 从错题抽词未开始 |
 | P3-4 | 听力 + 默写：默写复用批改；听力用教材音频 + TTS；不做口语 ASR |
 | P3-5 | 语文客观题并入（字音/病句/默写）；作文/阅读理解只讲解不入本。**前置已交付（P3-8）**：家长自建语文/化学章级 seed，语文错题可挂主考点、题库可挂 `topic_id` |
 | P3-6 | 信奥独立流：卡壳 → 引导 → 待重做清单；外部判题，不建判题 infra |
