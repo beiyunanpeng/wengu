@@ -7,6 +7,40 @@
 
 ## [Unreleased]
 
+### Added
+
+- **P0-3 端到端回归：把空转的 `e2e` marker 用起来 + 可逆迁移 DDL 原文对比**（2026-11-03）：
+  v2.6 审计发现 `pyproject.toml` 声明了 `e2e` marker 但 `pytest -m e2e` 收集 **0 条**，端到端
+  只在批次⑧手工验过一次、不可重放。本票新增 `wengu-api/tests/e2e/test_closed_loop.py`
+  **三条**用例（真实 `ASGITransport` + 临时 SQLite + `alembic upgrade head`，不 mock 服务层、
+  不调模型、无浏览器栈）：
+  - ① **转录→确认→考核→看板**：投递 2 题 `agent_transcribe_v1` JSON → 2 条草稿 → 逐条确认
+    入本 → 同日到期队列出 2 个 `quiz`（题面无 `answer/accept/explanation/verify`）→ 一真答
+    一错答（客户端故意谎报 `correct:true` 被服务端忽略）→ 判 `["correct","wrong"]` 并写
+    `attempts(source=system_quiz)` → 看板 `inventory` / `weak_topics` / `weak_subjects` /
+    `mastery.overall=0.5` / `due=0` / `reviews_this_week=2` / `event_stats`（6 事件、
+    准确率 0.25）与 streak 全部与手工推导逐项相等。
+  - ② **作废/撤销可逆**：作废 → 活跃 2→1、到期 2→1、详情 `voided`，幂等重复作废不叠加；
+    撤销 → 恢复 2/2。既有 `learning_events` 行与 `mistake_versions` **一字不改**，只追加
+    `mistake_voided` + `mistake_reactivated` 两条审计事件（设计如此；工单原文"不增"与
+    只追加审计事件的实现口径差异已在 STATUS §4.19 说明，未改业务代码迁就措辞）。
+  - ③ **备份快照与 manifest 咬合**：上锁导出 403 → 解锁导出 200；下载字节 size/sha256 与
+    响应一致；zip 含 `wengu.db` + `manifest.json`；快照 `PRAGMA integrity_check=ok`；
+    manifest `counts`、快照库实算、业务库实算**三方逐表相等**（11 张计数表 +
+    `alembic_version`）。
+- **迁移测试加 DDL 原文 before/after 对比**（`tests/integration/test_migrations.py`）：
+  - 0018：升到 0017 存 `practice_records` 及索引的 `sqlite_master.sql`，升 head 再降回后对比。
+    因 `batch_alter_table(recreate="always")` 会改变引号/默认值括号/约束顺序，只做**表现层
+    归一**（去标识符引号、`DEFAULT (X)`→`DEFAULT X`、列保序、约束排序），列类型 / NOT NULL /
+    默认值 / UNIQUE 与 FK 约束名仍逐字比对，索引定义精确比对。
+  - 0019：**7 个 DDL 对象（3 表 + 4 索引）零归一逐字节相等**——把 P5-6 审核方一次性脚本的
+    结论固化为常驻测试。
+  - **可证伪验证**：临时把 0019 `downgrade` 的 `photo_captures.source` 默认值改坏为
+    `"phone_tampered"` → 用例红，差异精确落在 `table:photo_captures` 的 `source TEXT DEFAULT`
+    一行；改回 → 变绿（两次输出见 PR）。
+  - **实测**：`pytest -m e2e` 收集 **3** 且全绿；全量 **403 passed**（unit 266 /
+    integration 134 / e2e 3）；`ruff check --no-cache .` 全绿。
+
 ### Changed
 
 - **P5-6（孤儿表切片）：退役视觉栈遗留的三张孤儿表 `problem_extractions` / `photo_capture_items` / `photo_captures`**（2026-11-03）：
@@ -30,10 +64,9 @@
     再升级再次缺席；带存量数据的 0018 库升级同样成功且其余表数据不变。
 
 下一批待投工单（可复制的施工卡在 `docs/tooling/qoder-build-plan.md` 末段）：
-**P0-3** 端到端回归三条（把空转的 `e2e` marker 用起来）+ 给可逆迁移加 **DDL 原文 before/after
-对比**（P5-6 审核期间追加：inspector 只看名字集合，挡不住类型与默认值漂移）
-→ **P5-1** 首次运行向导（顺带补英文 README 与独立隐私声明）
+**P5-1** 首次运行向导（顺带补英文 README 与独立隐私声明）
 → **P1-3e** 移动端粘贴转录 JSON 入口 → **P1-13** 知识点归并 UI。
+（P0-3 端到端回归含 DDL 对比已于本切片交付，见上。）
 
 历史口径提醒（避免照旧文案施工）：~~P1-7c 自动排复习~~ 已于 v2.5 **作废**——入本一律经核对页
 人工确认，"未确认自动入库"这个被闸门卡住的场景已不存在；~~P0-1 边界表回填~~ 不再是入本前置
