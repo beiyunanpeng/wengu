@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from app.core.config import Settings
+from app.core.runtime_config import CONFIG_FILENAME
 
 BACKUP_PREFIX = "wengu-backup-"
 BACKUP_SUFFIX = ".zip"
@@ -224,6 +225,9 @@ def create_backup(settings: Settings) -> BackupResult:
             _add_tree(zf, data_dir / "uploads", "uploads", files)
             _add_tree(zf, data_dir / "seeds_local", "seeds_local", files)
             _add_inbox(zf, Path(settings.inbox_path), files)
+            config_file = data_dir / CONFIG_FILENAME
+            if config_file.is_file():
+                _add_file(zf, config_file, CONFIG_FILENAME, files)
             manifest: dict[str, Any] = {
                 "version": MANIFEST_VERSION,
                 "created_at": created_at,

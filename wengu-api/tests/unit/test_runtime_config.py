@@ -1,9 +1,14 @@
-"""P2-1 运行时配置：daily_review_limit 默认值、非法回退与热加载。"""
+"""P2-1 运行时配置：daily_review_limit 默认值、非法回退与热加载。
+
+P5-1a 增补：路径解析（env → data_dir → legacy 只读）、白名单校验、原子写。
+"""
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from app.core.runtime_config import (
@@ -12,9 +17,13 @@ from app.core.runtime_config import (
     DEFAULT_EXAM_DAY_LIMIT_FACTOR,
     MAX_DAILY_RECITATION_LIMIT,
     MAX_DAILY_REVIEW_LIMIT,
+    ConfigError,
+    app_config_location,
     daily_recitation_limit,
     daily_review_limit,
+    describe_config,
     exam_day_limit_factor,
+    save_config,
 )
 
 
@@ -142,3 +151,144 @@ def test_recitation_limit_hot_reload_picks_up_new_value(tmp_path, monkeypatch) -
 
     _write_recitation_limit(path, 1)
     assert daily_recitation_limit() == 1
+
+
+def _settings(data_dir: Path) -> SimpleNamespace:
+    return SimpleNamespace(data_dir=data_dir)
+
+
+def test_docker_layout_resolves_to_data_dir(tmp_path, monkeypatch) -> None:
+    """API_DIR=/app → PROJECT_ROOT=/ 时，配置必须落 /app/data 而不是 /config。"""
+
+    monkeypatch.delenv("WENGU_APP_CONFIG", raising=False)
+    data_dir = tmp_path / "data"
+    location = app_config_location(
+        _settings(data_dir), project_root=Path("/"), env={}
+    )
+
+    assert location.source == "default"
+    assert location.read_path == data_dir / "app-config.json"
+    assert location.write_path == data_dir / "app-config.json"
+
+
+def test_data_dir_file_wins_over_repo_config(tmp_path, monkeypatch) -> None:
+    monkeypatch.delenv("WENGU_APP_CONFIG", raising=False)
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    repo = tmp_path / "repo"
+    (repo / "config").mkdir(parents=True)
+    (repo / "config" / "app-config.json").write_text(
+        json.dumps({"daily_review_limit": 4}), encoding="utf-8"
+    )
+    (data_dir / "app-config.json").write_text(
+        json.dumps({"daily_review_limit": 7}), encoding="utf-8"
+    )
+
+    location = app_config_location(_settings(data_dir), project_root=repo, env={})
+    assert location.source == "data"
+    assert location.read_path == data_dir / "app-config.json"
+
+    description = describe_config(_settings(data_dir), project_root=repo, env={})
+    assert description["values"]["daily_review_limit"] == 7
+    assert description["sources"]["daily_review_limit"] == "file"
+    assert description["legacy"] is False
+    assert description["hint"] is None
+
+
+async def test_legacy_fallback_reads_only_and_saves_to_data_dir(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.delenv("WENGU_APP_CONFIG", raising=False)
+    data_dir = tmp_path / "data"
+    repo = tmp_path / "repo"
+    legacy = repo / "config" / "app-config.json"
+    legacy.parent.mkdir(parents=True)
+    legacy.write_text(
+        json.dumps(
+            {"daily_review_limit": 4, "exam_day_limit_factor": 2, "legacy_junk": "x"}
+        ),
+        encoding="utf-8",
+    )
+    before = legacy.read_bytes()
+
+    location = app_config_location(_settings(data_dir), project_root=repo, env={})
+    assert location.source == "legacy"
+    assert location.read_path == legacy
+    assert location.write_path == data_dir / "app-config.json"
+
+    description = describe_config(_settings(data_dir), project_root=repo, env={})
+    assert description["legacy"] is True
+    assert description["file_source"] == "legacy"
+    assert description["values"]["daily_review_limit"] == 4
+    assert description["values"]["exam_day_limit_factor"] == 2.0
+    assert description["hint"] and "建议" in description["hint"]
+
+    await save_config(
+        _settings(data_dir),
+        updates={"daily_recitation_limit": 8},
+        project_root=repo,
+        env={},
+    )
+
+    assert legacy.read_bytes() == before, "老路径文件绝不能被改写"
+    written = json.loads((data_dir / "app-config.json").read_text(encoding="utf-8"))
+    assert written == {
+        "daily_review_limit": 4,
+        "exam_day_limit_factor": 2,
+        "daily_recitation_limit": 8,
+        "legacy_junk": "x",
+    }, "保存时应基于生效值合并，未知键原样保留"
+
+
+async def test_env_override_is_read_and_write_target(tmp_path, monkeypatch) -> None:
+    path = tmp_path / "override.json"
+    monkeypatch.setenv("WENGU_APP_CONFIG", str(path))
+
+    await save_config(updates={"daily_review_limit": 9})
+
+    assert json.loads(path.read_text(encoding="utf-8"))["daily_review_limit"] == 9
+    assert daily_review_limit() == 9
+
+
+@pytest.mark.parametrize(
+    "updates",
+    [
+        {},
+        {"unknown_key": 1},
+        {"daily_review_limit": 0},
+        {"daily_review_limit": 201},
+        {"daily_review_limit": 2.5},
+        {"daily_review_limit": True},
+        {"daily_recitation_limit": 21},
+        {"daily_recitation_limit": True},
+        {"exam_day_limit_factor": 0.5},
+        {"exam_day_limit_factor": 3.5},
+        {"exam_day_limit_factor": True},
+    ],
+)
+async def test_invalid_updates_rejected_before_write(tmp_path, updates) -> None:
+    data_dir = tmp_path / "data"
+    with pytest.raises(ConfigError):
+        await save_config(
+            _settings(data_dir), updates=updates, project_root=tmp_path / "repo", env={}
+        )
+    assert not (data_dir / "app-config.json").exists()
+
+
+async def test_concurrent_saves_leave_valid_json(tmp_path) -> None:
+    data_dir = tmp_path / "data"
+
+    await asyncio.gather(
+        *(
+            save_config(
+                _settings(data_dir),
+                updates={"daily_review_limit": (index % 200) + 1},
+                project_root=tmp_path / "repo",
+                env={},
+            )
+            for index in range(30)
+        )
+    )
+
+    payload = json.loads((data_dir / "app-config.json").read_text(encoding="utf-8"))
+    assert 1 <= payload["daily_review_limit"] <= MAX_DAILY_REVIEW_LIMIT

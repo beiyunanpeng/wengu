@@ -313,7 +313,12 @@
     COPY `config/`、compose 也只挂载 `./data` 与 `./seeds`，于是 `daily_review_limit` /
     `daily_recitation_limit` / `exam_day_limit_factor` **在 Docker 下永远读不到、静默用默认值**，
     AGENTS §5 承诺的"UI 内改免重启"在主部署路径上是空的。
-  - **P5-1a 配置持久化修复 + 家长配置端点（先做，本票）**
+  - **P5-1a 配置持久化修复 + 家长配置端点（先做，本票）** —— **已完成（2026-11-04，待评审）**
+    - 交付：`runtime_config` 三级解析（`WENGU_APP_CONFIG` → `<data_dir>/app-config.json` →
+      仓库根 `config/` 只读回退）、原子写 + 并发锁、`GET/PUT /api/config`（`require_parent`、
+      白名单 + 区间、422 不写盘）、备份打包 `<data>/app-config.json`（manifest 记 sha256）、
+      `restore.ps1`/备份文档/config 文档/docker 文档/AGENTS §5 同步。
+      无迁移（head 仍 `0020_recitation`）、无新依赖、未做 `/setup` UI。
     - 路径改为：`WENGU_APP_CONFIG`（测试覆盖）→ **`<data_dir>/app-config.json`**（Docker 与原生都持久）
       → 兼容回退仓库根 `config/app-config.json`（原生老用户，读到就用并提示迁移，**不自动搬、不静默覆盖**）；
       写入一律落 `data_dir` 那份（同目录 tmp + fsync + `os.replace`，参照 `services/local_seed.py` 的原子写）。

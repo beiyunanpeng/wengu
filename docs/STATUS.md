@@ -1,9 +1,9 @@
 # STATUS.md — 开发计划与完成情况
 
-> 快照日期：2026-11-03（**P3-3c 从错题抽词**：候选现算视图 + 家长勾选入库；零迁移；`e2e` 6 条）
-> 基线：`main` = `b4e6b95`（P3-3b / PR #30 已合并，P3-3c 卡已出）；本切片在 `feat/p3-3c-candidates` 分支，合并前工作区状态
-> 全量测试：**484 passed**（2026-11-03 本机实跑，unit 315 / integration 163 / **e2e 6**）；`pytest -m e2e` 收集 **6** 条全绿；`ruff check --no-cache .` 全绿；`npm run build` 绿
-> Alembic head：`0020_recitation`；业务表 **21 张**（P3-3c 无迁移、未改 0020 DDL）
+> 快照日期：2026-11-04（**P5-1a Docker 热配置修复 + 家长配置端点**：`<data_dir>/app-config.json` + 只读回退；无迁移）
+> 基线：`main` = `0e403cc`（P3-3c / PR #31 已合并，P5-1a 卡已出）；本切片在 `feat/p5-1a-config` 分支，合并前工作区状态
+> 全量测试：**506 passed**（2026-11-04 本机实跑，unit 331 / integration 169 / **e2e 6**）；`pytest -m e2e` 收集 **6** 条全绿；`ruff check --no-cache .` 全绿；`npm run build` 绿
+> Alembic head：`0020_recitation`；业务表 **21 张**（P5-1a 无迁移、未改表结构）
 
 本文件是**状态快照**，不替代以下事实源；冲突时以它们为准：
 
@@ -84,7 +84,7 @@
   竞赛/请假/其它不放宽。**不自动排课、不做时间块、不做考试科目↔知识点重排序、不做冲突检测、
   不从课表生成任务**；迁移 `0015_timetable_calendar` 可逆。
 - **P2-1 日队列（收窄口径）已交付**：到期队列仍纯查询，每日上限 `daily_review_limit`
-  （`config/app-config.json`，默认 10、改文件热生效）截断返回、只计数；响应新增
+  （`<data_dir>/app-config.json`，默认 10、改文件/调 `PUT /api/config` 热生效）截断返回、只计数；响应新增
   `due_total / returned / today_completed / daily_limit`，排序“逾期 `due_date` 升序 → 今日、
   同组 `mistake_id`”；复习页显示今日进度与顺延提示，**顺延不惩罚、不加重做、不做焦虑 UI**。
   背诵铺底 / 作业 deadline / 硬事件抬权重 / 时间块排课**未做**（依赖 P2-3、P3）。
@@ -122,9 +122,17 @@
   条目，按出现错题数降序取前 50；**候选只读，必须勾选才入库**，入库 `answer` 留空、不自动
   配释义；`GET /api/recitations/candidates` 与 `POST /api/recitations/candidates/batch`
   均挂 `require_parent`；撤销 = 前端逐条 `PATCH retired`。零迁移、零新依赖、未改错题链语义。
+- **P5-1a Docker 热配置修复已交付**：旧解析以 `PROJECT_ROOT/config` 为准，Docker 里
+  `PROJECT_ROOT=/` → 指向未打包也未挂载的 `/config/app-config.json`，三个运行时参数**静默走默认**。
+  现改为 `WENGU_APP_CONFIG` → **`<data_dir>/app-config.json`**（随 data 卷持久、无需额外挂载）→
+  仓库根 `config/app-config.json` **只读兼容回退**（`GET /api/config` 标 `legacy` + 迁移提示，
+  不自动搬运/删除）；写入一律落 data_dir，同目录 tmp + fsync + `os.replace` + 进程内锁。
+  新增 `GET/PUT /api/config`（均 `require_parent`，白名单三键 + 区间校验，非法 422 不写盘，
+  未知键与布尔值一律拒绝）；备份包纳入 `<data>/app-config.json`（manifest 记 sha256），
+  `restore.ps1` 恢复时替换、旧包无此文件则保留现状。无迁移、无新依赖、未做 `/setup` UI（P5-1b）。
 - **下一步（v2.6 决策轮定的顺序）**：① ~~P5-6 口径清理~~、~~P0-3 端到端回归~~、
-  ~~P3-3a 手填背诵~~、~~P3-3b 词表导入~~、~~P3-3c 从错题抽词~~ 已完成 →
-  ② P5-1 首次运行向导 + 英文 README + 独立隐私声明（开源分发票）→ ③ P1-3e 移动端投递 →
+  ~~P3-3a 手填背诵~~、~~P3-3b 词表导入~~、~~P3-3c 从错题抽词~~、~~P5-1a 配置持久化修复~~ 已完成 →
+  ② P5-1b 首次运行向导 UI + 英文 README + 独立隐私声明（开源分发票）→ ③ P1-3e 移动端投递 →
   ④ P1-13 归并 UI → ⑤ P3-4 听力默写。**PWA 已砍**（设计文档 §17-A / §12 反清单）。
 
 ## 2. 总体路线图状态
@@ -188,7 +196,8 @@
 - 到期队列三态：`quiz`（可答题，服务端判分）/ `self_eval`（大题、依赖题图，纸上自评）/
   `redo`（题库缺口，原题重做自评 + `bank_gap`）。
 - **日队列（P2-1 收窄口径）**：到期队列仍纯查询；每日上限 `daily_review_limit` 从
-  `config/app-config.json` 现读（默认 10、1–200、改文件热生效），超限项不返回、只计入
+  `<data_dir>/app-config.json` 现读（默认 10、1–200、改文件/调 `PUT /api/config` 热生效），
+  超限项不返回、只计入
   `due_total`；排序“逾期 `due_date` 升序 → 今日，同组 `mistake_id`”。响应新增
   `due_total / returned / today_completed / daily_limit`；`today_completed` 从
   `attempt_*` 事件（`payload.kind="review"` 且 `completed_on==today`）现算。
@@ -507,9 +516,9 @@
 - **测试**：`tests/integration/test_backup_api.py` 6 条（只读且内容完整、并发写入、
   轮转保留 10 份、文件名/路径遍历、403、导出→列表→下载闭环）。
 - **审核发现（v1 未做，留后续）**：
-  ① `config/app-config.json`（`daily_review_limit` / `exam_day_limit_factor` 热参数）在仓库根
-  `config/` 下、不在 `data_dir` 内，因此**不进备份包**，换机恢复后回到默认值——要么纳入包内
-  （不含密钥，安全），要么在文档里点名为"需手工另拷"。
+  ① ~~`config/app-config.json` 不在 `data_dir` 内、不进备份包~~ —— **P5-1a 已关闭**：
+  配置真源改为 `<data_dir>/app-config.json` 并纳入备份（manifest 记 sha256），
+  换机恢复后热参数不再回默认；仓库根旧文件仅作只读兼容回退、不进包（需手工迁移）。
   ② 恢复文档原本只覆盖 Docker 路径；**本机原生试用（无 Docker）必须带
   `-SkipServiceControl -SkipHealthCheck`** 并自行停起 uvicorn / vite，已在
   `docs/deploy/backup-restore.md` 补一节。
@@ -755,11 +764,15 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
   **P3-1 家长录题只进 SQLite `problem_bank`，不写 seed JSON**；P3-1b 在运行时把
   `problem_bank` 已入库行合并进检索池（seed 文件仍只读、随仓库分发）；P3-1c 后只合并
   `status='active'` 的行，作废题退出池但行与历史保留。
-- 运行时非密钥参数：`config/app-config.json`（gitignore，本机配置；示例见
-  `config/app-config.example.json`）当前含 `daily_review_limit`（默认 10）、
+- 运行时非密钥参数（P5-1a 路径修订）：真源 **`<data_dir>/app-config.json`**（Docker 即
+  `<仓库>/data/app-config.json`，随 data 卷持久；原生即 `wengu-api/data/app-config.json`），
+  示例见 `config/app-config.example.json`；解析顺序 `WENGU_APP_CONFIG` → data_dir →
+  仓库根 `config/app-config.json`（**只读兼容回退**，`GET /api/config` 返回 `legacy` 与迁移提示，
+  不自动搬运/删除）；**写入一律落 data_dir**。当前含 `daily_review_limit`（默认 10、上限 200）、
   `exam_day_limit_factor`（默认 1.5）与 `daily_recitation_limit`（默认 5、上限 20），
-  每请求现读、改文件热生效；缺失/非法回退默认。
+  每请求现读、改文件或调 `PUT /api/config` 热生效（家长 PIN）；缺失/非法回退默认。
   密钥仍只走 `wengu-api/.env`。
+- 备份包含 `<data>/app-config.json`（存在才加，manifest 记 sha256）；仓库根 legacy 配置不进包。
 - 掌握度 = 已确认 concept 的最小 mastery；`attempts.source ∈ {student_self, system_quiz}` 计入。
 
 ## 6. 未完成、阻塞与缺口
@@ -782,7 +795,7 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
 | 鉴权 / 本地 PIN | 部分完成 | P2-4 本地家长 PIN 已做（只防误入，非安全边界）；公网鉴权/隔离仍未做 | 公网暴露前走 P5-3 真鉴权或 Tailscale |
 | 化学 / 语文 seed | 已关闭（P3-8；本地点为家长自建） | 家长按教材目录在 `/local-seed` 建章级点；仓库 seed 保持只读、不覆盖上游行；id 由 `_id_counters.json` 单调发放，删除不复用 | 预置教材包（P5-4）可后续补充；章级 40–80 点、单科上限 200 |
 | Phase 2 剩余 | 部分完成 | 打印导出已随 P2-7 补齐（前端打印视图，非服务端 PDF 文件）；课表/日历只做约束层（不排课、不生成任务）；日队列仅完成“到期复习/考核”组织，背诵铺底已随 P3-3a 以独立到期端点交付，作业 deadline / 硬事件抬权重未做（依赖 P3）；番茄钟已完成（纯前端计时 + 事件打点） | 按 TICKETS 顺序 |
-| Phase 3–5 | 部分完成 | P3-1 录题流水线、P3-2 主动加练、**P3-3a 手填背诵**、**P3-3b 词表批量导入**、**P3-3c 从错题抽词**、P5-2 备份 v1 已交付；听力默写、语文、信奥、长期计划及 Phase 4 均未开始 | 按 TICKETS 顺序 |
+| Phase 3–5 | 部分完成 | P3-1 录题流水线、P3-2 主动加练、**P3-3a 手填背诵**、**P3-3b 词表批量导入**、**P3-3c 从错题抽词**、P5-2 备份 v1、**P5-1a 配置持久化修复 + 家长配置端点** 已交付；P5-1b 向导 UI、听力默写、语文、信奥、长期计划及 Phase 4 均未开始 | 按 TICKETS 顺序 |
 
 ## 7. 残留风险与技术债
 
@@ -815,8 +828,10 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
     只做格式/体积/长度/重复校验），系统不判断释义正确性；`answer` 可空、不参与任何判分。
     P3-3c 抽词不做词形还原（`practice`/`practiced` 视为两个词）、停用词是硬编码起步集、
     题面全中文时无候选；候选只按「出现错题数」排序，不做任何权重/语义筛选。
-11. **日队列配置与统计成本**：`config/app-config.json` 被 gitignore（本机配置），默认值兜底；
-    当前无“改配置”端点/UI，需手改文件（UI 热配置归 P5-1）。`today_completed` 每次 GET 扫描
+11. **日队列配置与统计成本**：P5-1a 起配置真源是 `<data_dir>/app-config.json`（随 data 卷走），
+    已有 `GET/PUT /api/config` 家长端点；**改配置 UI（`/setup` 向导）仍归 P5-1b**，
+    当前仍需手改文件或直接调 API。读取侧保留原宽松口径（复习上限超 200 钳到 200、系数 ≥1 即接受），
+    PUT 校验更严（系数 ≤3）——手改文件写超范围值仍按宽松口径生效。`today_completed` 每次 GET 扫描
     `attempt_*` 事件并解析 payload，家庭规模可接受，事件量大时需改为按 `completed_on` 建索引列
     （不得把该计数落成易变列）。
 12. **日队列上限不是任务欠账**：顺延项只截断展示，不写库、不惩罚、不加重做；次日仍按原
@@ -903,6 +918,9 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
 - 到期队列纯查询：每日上限只截断返回并计数，**不写库、不惩罚顺延、不自动加重做**；
   `today_completed` 从事件现算，不新增易变计数列；排序（逾期 `due_date` 升序 → 今日，
   同组 `mistake_id`）稳定、同输入必同输出。
+- 运行时配置只写 `<data_dir>/app-config.json`（原子写 + 进程内锁），**仓库根 `config/` 只读、
+  绝不自动搬运/删除**；`app-config` 只放非密钥参数，密钥唯一入口仍是 `.env`；
+  `PUT /api/config` 只收白名单三键并校验区间，非法 422 且不落盘，保存时保留在盘未知键。
 - 课表/日历只做约束层：不参与选题、排序、冲突检测，不从课表生成任务；写端点挂
   `require_parent`；唯一队列影响是考试日按热配置系数放大上限。
 - 番茄钟只是计时器：不规划/不排程/不自动连跑、无后台计时与通知；`pomodoro_completed`
@@ -917,8 +935,9 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
 1. ~~**P3-3a 英语背诵（家长手填）**~~、~~**P3-3b 教材词表导入**~~、~~**P3-3c 从错题抽词**~~
    已完成（2026-11-03）：自评间隔重复（档③），零模型、不进错题本；词表 CSV/TSV 由服务端
    解析、逐行报告，不依赖 P5-4 教材包；候选从 active 英语错题现算、家长勾选才入库、
-   可整批撤销。**下一步 P5-1 首次运行向导 + 英文 README + 独立隐私声明**；
-   不引入语音/ASR。
+   可整批撤销。~~**P5-1a 配置持久化修复 + 家长配置端点**~~ 已完成（2026-11-04）：
+   配置真源迁 `<data_dir>/app-config.json`、legacy 只读回退、`GET/PUT /api/config` + 备份纳入。
+   **下一步 P5-1b 首次运行向导 UI + 英文 README + 独立隐私声明**；不引入语音/ASR。
 2. **P1-7b 前置回溯诊断**：`prerequisite_edges` 已装载，固定种子 `replay` 必须可重建。
 3. **复习掌握度归因**：把已确认 concept 写入事实，让 mastery 不再恒 0.0。
 4. **外部转录质量实测（P0-1 新口径）**：用真实已批改卷 / 空白真题跑两个模板，统计 `〔?〕` 率、
@@ -972,8 +991,8 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
 
 | 工单 | 状态 | 目标 |
 |---|---|---|
-| P5-1 | 未开始 | 首次运行向导：孩子/年级 → 学科 → 教材 seed → 可选外部 agent 配置；热配置 |
-| P5-2 | 部分完成 | 已完成：家长区导出 `VACUUM INTO` 一致性快照 + `uploads`/`seeds_local`/未处理 `inbox` 打包 + manifest（sha256/表计数/迁移版本），保留最近 10 份；`scripts/restore.ps1` 停机整库替换 + 恢复文档。未做：在线热恢复、可选加密云备份、清空级联清理 |
+| P5-1 | 部分完成 | 拆两票：**P5-1a（已完成 2026-11-04）** 配置真源迁 `<data_dir>/app-config.json` + 仓库根只读回退 + `GET/PUT /api/config`（require_parent、白名单区间、422 不写盘）+ 备份纳入；**P5-1b 未开始**：首次运行向导 UI（年级 → seed 覆盖实况 → 复习/背诵上限 → 完成横幅，调 P5-1a 端点、不重启） |
+| P5-2 | 部分完成 | 已完成：家长区导出 `VACUUM INTO` 一致性快照 + `uploads`/`seeds_local`/未处理 `inbox` + **`app-config.json`（P5-1a 起）** 打包 + manifest（sha256/表计数/迁移版本），保留最近 10 份；`scripts/restore.ps1` 停机整库替换 + 恢复文档。未做：在线热恢复、可选加密云备份、清空级联清理 |
 | P5-3 | 未开始 | 可选密码 session 鉴权（默认关）；README 醒目警告公网暴露风险 |
 | P5-4 | 未开始 | 教材 seed 包机制：多教材可安装可切换（mappings 机制已有，安装 UI 未做） |
 | P5-5 | 部分完成 | **已在盘上**：LICENSE / 中文 README / CHANGELOG / `wengu-api/.env.example` / 第三方署名（`THIRD-PARTY-NOTICES.md`）/ 两法点名（README §安全与合规）。**仍缺**：**英文 README**（此前本行写"中英 README 已就位"属过实，2026-11-02 审计修正）、**独立隐私声明文档**、发布打包 |

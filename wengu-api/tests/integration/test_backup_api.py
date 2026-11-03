@@ -219,6 +219,7 @@ def test_create_backup_is_read_only_and_complete(tmp_path: Path) -> None:
         assert "seeds_local/_id_counters.json" in names
         assert "inbox/pending.json" in names
         assert "inbox/.processed/old.json" not in names
+        assert "app-config.json" not in names, "未创建运行时配置时不应凭空打包"
 
         manifest = json.loads(zf.read("manifest.json"))
         assert manifest["version"] == 1

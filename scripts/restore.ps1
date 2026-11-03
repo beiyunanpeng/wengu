@@ -9,7 +9,8 @@
     2. 停 api 服务（除非 -SkipServiceControl）；
     3. 把当前 data/ 拷到 backups/pre-restore-<时间戳>/；
     4. 校验 zip（路径遍历 / wengu.db sha256 对照 manifest）；
-    5. 替换 wengu.db（连同 -wal/-shm）与 uploads/ seeds_local/ inbox/；
+    5. 替换 wengu.db（连同 -wal/-shm）、uploads/ seeds_local/ inbox/ 与 app-config.json
+       （旧包无 app-config.json 时保留现有配置）；
     6. 起服务并轮询 /health（除非 -SkipHealthCheck）。
 
     data/.session_secret 属于本机密钥，不在备份包内；恢复时保留现有文件，
@@ -134,7 +135,7 @@ try {
     # 1) 现有 data/ 安全副本（可回滚）
     $copyNames = @(
         "wengu.db", "wengu.db-wal", "wengu.db-shm",
-        "uploads", "seeds_local", "inbox", ".session_secret"
+        "uploads", "seeds_local", "inbox", "app-config.json", ".session_secret"
     )
     $existing = @()
     if (Test-Path -LiteralPath $dataFull -PathType Container) {
@@ -212,6 +213,17 @@ try {
             New-Item -ItemType Directory -Path $target -Force | Out-Null
             Write-Host "[restore] 包内无 $name/，已置空以保持一致" -ForegroundColor Yellow
         }
+    }
+
+    # 3.1) 运行时配置（P5-1a 起随 data 卷打包；旧包里没有则保留现有文件）
+    $extractedConfig = Join-Path $extractDir "app-config.json"
+    $configTarget = Join-Path $dataFull "app-config.json"
+    if (Test-Path -LiteralPath $extractedConfig -PathType Leaf) {
+        Copy-Item -LiteralPath $extractedConfig -Destination $configTarget -Force
+        Write-Step "app-config.json 已替换"
+    }
+    else {
+        Write-Host "[restore] 包内无 app-config.json，保留现有运行时配置" -ForegroundColor Yellow
     }
 
     # 4) 起服务并核对健康
