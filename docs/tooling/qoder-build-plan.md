@@ -480,7 +480,7 @@ docs/deploy/backup-restore.md：包结构、导出下载、Docker 恢复、原�
 # 待投工单卡（v2.6 决策轮登记，**未开工**）
 
 > 来源：`docs/audit/pr1-24-retrospective.md` 的交付回顾审计 + 用户拍板（砍 PWA、归并补 UI、按建议顺序推进）。
-> 投单顺序 = ~~P5-6~~（PR#27）→ ~~P0-3~~（PR#28）→ ~~P3-3a~~（PR#29）→ ~~P3-3b~~（PR#30）→ ~~P3-3c~~（PR#31）→ ~~P5-1a~~（2026-11-04 交付，待评审）→ **P5-1b → P1-3e → P1-13**。每张卡可整段复制给 Qoder。
+> 投单顺序 = ~~P5-6~~（PR#27）→ ~~P0-3~~（PR#28）→ ~~P3-3a~~（PR#29）→ ~~P3-3b~~（PR#30）→ ~~P3-3c~~（PR#31）→ ~~P5-1a~~（**PR#32 已合并**）→ **P5-1b → P1-3e → P1-13**。每张卡可整段复制给 Qoder。
 > **2026-11-03 更新**：P5-6 孤儿表切片已交付（迁移 0019 一次退役 `problem_extractions` /
 > `photo_capture_items` / `photo_captures` 三表；见 `TICKETS.md` 与 `docs/STATUS.md` §4.18），
 > 本卡留作回溯；P0-3 亦已交付（PR#28），下一张待投 = **P3-3a**。
@@ -796,3 +796,57 @@ AGENTS §5 的"UI 内改免重启"在主部署路径上是空的。
 > e2e 6）；四表快照（`mistakes`/`mistake_versions`/`attempts`/`review_schedules`）在 GET 与批量
 > 入库前后零变化。retired 行为实测：仍算「已有」→ 再抽词**不**重新出现，重新入库报 duplicate，
 > 家长需手动把条目改回 active。下一张待投 = **P5-1**。
+>
+> **状态同步（2026-11-04）**：P5-1a 已交付（PR#32，配置落 `<data_dir>` + `GET/PUT /api/config`，
+> 全量 **506 passed**）。下一张待投 = **P5-1b**（下方新卡）。
+
+## P5-1b —— 首次运行向导（单页 /setup + 未完成横幅）
+
+```
+你在 wengu 仓库工作。开工前完整读：AGENTS.md §7（开源分发护栏）+ §2.4（可信网络默认）
++ TICKETS.md 的 P5-1b（含"不采集年级/不做学科勾选"的口径修正与理由）+
+app/api/config.py、app/core/runtime_config.py（P5-1a 刚落地的白名单与校验）、
+app/api/seed.py 的 GET /api/seed/summary、wengu-web/src/components/{AppLayout,ParentGate}.tsx。
+【全局纪律】一条 ticket = 一个 PR；禁止引入新依赖；禁止新增迁移或表结构；
+禁止新增配置键（除 setup_completed 外）；向导是**单页**，不做多步向导机。
+【口径修正（必读，覆盖 AGENTS §7 旧表述）】向导**不采集年级、不做"勾选学科"**：
+v2.5 后 seed 全量装载初中 7–9、复习与考核都不以年级为输入，采集了没有逻辑消费它 =
+装饰字段 + 多余 PII；家里就一个孩子，全部学科都是他的，勾选同样无作用。
+本票只做三件**真有作用**的事：展示 seed 覆盖、设置运行上限、标记完成。
+【任务】
+1) 后端：把 `setup_completed: bool` 加进 runtime_config 白名单（_ALLOWED_KEYS / 校验体系）。
+   ⚠️ 现有 `_reject_bool` 是挂在三个**数值键**上的 field_validator：加布尔键时必须按字段分别校验
+   —— 布尔键只接受真正的 true/false，数值键继续拒绝布尔；
+   **不得**为省事把"拒绝布尔"改成全局放开或全局禁止（那会让 `daily_review_limit: true` 复活）。
+   非法值 422 且不写文件（沿用 P5-1a 的 save_config 语义）。
+2) 前端 `/setup` 单页（家长解锁才让写，复用 ParentGate）：
+   ① seed 覆盖：调既有 `GET /api/seed/summary`，按 数学/英语/物理/语文/化学 五行显示 topics 数。
+      **陷阱：该接口按 group_by 聚合，零主题的学科不返回行**——前端必须把"缺席"当 0 处理，
+      否则语文/化学会显示成空白而不是"0 个知识点"。为 0 的学科给一条引导：
+      "先去「学科 seed」页建章级知识点" + 链接到 /local-seed（只引导，不自动建）。
+   ② 运行上限：GET /api/config 回填，PUT /api/config 保存 daily_review_limit /
+      daily_recitation_limit / exam_day_limit_factor；保存成功后显示"已生效，无需重启"。
+   ③ 完成/跳过：PUT /api/config {setup_completed: true}。"跳过"与"完成"写同一个键
+      （语义就是"不再提示"），**不要新增 setup_skipped 第二个标记**。
+3) AppLayout 顶部横幅：`setup_completed` 为假时出现，含进入 /setup 的链接；完成后消失。
+   **不劫持路由**（孩子一打开就被迫填表是错的），/setup 任何时候可从横幅再次进入。
+4) 文档：CHANGELOG [Unreleased] 记 Added、STATUS 续写 P5-1 段、README 快速开始加一句
+   "首次打开会有设置向导"、AGENTS §7 的"孩子/年级→勾选学科"按本票口径修正、
+   TICKETS 与本卡状态同步。
+【DoD】
+- 后端：setup_completed 只接受布尔（传 "yes" / 1 / null → 422 且不写文件）；
+  **数值键仍拒绝布尔**（回归断言，防"全局放开"）；未解锁 GET/PUT 403 不变。
+- 向导写入的上限经 `GET /api/reviews/due` 的 **`daily_limit`** 字段立即生效（不重启）；
+  注意 `limit` 是请求参数、`daily_limit` 才是运行时配置生效值，别断错字段。
+- seed 覆盖：语文/化学在零主题时显示 0（不是空白）并出现 /local-seed 引导链接——有测试或截图证据。
+- 横幅：未完成出现、完成后消失（组件测试或 e2e 断言）；不做路由劫持（断言未完成时
+  直接访问 /review 仍正常渲染）。
+- 窄屏可用（375px 宽不溢出）。
+- `pytest -m e2e` 第 7 条：全新库 → GET /api/config 的 setup_completed 为假 →
+  向导设 daily_review_limit=3 + 标记完成 → 横幅条件消失 → due 的 daily_limit 立即为 3。
+- `pytest -q` 全绿（当前基线 506 passed）、CI 绿、`ruff check --no-cache .` 绿、`npm run build` 绿。
+【禁止】采集姓名/生日/年级/照片；强制路由劫持；在向导里放模型 Key 或供应商选择
+（v2.5 零模型，放了就是邀请回归）；新增 setup_skipped 之类第二个标记键；
+新建"seed 覆盖"端点（GET /api/seed/summary 已够用）；把单页做成多步向导；
+为"以后按年级过滤"预留 profile 结构。
+```
