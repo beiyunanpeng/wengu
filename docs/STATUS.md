@@ -1,9 +1,9 @@
 # STATUS.md — 开发计划与完成情况
 
-> 快照日期：2026-11-03（**P5-6 孤儿表切片**：迁移 0019 退役 `photo_captures` / `photo_capture_items`）
+> 快照日期：2026-11-03（**P5-6 孤儿表切片**：迁移 0019 退役 `problem_extractions` / `photo_capture_items` / `photo_captures` 三张视觉栈表）
 > 基线：`main` = `b481943`；本切片在 `feat/p5-6-orphan-tables` 分支，合并前工作区状态
 > 全量测试：**398 passed**（2026-11-03 本机实跑，unit 272 / integration 126 / **e2e 0**）；`ruff check --no-cache .` 全绿；`npm run build` 绿
-> Alembic head：`0019_drop_orphan_photo_tables`；业务表 **20 张**（0019 已退役 2 张视觉栈孤儿表）
+> Alembic head：`0019_drop_orphan_photo_tables`；业务表 **19 张**（0019 已退役 3 张视觉栈孤儿表）
 
 本文件是**状态快照**，不替代以下事实源；冲突时以它们为准：
 
@@ -488,24 +488,27 @@
 
 ### 4.18 孤儿表退役（P5-6 切片）
 
-- **背景**：`photo_captures` / `photo_capture_items` 是 P1-3/P1-3b 拍照与切片通道的表；
-  v2.5 视觉栈整体退役后，`app/` 已无任何读写方，只剩 ORM 类与迁移 0004/0005 当"活化石"。
-- **本切片**：迁移 `0019_drop_orphan_photo_tables` DROP 两表及显式索引
-  （`ix_photo_captures_status`、`ix_photo_capture_items_capture_id`）；`downgrade` 按原定义
-  重建空表（UNIQUE `uq_photo_captures_sha256` / `uq_photo_capture_items_capture_seq`、
-  FK `fk_photo_capture_items_capture_id`、两索引），不回填数据。同步删除
-  `models/ingestion.py` 的两个 ORM 类与 `models/__init__.py` 导出；`services/backup.py`
-  的 `COUNT_TABLES` 去掉两项（manifest 表计数从 13 项变 11 项）。
+- **背景**：`photo_captures` / `photo_capture_items` / `problem_extractions` 是 P1-3/P1-3b/P1-4
+  拍照、切片与提取通道的表；v2.5 视觉栈整体退役后，`app/` 已无任何读写方，只剩迁移
+  0004/0005/0006 当"活化石"。前两张被删后，`problem_extractions` 的两个 FK 会永久悬空，
+  故三张一并退役，**不留悬空外键**。
+- **本切片**：迁移 `0019_drop_orphan_photo_tables` 先删 `problem_extractions`（含其两个索引），
+  再删 `photo_capture_items`（含 `ix_photo_capture_items_capture_id`），最后删父表
+  `photo_captures`（含 `ix_photo_captures_status`）；`downgrade` 反向重建三张空表
+  （`problem_extractions` 18 列、UNIQUE `uq_problem_extractions_capture_source_seq`、两个
+  `ON DELETE CASCADE` FK；`photo_captures` / `photo_capture_items` 按 0004/0005 原定义），
+  不回填数据。同步删除 `models/ingestion.py` 的两个 ORM 类与 `models/__init__.py` 导出；
+  `services/backup.py` 的 `COUNT_TABLES` 去掉两项（manifest 表计数从 13 项变 11 项）；
+  `problem_extractions` 本无 ORM 类、也从未进 `COUNT_TABLES`，无需代码改动。
 - **备份前置**：升级前先跑家长区「备份」导出（`POST /api/backup/export`），或按
   `wengu-api/migrations/README.md` 复制 `wengu.db` 到仓库外；迁移文档已写明。
-- **实测**：临时库 `alembic upgrade head` → `0019_drop_orphan_photo_tables`，业务表 **20 张**，
-  两表缺席、`problem_extractions` 仍在；`downgrade -1` 后两表按原结构重建（0 行），
+- **实测**：临时库 `alembic upgrade head` → `0019_drop_orphan_photo_tables`，业务表 **19 张**，
+  三表全部缺席、`PRAGMA foreign_key_check` 返回空；`downgrade -1` 后三表按原结构重建（0 行），
   再 `upgrade head` 再次缺席。
-- **测试**：新增 `test_p5_6_drops_orphan_photo_tables_up_down_up`（列/索引/唯一约束/FK/
-  数据不回填/up-down-up）；`EXPECTED_TABLES` 移除两项。全量 398 passed
+- **测试**：新增 `test_p5_6_drops_orphan_photo_tables_up_down_up`（三表列/索引/唯一约束/FK/
+  级联/数据不回填/up-down-up/`foreign_key_check` 空）；`EXPECTED_TABLES` 移除三项。全量 398 passed
   （unit 272 / integration 126 / e2e 0），`ruff check --no-cache .` 全绿。
-- **残留**：`problem_extractions` 同样无读写方，但不在本票点名范围；其 FK 指向已删父表
-  （无读写方、暂无影响），另开工单清理。
+- **残留**：无。三张视觉栈遗留表已一次删净，仓库内不再有指向缺失表的 FK。
 
 ## 5. API 与数据现状
 
@@ -551,19 +554,20 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
 
 ### 5.2 数据库与 seed
 
-- Alembic head `0019_drop_orphan_photo_tables`；**20 张业务表**（0016 新增 `bank_drafts`，
+- Alembic head `0019_drop_orphan_photo_tables`；**19 张业务表**（0016 新增 `bank_drafts`，
   `problem_bank` 补 `topic_id` FK + `question_type/difficulty/choices_json/figure/hide_choice_text/percent`；
   0017 再补 `status TEXT NOT NULL server_default 'active'`（CHECK `active|voided`）+
   `updated_at DATETIME NULL`，既有行回填 `active`；0018 给 `practice_records` 补
   `topic_id TEXT NULL` / `seed INTEGER NULL` / `dedup_key TEXT NULL` + 部分唯一索引
   `uq_practice_records_dedup_key ... WHERE dedup_key IS NOT NULL`，既有行三列保持 NULL；
-  0019 DROP `photo_captures` / `photo_capture_items` 及其显式索引）。
-- 迁移 `0019_drop_orphan_photo_tables`：v2.5 后两表在 `app/` 零读写，本票只删这两张表；
-  `downgrade` 按 0004/0005 原定义重建空表（列/UNIQUE/FK/索引齐全），**不回填历史数据**。
-  **升级前先跑家长区导出备份**（或复制 `wengu.db` 到仓库外）；backup 的 `COUNT_TABLES`
-  已同步去掉这两项。up/down/up 可重入见 `tests/integration/test_migrations.py`。
-- `problem_extractions` 表仍保留但同样无读写方（本票只点名两张表）；它指向已删父表的 FK
-  在升级后悬空，因无任何读写方暂无实际影响，彻底清理另开工单。
+  0019 DROP `problem_extractions` / `photo_capture_items` / `photo_captures` 及其显式索引）。
+- 迁移 `0019_drop_orphan_photo_tables`：v2.5 后三表在 `app/` 零读写，本票一次删净、不留悬空 FK；
+  `downgrade` 按 0004/0005/0006 原定义重建三张空表（列/UNIQUE/FK/级联/索引齐全），
+  **不回填历史数据**。**升级前先跑家长区导出备份**（或复制 `wengu.db` 到仓库外）；backup 的
+  `COUNT_TABLES` 已同步去掉 `photo_captures` / `photo_capture_items` 两项。up/down/up 可重入见
+  `tests/integration/test_migrations.py`。
+- 历史口径：`problem_extractions` 曾是 P1-4 提取通道的表，v2.5 后无读写方并已于 0019 一并退役
+  （本行原记"另开工单"，范围扩充后不再适用）。
 - `bank_drafts`：`import_batch_id` FK + `seq` + `normalized_json` + `has_placeholder` +
   `status draft|approved|rejected` + `created_at`，`UNIQUE(import_batch_id, seq)`；
   草稿永不自动转正，只能由家长审核端点翻状态。
@@ -788,7 +792,7 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
 | P5-3 | 未开始 | 可选密码 session 鉴权（默认关）；README 醒目警告公网暴露风险 |
 | P5-4 | 未开始 | 教材 seed 包机制：多教材可安装可切换（mappings 机制已有，安装 UI 未做） |
 | P5-5 | 部分完成 | **已在盘上**：LICENSE / 中文 README / CHANGELOG / `wengu-api/.env.example` / 第三方署名（`THIRD-PARTY-NOTICES.md`）/ 两法点名（README §安全与合规）。**仍缺**：**英文 README**（此前本行写"中英 README 已就位"属过实，2026-11-02 审计修正）、**独立隐私声明文档**、发布打包 |
-| P5-6 | 部分完成 | 交付口径与盘上一致性清理（v2.6 审计新增）。**已完成孤儿表切片**：迁移 0019 DROP `photo_captures`/`photo_capture_items`（可逆、含备份说明）、删 ORM 类与备份表计数，业务表 22 → 20，见 §4.18。**剩余**：Phase 5 行与 §7 表格的进一步口径复核；见 `docs/audit/pr1-24-retrospective.md` |
+| P5-6 | 部分完成 | 交付口径与盘上一致性清理（v2.6 审计新增）。**已完成孤儿表切片**：迁移 0019 DROP `problem_extractions`/`photo_capture_items`/`photo_captures`（可逆、含备份说明、不留悬空 FK）、删 ORM 类与备份表计数，业务表 22 → 19，见 §4.18。**剩余**：Phase 5 行与 §7 表格的进一步口径复核；见 `docs/audit/pr1-24-retrospective.md` |
 
 ## 11. 维护约定
 

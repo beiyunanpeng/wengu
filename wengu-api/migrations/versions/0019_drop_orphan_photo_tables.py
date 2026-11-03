@@ -1,18 +1,18 @@
-"""P5-6：退役视觉栈遗留的孤儿表 photo_captures / photo_capture_items
+"""P5-6：退役视觉栈遗留的三张孤儿表（problem_extractions / photo_capture_items / photo_captures）
 
 Revision ID: 0019_drop_orphan_photo_tables
 Revises: 0018_practice_dedup
 Create Date: 2026-11-03
 
-v2.5 起真实题批改与提取全部移出系统，`app/` 业务代码对这两张表**零读写**
-（P1-12 已删除 captures/extractions 端点与 provider 栈）。只 DROP 这两张表及其
-显式索引；`problem_extractions` 按本票清单**保留**（该表同样无读写方，彻底清理另开工单），
-其两个 FK 在 SQLite 里按表名解析，升级后暂时悬空、降级重建父表后自动重新有效。
+v2.5 起真实题批改与提取全部移出系统，`app/` 业务代码对这三张表**零读写**
+（P1-12 已删除 captures/extractions 端点与 provider 栈，`app/models/extraction.py` 也已删除）。
+三张表一并退役：先删 `problem_extractions`，再删其父表 `photo_capture_items` /
+`photo_captures`，**不留悬空外键**。
 
 备份/回退：升级前先在家长区「备份」页导出（或 `POST /api/backup/export`）拿到整库
 一致性快照，或按 `migrations/README.md` 把 `wengu-api/data/wengu.db` 复制到仓库外。
-降级 `alembic downgrade -1` 按 0004/0005 的原始定义重建两张空表（含 UNIQUE、FK 与索引），
-**不回填历史照片/切图记录**；uploads 目录里的旧图片不动。
+降级 `alembic downgrade -1` 按 0004/0005/0006 的原始定义重建三张空表（含 UNIQUE、FK 与索引），
+**不回填历史照片/切图/提取记录**；uploads 目录里的旧图片不动。
 """
 
 from __future__ import annotations
@@ -34,6 +34,14 @@ def _tables() -> set[str]:
 
 def upgrade() -> None:
     existing = _tables()
+    if "problem_extractions" in existing:
+        op.drop_index(
+            "ix_problem_extractions_capture_id", table_name="problem_extractions"
+        )
+        op.drop_index(
+            "ix_problem_extractions_item_id", table_name="problem_extractions"
+        )
+        op.drop_table("problem_extractions")
     if "photo_capture_items" in existing:
         op.drop_index(
             "ix_photo_capture_items_capture_id", table_name="photo_capture_items"
@@ -87,4 +95,56 @@ def downgrade() -> None:
             "ix_photo_capture_items_capture_id",
             "photo_capture_items",
             ["photo_capture_id"],
+        )
+    if "problem_extractions" not in existing:
+        op.create_table(
+            "problem_extractions",
+            sa.Column("id", sa.Integer(), primary_key=True),
+            sa.Column("photo_capture_id", sa.Integer(), nullable=False),
+            sa.Column("photo_capture_item_id", sa.Integer(), nullable=True),
+            sa.Column("seq", sa.Integer(), nullable=False),
+            sa.Column("source_kind", sa.Text(), nullable=False),
+            sa.Column("image_path", sa.Text(), nullable=False),
+            sa.Column("problem_text", sa.Text(), nullable=False),
+            sa.Column("student_answer", sa.Text(), nullable=True),
+            sa.Column("confidence", sa.Float(), nullable=True),
+            sa.Column("problem_complete", sa.Boolean(), nullable=True),
+            sa.Column("gate_status", sa.Text(), nullable=False),
+            sa.Column("review_reasons_json", sa.Text(), nullable=False),
+            sa.Column("figure_keywords_json", sa.Text(), nullable=False),
+            sa.Column("prompt_id", sa.Text(), nullable=False),
+            sa.Column("prompt_version", sa.Integer(), nullable=False),
+            sa.Column("provider", sa.Text(), nullable=False),
+            sa.Column("model", sa.Text(), nullable=False),
+            sa.Column(
+                "created_at", sa.DateTime(), nullable=False, server_default=sa.func.now()
+            ),
+            sa.UniqueConstraint(
+                "photo_capture_id",
+                "source_kind",
+                "seq",
+                name="uq_problem_extractions_capture_source_seq",
+            ),
+            sa.ForeignKeyConstraint(
+                ["photo_capture_id"],
+                ["photo_captures.id"],
+                name="fk_problem_extractions_capture_id",
+                ondelete="CASCADE",
+            ),
+            sa.ForeignKeyConstraint(
+                ["photo_capture_item_id"],
+                ["photo_capture_items.id"],
+                name="fk_problem_extractions_item_id",
+                ondelete="CASCADE",
+            ),
+        )
+        op.create_index(
+            "ix_problem_extractions_capture_id",
+            "problem_extractions",
+            ["photo_capture_id"],
+        )
+        op.create_index(
+            "ix_problem_extractions_item_id",
+            "problem_extractions",
+            ["photo_capture_item_id"],
         )

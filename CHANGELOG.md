@@ -9,21 +9,23 @@
 
 ### Changed
 
-- **P5-6（孤儿表切片）：退役 `photo_captures` / `photo_capture_items`**（2026-11-03）：
-  v2.5 视觉栈退役后，这两张表在 `app/` 已零读写，只剩 ORM 类与建表迁移当"活化石"。
-  **为何现在才删**：P1-12 只删了调用方、端点与 `model_runs` 审计表，0004/0005 建的表和
-  `models/ingestion.py` 的类一直留着，直到 v2.6 审计（`docs/audit/pr1-24-retrospective.md`
-  §4-B3）把"文档/盘上不一致"收口才一并退役。本票出**可逆迁移 0019**
-  （`0019_drop_orphan_photo_tables`）DROP 两表及显式索引；`downgrade` 按 0004/0005 原定义
-  重建空表结构、**不回填历史数据**。同步删除两个 ORM 类与 `models/__init__.py` 导出；
-  `services/backup.py` 的 `COUNT_TABLES` 去掉两项；业务表 22 → 20 张。
-  **升级前先跑家长区导出备份**（迁移说明已写）；`problem_extractions` 仍保留，另开工单清理。
-  - 测试：新增 0019 up/down/up 用例（列/索引/唯一约束/FK/数据不回填），`EXPECTED_TABLES`
-    去掉两表；全量 **398 passed**（unit 272 / integration 126 / e2e 0），
-    `ruff check --no-cache .` 绿、`npm run build` 绿。
-  - 运行态证据：临时库 `alembic upgrade head` → head `0019`、**20 张业务表**、
-    两表缺席而 `problem_extractions` 仍在；`downgrade -1` 后两表按原结构重建（0 行），
-    再升级再次缺席。
+- **P5-6（孤儿表切片）：退役视觉栈遗留的三张孤儿表 `problem_extractions` / `photo_capture_items` / `photo_captures`**（2026-11-03）：
+  v2.5 视觉栈退役后，这三张表在 `app/` 已零读写，只剩建表迁移（0004/0005/0006）当"活化石"。
+  **为何现在才删**：P1-12 只删了调用方、端点与 `model_runs` 审计表，0004/0005/0006 建的表
+  （以及 `models/ingestion.py` 里的两个 ORM 类）一直留着，直到 v2.6 审计
+  （`docs/audit/pr1-24-retrospective.md` §4-B3）把"文档/盘上不一致"收口才一并退役。
+  本票出**可逆迁移 0019**（`0019_drop_orphan_photo_tables`）按"先子后父"一次 DROP 三表及显式
+  索引（`problem_extractions` 的两个 FK 指向另两张表，若只删父表会留下永久悬空外键，故三张
+  一并退役、不留悬空 FK）；`downgrade` 按 0004/0005/0006 原定义重建三张空表结构、
+  **不回填历史数据**。同步删除两个 ORM 类与 `models/__init__.py` 导出；
+  `services/backup.py` 的 `COUNT_TABLES` 去掉两项；业务表 22 → 19 张。
+  **升级前先跑家长区导出备份**（迁移说明已写）。
+  - 测试：新增 0019 up/down/up 用例（三表列/索引/唯一约束/FK/级联/数据不回填 +
+    `PRAGMA foreign_key_check` 为空），`EXPECTED_TABLES` 去掉三表；全量 **398 passed**
+    （unit 272 / integration 126 / e2e 0），`ruff check --no-cache .` 绿、`npm run build` 绿。
+  - 运行态证据：临时库 `alembic upgrade head` → head `0019`、**19 张业务表**、
+    三表全部缺席且 `PRAGMA foreign_key_check` 返回空；`downgrade -1` 后三表按原结构重建（0 行），
+    再升级再次缺席；带存量数据的 0018 库升级同样成功且其余表数据不变。
 
 下一批待投工单（可复制的施工卡在 `docs/tooling/qoder-build-plan.md` 末段）：
 **P0-3** 端到端回归三条（把空转的 `e2e` marker 用起来）
