@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,6 +28,11 @@ from app.services.recitation import (
     list_items,
     review_item,
     update_item,
+)
+from app.services.recitation_import import (
+    MAX_IMPORT_BODY_BYTES,
+    ImportRejected,
+    import_items,
 )
 
 router = APIRouter(tags=["recitations"])
@@ -98,6 +103,28 @@ class ReviewResponse(BaseModel):
     scheduled_next: date | None
     graduated: bool
     created: bool
+
+
+class ImportRequest(BaseModel):
+    subject: str = Field(min_length=1, max_length=80)
+    text: str
+
+
+class ImportDuplicateView(BaseModel):
+    line: int
+    prompt: str
+
+
+class ImportErrorView(BaseModel):
+    line: int
+    field: str | None = None
+    reason: str
+
+
+class ImportResponse(BaseModel):
+    imported: int
+    duplicates: list[ImportDuplicateView]
+    errors: list[ImportErrorView]
 
 
 def _item_view(item: RecitationItem) -> ItemView:
@@ -182,6 +209,57 @@ async def get_due_recitations(
         returned=due.returned,
         limit=due.limit,
         today=day,
+    )
+
+
+@router.post(
+    "/api/recitations/import",
+    response_model=ImportResponse,
+    dependencies=[Depends(require_parent)],
+)
+async def import_recitations(
+    payload: ImportRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+) -> ImportResponse:
+    raw = await request.body()
+    if len(raw) > MAX_IMPORT_BODY_BYTES:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": "导入被拒绝",
+                "line": None,
+                "field": "text",
+                "reason": f"请求体超过 {MAX_IMPORT_BODY_BYTES // 1024}KB",
+            },
+        )
+    async with session.begin():
+        try:
+            report = await import_items(
+                session, subject=payload.subject, text=payload.text
+            )
+        except ImportRejected as exc:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "message": "导入被拒绝",
+                    "line": exc.line,
+                    "field": exc.field,
+                    "reason": str(exc),
+                },
+            ) from None
+    return ImportResponse(
+        imported=report.imported,
+        duplicates=[
+            ImportDuplicateView(line=row.line, prompt=row.prompt)
+            for row in report.duplicates
+        ],
+        errors=[
+            ImportErrorView(
+                line=issue.line, field=issue.field, reason=issue.reason
+            )
+            for issue in report.issues
+        ],
     )
 
 

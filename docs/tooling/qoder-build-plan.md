@@ -684,3 +684,10 @@ category_id/标签快照**一字未改**（用全表快照断言）；名称解�
 【禁止】静默丢弃坏行或重复行；静默更新已有条目；引入 pandas / 新依赖；做草稿暂存表；
 让 LLM 生成或翻译词表；把解析放前端（服务端是唯一解析与校验真源）；动 0020 的表结构。
 ```
+
+> **状态同步（2026-11-03）**：本卡已交付（`feat/p3-3b-recitation-import`）。
+> 落地：`wengu-api/app/services/recitation_import.py`（stdlib `csv`、TSV 判定、表头/空行/注释、
+> 限额与 U+FFFD 拒绝、物理行号）+ `POST /api/recitations/import`（`require_parent`）+
+> `/recitations` 家长区「批量导入」；**无迁移、未改 0020 DDL、无新依赖**。
+> 验证：新增单测 11 + 集成 11 + e2e 第 5 条；全量 **465 passed**（unit 304 / integration 156 /
+> e2e 5）；`ruff check --no-cache .` 与 `npm run build` 全绿。下一张待投 = **P5-1**（P3-3c 排在期后）。

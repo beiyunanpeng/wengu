@@ -744,6 +744,96 @@ async def test_recitation_manual_entry_ladder_dashboard_streak(tmp_path) -> None
 
 
 @pytest.mark.e2e
+async def test_recitation_import_report_then_due_and_ladder(tmp_path) -> None:
+    """⑤ 家长导入 3 行（1 重复、1 坏）→ 报告正确、好行入库 → 孩子自评走阶梯。"""
+
+    factory = _migrated(tmp_path / "recitation-import-loop.db")
+    day = date(2026, 11, 2)
+
+    async with _client(factory) as client:
+        await _unlock(client)
+        created = await client.post(
+            "/api/recitations",
+            json={
+                "subject": "英语",
+                "prompt": "abandon",
+                "answer": "放弃",
+                "unit": "Unit 1",
+            },
+        )
+        assert created.status_code == 200, created.text
+
+        imported = await client.post(
+            "/api/recitations/import",
+            json={
+                "subject": "英语",
+                "text": (
+                    "prompt,answer,unit\n"
+                    "abandon,放弃,Unit 1\n"
+                    "ability,能力,Unit 1\n"
+                    ",缺少条目,Unit 2\n"
+                ),
+            },
+        )
+        assert imported.status_code == 200, imported.text
+        report = imported.json()
+        assert report["imported"] == 1
+        assert report["duplicates"] == [{"line": 2, "prompt": "abandon"}]
+        assert report["errors"] == [
+            {"line": 4, "field": "prompt", "reason": "prompt 不能为空"}
+        ]
+
+        due = await client.get(
+            "/api/recitations/due", params={"today": day.isoformat()}
+        )
+        assert due.status_code == 200, due.text
+        due_body = due.json()
+        assert due_body["due_total"] == 2
+        assert [entry["item"]["prompt"] for entry in due_body["items"]] == [
+            "abandon",
+            "ability",
+        ]
+
+        # 导入行拿到 id=2；remembered → rung 1，下次从实际完成日 +3 天。
+        reviewed = await client.post(
+            "/api/recitations/2/review",
+            json={"verdict": "remembered", "reviewed_on": day.isoformat()},
+        )
+        assert reviewed.status_code == 200, reviewed.text
+        body = reviewed.json()
+        assert body["item"]["prompt"] == "ability"
+        assert body["created"] is True
+        assert body["rung"] == 1
+        assert body["scheduled_next"] == (
+            day + timedelta(days=3)
+        ).isoformat()
+
+        repeated = await client.post(
+            "/api/recitations/2/review",
+            json={"verdict": "remembered", "reviewed_on": day.isoformat()},
+        )
+        assert repeated.status_code == 200, repeated.text
+        assert repeated.json()["created"] is False
+        assert repeated.json()["rung"] == 1
+
+        dashboard = await client.get(
+            "/api/dashboard", params={"today": day.isoformat()}
+        )
+        assert dashboard.status_code == 200, dashboard.text
+        board = dashboard.json()
+
+    assert board["recitations_today"] == 1
+    assert board["recitation_limit"] == 5
+    assert board["streak"]["today_done"] is True
+    assert board["event_stats"]["by_type"]["recitation_reviewed"] == 1
+    assert board["mastery"]["overall"] == 0.0
+
+    async with factory() as session:
+        for model in (Mistake, MistakeVersion, Attempt, ReviewSchedule):
+            assert (await session.execute(select(model))).all() == []
+
+
+@pytest.mark.e2e
 async def test_backup_export_snapshot_and_manifest_agree(tmp_path) -> None:
     """③ 家长导出 → 快照可打开且 integrity_check=ok → manifest 计数逐项相等。"""
 

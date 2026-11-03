@@ -4,13 +4,16 @@ import {
   Button,
   Card,
   Divider,
+  FileInput,
   Group,
   Loader,
   Progress,
+  Select,
   SimpleGrid,
   Stack,
   Table,
   Text,
+  Textarea,
   TextInput,
   Title,
 } from "@mantine/core";
@@ -21,6 +24,7 @@ import {
   createRecitation,
   getDashboard,
   getDueRecitations,
+  importRecitations,
   listRecitations,
   reviewRecitation,
   updateRecitation,
@@ -28,12 +32,23 @@ import {
 import type {
   RecitationDueItem,
   RecitationDueResponse,
+  RecitationImportResponse,
   RecitationItem,
   RecitationListResponse,
   RecitationVerdict,
 } from "../api/types";
 import { toISODate } from "../lib/dates";
 import { useParentSession } from "../parent/ParentSession";
+
+const IMPORT_SUBJECTS = [
+  "英语",
+  "语文",
+  "历史",
+  "道德与法治",
+  "道法",
+  "生物",
+  "地理",
+];
 
 export default function RecitationsPage() {
   const { unlocked } = useParentSession();
@@ -54,6 +69,13 @@ export default function RecitationsPage() {
   const [answer, setAnswer] = useState("");
   const [unit, setUnit] = useState("");
   const [adding, setAdding] = useState(false);
+
+  const [importSubject, setImportSubject] = useState("英语");
+  const [importText, setImportText] = useState("");
+  const [importFileName, setImportFileName] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importReport, setImportReport] =
+    useState<RecitationImportResponse | null>(null);
 
   async function load(showSpinner = true) {
     if (showSpinner) {
@@ -134,8 +156,45 @@ export default function RecitationsPage() {
     }
   }
 
-  async function toggleStatus(item: RecitationItem) {
-    if (busyId !== null) {
+  async function pickImportFile(file: File | null) {
+    if (!file) {
+      return;
+    }
+    setActionError(null);
+    try {
+      setImportText(await file.text());
+      setImportFileName(file.name);
+    } catch {
+      setActionError("读取文件失败，请重试或改为粘贴文本");
+    }
+  }
+
+  async function runImport() {
+    if (importing) {
+      return;
+    }
+    if (!importText.trim()) {
+      setActionError("请先选择 CSV/TSV 文件或粘贴词表文本");
+      return;
+    }
+    setImporting(true);
+    setActionError(null);
+    setImportReport(null);
+    try {
+      const report = await importRecitations({
+        subject: importSubject,
+        text: importText,
+      });
+      setImportReport(report);
+      await load(false);
+    } catch (cause) {
+      setActionError(errorMessage(cause));
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  async function toggleStatus(item: RecitationItem) {    if (busyId !== null) {
       return;
     }
     setBusyId(item.id);
@@ -337,6 +396,90 @@ export default function RecitationsPage() {
                     添加条目
                   </Button>
                 </Group>
+
+                <Divider
+                  my="xs"
+                  label="批量导入（CSV / TSV）"
+                  labelPosition="left"
+                />
+                <Group align="flex-end" gap="sm" wrap="wrap">
+                  <Select
+                    label="导入到学科"
+                    data={IMPORT_SUBJECTS}
+                    value={importSubject}
+                    onChange={(value) => setImportSubject(value ?? "英语")}
+                    allowDeselect={false}
+                    w={160}
+                  />
+                  <FileInput
+                    label="选择文件"
+                    placeholder=".csv / .tsv / .txt"
+                    accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values,text/plain"
+                    value={null}
+                    onChange={(file) => void pickImportFile(file)}
+                    w={240}
+                  />
+                  <Button
+                    variant="light"
+                    onClick={() => void runImport()}
+                    loading={importing}
+                  >
+                    导入词表
+                  </Button>
+                </Group>
+                <Textarea
+                  label="或直接粘贴词表"
+                  description="每行 prompt, answer, unit；首行表头可省略。空行与 # 开头的注释行会跳过。选择文件会覆盖此处文本。"
+                  placeholder={"prompt,answer,unit\nabandon,放弃,Unit 1"}
+                  value={importText}
+                  onChange={(event) => {
+                    setImportText(event.currentTarget.value);
+                    setImportFileName(null);
+                  }}
+                  autosize
+                  minRows={3}
+                  maxRows={10}
+                />
+                <Text size="xs" c="dimmed">
+                  只能导入 UTF-8 文本：Excel 请用“CSV UTF-8”导出，记事本另存为
+                  UTF-8；GBK/ANSI 会乱码并被整批拒绝。
+                </Text>
+                {importFileName && (
+                  <Text size="xs">已读取文件：{importFileName}</Text>
+                )}
+                {importReport && (
+                  <Alert
+                    color={importReport.errors.length > 0 ? "yellow" : "teal"}
+                    variant="light"
+                    title={`导入完成：成功 ${importReport.imported} 条`}
+                  >
+                    <Stack gap={4}>
+                      <Text size="sm">
+                        重复 {importReport.duplicates.length} 条（未覆盖已有条目）
+                        {importReport.duplicates.length > 0
+                          ? `：${importReport.duplicates
+                              .slice(0, 5)
+                              .map((row) => `${row.prompt}（第 ${row.line} 行）`)
+                              .join("、")}${
+                              importReport.duplicates.length > 5 ? " 等" : ""
+                            }`
+                          : ""}
+                      </Text>
+                      {importReport.errors.map((issue) => (
+                        <Text
+                          key={`${issue.line}-${issue.field ?? "none"}`}
+                          size="sm"
+                        >
+                          第 {issue.line} 行
+                          {issue.field ? `（${issue.field}）` : ""}：{issue.reason}
+                        </Text>
+                      ))}
+                      {importReport.errors.length === 0 && (
+                        <Text size="sm">没有坏行。</Text>
+                      )}
+                    </Stack>
+                  </Alert>
+                )}
 
                 {items && items.items.length > 0 && (
                   <Table.ScrollContainer minWidth={520}>

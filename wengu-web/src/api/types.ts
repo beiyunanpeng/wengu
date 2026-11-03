@@ -702,6 +702,23 @@ export interface RecitationReviewResponse {
   created: boolean;
 }
 
+export interface RecitationImportDuplicate {
+  line: number;
+  prompt: string;
+}
+
+export interface RecitationImportError {
+  line: number;
+  field?: string | null;
+  reason: string;
+}
+
+export interface RecitationImportResponse {
+  imported: number;
+  duplicates: RecitationImportDuplicate[];
+  errors: RecitationImportError[];
+}
+
 export interface SessionStatus {
   pin_set: boolean;
   parent_unlocked: boolean;

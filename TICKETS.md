@@ -255,6 +255,12 @@
       孩子端自评走阶梯）；全量绿 + `ruff check --no-cache` + build。
     - 禁：LLM 生成/翻译词表内容；静默丢弃或静默更新已有行；引入 pandas/CSV 库依赖
       （Python stdlib `csv` 足够）；为"防呆"做导入前暂存草稿表。
+    - **状态（2026-11-03）已交付** ✅：`services/recitation_import.py` + `POST
+      /api/recitations/import`（`require_parent`）+ `/recitations` 家长区批量导入；
+      stdlib `csv`、无新依赖、无迁移、未改 0020 DDL。新增单测 11 + 集成 11 + e2e 第 5 条；
+      **全量 465 passed（unit 304 / integration 156 / e2e 5）**，`ruff check --no-cache .`
+      与 `npm run build` 全绿。实测：首导 4 行 → 成功 2 / 重复 0 / 第 4 行空 prompt；
+      同文本重导 → 成功 0 / 重复 2（行号正确），数据仍 2 条；自评进第 2 档、看板 1/5。
   - **P3-3c 从错题抽词（最后叠加）**：把英语错题出现过的词自动补进背诵池，作为 A/B 之后的增量来源；
     必须可整批撤销、不得覆盖家长手工确认过的条目。
 - **P3-4 听力+默写**：默写=卷面批改后走转录导入；听力"教材音频+TTS"+组卷。禁：口语 ASR。
