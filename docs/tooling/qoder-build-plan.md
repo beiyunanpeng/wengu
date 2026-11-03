@@ -480,7 +480,7 @@ docs/deploy/backup-restore.md：包结构、导出下载、Docker 恢复、原�
 # 待投工单卡（v2.6 决策轮登记，**未开工**）
 
 > 来源：`docs/audit/pr1-24-retrospective.md` 的交付回顾审计 + 用户拍板（砍 PWA、归并补 UI、按建议顺序推进）。
-> 投单顺序 = ~~P5-6~~（**已合并 PR#27**）→ ~~P0-3~~（**已合并 PR#28**）→ **P3-3a → P5-1（既有票）→ P1-3e → P1-13**。每张卡可整段复制给 Qoder。
+> 投单顺序 = ~~P5-6~~（已合并 PR#27）→ ~~P0-3~~（已合并 PR#28）→ ~~P3-3a~~（已合并 PR#29）→ **P3-3b → P5-1（既有票）→ P1-3e → P1-13**。每张卡可整段复制给 Qoder。
 > **2026-11-03 更新**：P5-6 孤儿表切片已交付（迁移 0019 一次退役 `problem_extractions` /
 > `photo_capture_items` / `photo_captures` 三表；见 `TICKETS.md` 与 `docs/STATUS.md` §4.18），
 > 本卡留作回溯；P0-3 亦已交付（PR#28），下一张待投 = **P3-3a**。
@@ -646,4 +646,41 @@ category_id/标签快照**一字未改**（用全表快照断言）；名称解�
 【禁止】让模型生成背诵内容或判断"背得对不对"（本票 100% 确定性）；
 把背诵条目塞进错题本或写 attempts；背诵计入 mastery；做"相似条目自动合并"的猜测；
 把 daily_recitation_limit 硬编码；改错题链路的既有语义；顺手动 P3-3b/c 的范围。
+```
+
+## P3-3b —— 教材词表批量导入（CSV/TSV 粘贴或上传）
+
+```
+你在 wengu 仓库工作。开工前完整读：AGENTS.md §5（导入即不可信输入）+ TICKETS.md 的 P3-3b
++ 现有 app/api/recitations.py、app/services/recitation.py、app/models/recitation.py
+（0020 已建表，本票**不动表结构**）。
+【全局纪律】一条 ticket = 一个 PR；禁止引入新依赖（Python stdlib `csv` 足够，禁 pandas）；
+禁止改 0020 迁移与两张表的 DDL；禁止做导入前草稿暂存表。
+【信任边界（写进代码注释）】词表来自家长本人 = 可信来源，直接入库 + 逐行报告即可，
+**不需要**像外部 agent 转录那样过草稿/核对页；但"不可信输入"的体积与字段校验照抄（家长也会手滑）。
+【任务】
+1) 后端 `POST /api/recitations/import`（挂 require_parent），body = {subject, text}：
+   - 解析：服务端做，前端只上传/粘贴原文。首行含 TAB → 按 TAB 切，否则按 CSV 切
+     （stdlib csv，支持引号转义）；可选表头行（首行命中 prompt/answer/unit 关键字则跳过）。
+   - 每行取 1–3 列：prompt（必填）、answer（可选）、unit（可选）；空行跳过、
+     全注释行（# 开头）跳过。
+   - 校验与限额：单次 ≤500 行、body ≤256KB、prompt ≤200 / answer ≤500 / unit ≤40 字符，
+     超限整批 422 并指明行号与原因；编码只接受 UTF-8（带/不带 BOM 均可）。
+   - 入库：逐行走既有 create 路径（复用 UNIQUE(subject, prompt)）；命中重复 → 该行报
+     duplicate（不静默丢弃、**不更新已有行**）；其它校验失败 → 该行报 {line, field?, reason}，
+     **坏行不阻断好行**。subject 只接受 MEMORY_SUBJECTS 内的学科（本票前端默认英语）。
+   - 响应：{imported, duplicates: [{line, prompt}], errors: [{line, field?, reason}]}。
+2) 前端 /recitations 家长区新增"批量导入"：文件选择 + 粘贴文本二选一（同一提交函数）、
+   subject 固定英语下拉（默认英语，字段保留通用性）、报告渲染（成功 N / 重复 N（列前几条 prompt）/
+   错误逐条）、UTF-8 提示（Excel 请用"CSV UTF-8"导出，否则 GBK 会乱码）。
+3) 文档：CHANGELOG [Unreleased]、STATUS §4.20 续写、TICKETS P3-3b 打勾、施工卡同步。
+【DoD】
+- 集成测试：全成功 / 混合（坏行 + 重复 + 好行）/ 超 500 行 422 / 超长字段 422 / BOM 文件可读 /
+  TSV 与 CSV 各一 / 未解锁 403 / subject 不在 MEMORY_SUBJECTS 422 / 同文本重复提交全部 duplicate
+  且不产生第二条数据（天然幂等）。
+- `pytest -m e2e` 第 5 条：家长导入 3 行（1 重复、1 坏）→ 报告正确、好行入库 →
+  孩子端 /due 出现新条目 → 自评走阶梯（衔接 P3-3a 的既有 e2e 断言风格）。
+- `pytest -q` 全绿（当前基线 442 passed）、CI 绿、`ruff check --no-cache .` 绿、`npm run build` 绿。
+【禁止】静默丢弃坏行或重复行；静默更新已有条目；引入 pandas / 新依赖；做草稿暂存表；
+让 LLM 生成或翻译词表；把解析放前端（服务端是唯一解析与校验真源）；动 0020 的表结构。
 ```
