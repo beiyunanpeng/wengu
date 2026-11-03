@@ -481,6 +481,8 @@ docs/deploy/backup-restore.md：包结构、导出下载、Docker 恢复、原�
 
 > 来源：`docs/audit/pr1-24-retrospective.md` 的交付回顾审计 + 用户拍板（砍 PWA、归并补 UI、按建议顺序推进）。
 > 投单顺序 = **P5-6 → P0-3 → P5-1（既有票）→ P1-3e → P1-13**。每张卡可整段复制给 Qoder。
+> **2026-11-03 更新**：P5-6 孤儿表切片已交付（迁移 0019；见 `TICKETS.md` 与 `docs/STATUS.md` §4.18），
+> 本卡留作回溯；下一张待投 = P0-3。
 
 ## P5-6 —— 交付口径与盘上一致性清理（含孤儿表退役）
 

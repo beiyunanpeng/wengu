@@ -18,3 +18,10 @@
   既有行三列保持 NULL、可继续回看；降级 `downgrade -1` 删索引与三列，**业务行保留**，
   但已写入的幂等键/分组信息随列丢失——需要保留时先复制 `wengu.db` 到仓库外。
   up/down/up 已实测可重入（`tests/integration/test_migrations.py` 覆盖）。
+- `0019_drop_orphan_photo_tables`（P5-6 孤儿表退役）：DROP `photo_captures` /
+  `photo_capture_items` 两表及其显式索引（v2.5 后业务代码零读写）。
+  **升级前必须先备份**：优先在家长区「备份」页导出（`POST /api/backup/export`，
+  `VACUUM INTO` 一致性快照），或复制 `wengu-api/data/wengu.db` 到仓库外。
+  降级 `downgrade -1` 按 0004/0005 原定义重建空表（列/UNIQUE/FK/索引齐全），
+  **不承诺找回历史照片/切图数据**；`uploads/` 里的旧文件不动。
+  up/down/up 已实测可重入（`tests/integration/test_migrations.py` 覆盖）。

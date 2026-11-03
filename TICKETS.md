@@ -225,6 +225,10 @@
   - DoD：迁移 up/down/up 可重入并有 `test_migrations.py` 覆盖；DROP 前文档写明"先跑家长区导出备份"；
     全测试绿；表清单与 STATUS 一致（业务表数随之从 22 变 20，需在 STATUS 明写）。
   - 禁止：顺手 DROP 任何仍被读的表；手改生产 `wengu.db`；把迁移写成不可逆。
+  **已完成（2026-11-03，孤儿表切片）**：迁移 `0019_drop_orphan_photo_tables` 实跑 up/down/up；
+  两表及显式索引已 DROP，ORM 类/`__init__` 导出/`backup.py` 表计数同步清理；业务表 22 → 20，
+  STATUS §4.18/§5.2 已写清；全量 398 passed、`ruff check --no-cache .` 绿。**剩余**：Phase 5 行与
+  §7 表格的进一步口径复核。
 
 ---
 

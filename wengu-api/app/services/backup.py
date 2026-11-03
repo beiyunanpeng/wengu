@@ -48,8 +48,6 @@ COUNT_TABLES = (
     "problem_bank",
     "ingestion_drafts",
     "bank_drafts",
-    "photo_captures",
-    "photo_capture_items",
     "timetable_slots",
     "calendar_events",
 )

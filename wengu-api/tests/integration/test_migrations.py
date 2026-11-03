@@ -20,8 +20,6 @@ EXPECTED_TABLES = {
     "import_batches",
     "ingestion_drafts",
     "bank_drafts",
-    "photo_captures",
-    "photo_capture_items",
     "problem_extractions",
     "problem_bank",
     "grading_results",
@@ -586,6 +584,117 @@ def test_p3_2d_practice_dedup_up_down_up(tmp_path) -> None:
         assert dedup_values == {None}
     finally:
         engine.dispose()
+
+
+@pytest.mark.integration
+def test_p5_6_drops_orphan_photo_tables_up_down_up(tmp_path) -> None:
+    """0019：DROP 视觉栈孤儿表；down 重建结构（数据不回填），up/down/up 可重入。"""
+
+    db_path = tmp_path / "drop-photo-tables.db"
+    config = _alembic_config(db_path)
+
+    command.upgrade(config, "0018_practice_dedup")
+    assert {"photo_captures", "photo_capture_items"} <= _tables(db_path)
+
+    engine = create_engine(f"sqlite:///{db_path.as_posix()}")
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO photo_captures (sha256, stored_path, created_at)"
+                    " VALUES ('sha-1', 'uploads/a.jpg', CURRENT_TIMESTAMP)"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO photo_capture_items"
+                    " (photo_capture_id, seq, stored_path, bbox_json, created_at)"
+                    " VALUES (1, 1, 'uploads/a-1.jpg', '[0,0,1,1]',"
+                    " CURRENT_TIMESTAMP)"
+                )
+            )
+    finally:
+        engine.dispose()
+
+    command.upgrade(config, "head")
+    tables = _tables(db_path)
+    assert {"photo_captures", "photo_capture_items"}.isdisjoint(tables)
+    assert "problem_extractions" in tables
+    assert len(tables - {"alembic_version"}) == 20
+
+    command.downgrade(config, "0018_practice_dedup")
+    engine = create_engine(f"sqlite:///{db_path.as_posix()}")
+    try:
+        with engine.connect() as connection:
+            inspector = inspect(connection)
+            assert {"photo_captures", "photo_capture_items"} <= set(
+                inspector.get_table_names()
+            )
+            capture_columns = {
+                column["name"] for column in inspector.get_columns("photo_captures")
+            }
+            item_columns = {
+                column["name"]
+                for column in inspector.get_columns("photo_capture_items")
+            }
+            capture_indexes = {
+                index["name"] for index in inspector.get_indexes("photo_captures")
+            }
+            item_indexes = {
+                index["name"]
+                for index in inspector.get_indexes("photo_capture_items")
+            }
+            capture_uniques = {
+                constraint["name"]
+                for constraint in inspector.get_unique_constraints("photo_captures")
+            }
+            item_uniques = {
+                constraint["name"]
+                for constraint in inspector.get_unique_constraints(
+                    "photo_capture_items"
+                )
+            }
+            item_fks = inspector.get_foreign_keys("photo_capture_items")
+            capture_count = connection.scalar(
+                text("SELECT COUNT(*) FROM photo_captures")
+            )
+            item_count = connection.scalar(
+                text("SELECT COUNT(*) FROM photo_capture_items")
+            )
+        assert capture_columns == {
+            "id",
+            "sha256",
+            "stored_path",
+            "original_name",
+            "source",
+            "status",
+            "created_at",
+        }
+        assert item_columns == {
+            "id",
+            "photo_capture_id",
+            "seq",
+            "stored_path",
+            "bbox_json",
+            "anchor_label",
+            "status",
+            "created_at",
+        }
+        assert "ix_photo_captures_status" in capture_indexes
+        assert "ix_photo_capture_items_capture_id" in item_indexes
+        assert "uq_photo_captures_sha256" in capture_uniques
+        assert "uq_photo_capture_items_capture_seq" in item_uniques
+        assert item_fks[0]["referred_table"] == "photo_captures"
+        assert (
+            item_fks[0]["name"] == "fk_photo_capture_items_capture_id"
+        )
+        # 只重建结构，不承诺找回历史数据
+        assert (capture_count, item_count) == (0, 0)
+    finally:
+        engine.dispose()
+
+    command.upgrade(config, "head")
+    assert {"photo_captures", "photo_capture_items"}.isdisjoint(_tables(db_path))
 
 
 @pytest.mark.integration

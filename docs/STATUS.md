@@ -1,9 +1,9 @@
 # STATUS.md — 开发计划与完成情况
 
-> 快照日期：2026-11-02（**v2.6 决策轮**：PR#1–#24 交付回顾审计 + 砍 PWA + 登记 4 张新票）
-> 基线：`main` = 审计报告 PR#25 之后；本轮为 doc-only 决策落盘（无代码改动）
-> 全量测试：**397 passed**（2026-11-02 审计方本机实跑，unit 266 / integration 131 / **e2e 0**）；`ruff check --no-cache .` 全绿；`npm run build` 绿
-> Alembic head：`0018_practice_dedup`；业务表 22 张（含 2 张孤儿表 `photo_captures`/`photo_capture_items`，待 P5-6 出迁移 0019 退役）
+> 快照日期：2026-11-03（**P5-6 孤儿表切片**：迁移 0019 退役 `photo_captures` / `photo_capture_items`）
+> 基线：`main` = `b481943`；本切片在 `feat/p5-6-orphan-tables` 分支，合并前工作区状态
+> 全量测试：**398 passed**（2026-11-03 本机实跑，unit 272 / integration 126 / **e2e 0**）；`ruff check --no-cache .` 全绿；`npm run build` 绿
+> Alembic head：`0019_drop_orphan_photo_tables`；业务表 **20 张**（0019 已退役 2 张视觉栈孤儿表）
 
 本文件是**状态快照**，不替代以下事实源；冲突时以它们为准：
 
@@ -228,7 +228,7 @@
 
 - `learning_events` 只追加 + UNIQUE 幂等键 + UPDATE/DELETE 触发器。
 - 掌握度 / 毕业 / 统计由事实确定性重算；同源改判只取最高版本。
-- SQLite WAL + Alembic（head 0018）；迁移含备份/回退说明与迁移测试。
+- SQLite WAL + Alembic（head 0019）；迁移含备份/回退说明与迁移测试。
 - 日志/事件 payload 不落题目全文、答案、文件 URL、PII；`attempts.answer_text` 恒 NULL。
 
 ### 4.9 课表 / 日历约束层（P2-3）
@@ -486,6 +486,27 @@
   ⑤ 列表接口每次重算每份 zip 的 sha256，备份多时偏慢（自用规模可接受）。
   ⑥ 并发写入快照那条测试偶发 pytest warning（397 全量跑三次出现一次，无失败断言），暂观察。
 
+### 4.18 孤儿表退役（P5-6 切片）
+
+- **背景**：`photo_captures` / `photo_capture_items` 是 P1-3/P1-3b 拍照与切片通道的表；
+  v2.5 视觉栈整体退役后，`app/` 已无任何读写方，只剩 ORM 类与迁移 0004/0005 当"活化石"。
+- **本切片**：迁移 `0019_drop_orphan_photo_tables` DROP 两表及显式索引
+  （`ix_photo_captures_status`、`ix_photo_capture_items_capture_id`）；`downgrade` 按原定义
+  重建空表（UNIQUE `uq_photo_captures_sha256` / `uq_photo_capture_items_capture_seq`、
+  FK `fk_photo_capture_items_capture_id`、两索引），不回填数据。同步删除
+  `models/ingestion.py` 的两个 ORM 类与 `models/__init__.py` 导出；`services/backup.py`
+  的 `COUNT_TABLES` 去掉两项（manifest 表计数从 13 项变 11 项）。
+- **备份前置**：升级前先跑家长区「备份」导出（`POST /api/backup/export`），或按
+  `wengu-api/migrations/README.md` 复制 `wengu.db` 到仓库外；迁移文档已写明。
+- **实测**：临时库 `alembic upgrade head` → `0019_drop_orphan_photo_tables`，业务表 **20 张**，
+  两表缺席、`problem_extractions` 仍在；`downgrade -1` 后两表按原结构重建（0 行），
+  再 `upgrade head` 再次缺席。
+- **测试**：新增 `test_p5_6_drops_orphan_photo_tables_up_down_up`（列/索引/唯一约束/FK/
+  数据不回填/up-down-up）；`EXPECTED_TABLES` 移除两项。全量 398 passed
+  （unit 272 / integration 126 / e2e 0），`ruff check --no-cache .` 全绿。
+- **残留**：`problem_extractions` 同样无读写方，但不在本票点名范围；其 FK 指向已删父表
+  （无读写方、暂无影响），另开工单清理。
+
 ## 5. API 与数据现状
 
 ### 5.1 API 面
@@ -530,19 +551,25 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
 
 ### 5.2 数据库与 seed
 
-- Alembic head `0018_practice_dedup`；22 张业务表（0016 新增 `bank_drafts`，
+- Alembic head `0019_drop_orphan_photo_tables`；**20 张业务表**（0016 新增 `bank_drafts`，
   `problem_bank` 补 `topic_id` FK + `question_type/difficulty/choices_json/figure/hide_choice_text/percent`；
   0017 再补 `status TEXT NOT NULL server_default 'active'`（CHECK `active|voided`）+
   `updated_at DATETIME NULL`，既有行回填 `active`；0018 给 `practice_records` 补
   `topic_id TEXT NULL` / `seed INTEGER NULL` / `dedup_key TEXT NULL` + 部分唯一索引
-  `uq_practice_records_dedup_key ... WHERE dedup_key IS NOT NULL`，既有行三列保持 NULL）。
+  `uq_practice_records_dedup_key ... WHERE dedup_key IS NOT NULL`，既有行三列保持 NULL；
+  0019 DROP `photo_captures` / `photo_capture_items` 及其显式索引）。
+- 迁移 `0019_drop_orphan_photo_tables`：v2.5 后两表在 `app/` 零读写，本票只删这两张表；
+  `downgrade` 按 0004/0005 原定义重建空表（列/UNIQUE/FK/索引齐全），**不回填历史数据**。
+  **升级前先跑家长区导出备份**（或复制 `wengu.db` 到仓库外）；backup 的 `COUNT_TABLES`
+  已同步去掉这两项。up/down/up 可重入见 `tests/integration/test_migrations.py`。
+- `problem_extractions` 表仍保留但同样无读写方（本票只点名两张表）；它指向已删父表的 FK
+  在升级后悬空，因无任何读写方暂无实际影响，彻底清理另开工单。
 - `bank_drafts`：`import_batch_id` FK + `seq` + `normalized_json` + `has_placeholder` +
   `status draft|approved|rejected` + `created_at`，`UNIQUE(import_batch_id, seq)`；
   草稿永不自动转正，只能由家长审核端点翻状态。
 - `user_role` 由 `0014_parent_pin` 保证存在 `(role='parent', pin_hash=NULL)` 行；PIN 设置后存 scrypt 哈希。
 - `model_runs` / `ai_jobs` 已 DROP（0013，down 可重建空表）。
-- `photo_captures` / `photo_capture_items` / `problem_extractions` 表结构保留但**无写入方**
-  （本票按清单只 DROP 两表；如需彻底清理另开工单）。
+- `photo_captures` / `photo_capture_items` 已 DROP（0019，down 可重建空表结构）。
 - seed：仓库 664 知识点（数学 315 / 英语 257 / 物理 92）+ 1018 先修边 + 2803 题
   （数学 1407 / 英语 1028 / 物理 368）；化学、语文从**空仓库 seed** 起步，由家长在
   `<data_dir>/seeds_local/topics_<学科>.json` 自建章级点（`source='local'`，装载副本进
@@ -761,7 +788,7 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
 | P5-3 | 未开始 | 可选密码 session 鉴权（默认关）；README 醒目警告公网暴露风险 |
 | P5-4 | 未开始 | 教材 seed 包机制：多教材可安装可切换（mappings 机制已有，安装 UI 未做） |
 | P5-5 | 部分完成 | **已在盘上**：LICENSE / 中文 README / CHANGELOG / `wengu-api/.env.example` / 第三方署名（`THIRD-PARTY-NOTICES.md`）/ 两法点名（README §安全与合规）。**仍缺**：**英文 README**（此前本行写"中英 README 已就位"属过实，2026-11-02 审计修正）、**独立隐私声明文档**、发布打包 |
-| P5-6 | 未开始 | 交付口径与盘上一致性清理（v2.6 审计新增）：孤儿表 `photo_captures`/`photo_capture_items` 出可逆迁移 0019、表数与 STATUS 对齐；见 `docs/audit/pr1-24-retrospective.md` |
+| P5-6 | 部分完成 | 交付口径与盘上一致性清理（v2.6 审计新增）。**已完成孤儿表切片**：迁移 0019 DROP `photo_captures`/`photo_capture_items`（可逆、含备份说明）、删 ORM 类与备份表计数，业务表 22 → 20，见 §4.18。**剩余**：Phase 5 行与 §7 表格的进一步口径复核；见 `docs/audit/pr1-24-retrospective.md` |
 
 ## 11. 维护约定
 
