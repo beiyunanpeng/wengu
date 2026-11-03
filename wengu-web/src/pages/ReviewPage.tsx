@@ -19,6 +19,7 @@ import { errorMessage } from "../api/client";
 import {
   completeReview,
   getDashboard,
+  getDueRecitations,
   getDueReviews,
   getQuizPaper,
   submitQuizPaper,
@@ -32,6 +33,7 @@ import type {
   PaperSubmitResponse,
   QuizPaperResponse,
   QuizQuestionView,
+  RecitationDueResponse,
   ReviewTask,
 } from "../api/types";
 import ExplanationSlot from "../components/ExplanationSlot";
@@ -102,6 +104,14 @@ export default function ReviewPage() {
     weekMinutes: number;
   } | null>(null);
   const [focusError, setFocusError] = useState<string | null>(null);
+  const [recitationDue, setRecitationDue] =
+    useState<RecitationDueResponse | null>(null);
+
+  useEffect(() => {
+    getDueRecitations()
+      .then(setRecitationDue)
+      .catch(() => setRecitationDue(null));
+  }, []);
 
   async function loadFocus() {
     try {
@@ -548,6 +558,22 @@ export default function ReviewPage() {
           </Stack>
         </Card>
       ))}
+
+      {recitationDue && recitationDue.due_total > 0 && (
+        <Card withBorder>
+          <Group justify="space-between" align="center" wrap="wrap">
+            <Stack gap={2}>
+              <Text fw={600}>今日背诵 {recitationDue.due_total} 条</Text>
+              <Text size="xs" c="dimmed">
+                排在考核任务之后：背完到背诵页自评，不占复习上限。
+              </Text>
+            </Stack>
+            <Button variant="light" onClick={() => navigate("/recitations")}>
+              去背诵
+            </Button>
+          </Group>
+        </Card>
+      )}
 
       <Divider my="sm" />
 

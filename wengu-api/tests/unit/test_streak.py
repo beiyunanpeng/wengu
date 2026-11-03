@@ -5,7 +5,12 @@ from __future__ import annotations
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
-from app.services.recompute import ATTEMPT_CORRECT, ATTEMPT_WRONG, Event
+from app.services.recompute import (
+    ATTEMPT_CORRECT,
+    ATTEMPT_WRONG,
+    RECITATION_REVIEWED,
+    Event,
+)
 from app.services.streak import RECENT_DAYS, StreakDay, summarize_streak
 
 TODAY = date(2026, 10, 31)
@@ -89,6 +94,42 @@ def test_quiz_event_without_mistake_counts() -> None:
 
     assert summary.today_done is True
     assert summary.current_streak == 1
+
+
+def test_recitation_review_counts_as_learning_day() -> None:
+    events = [
+        Event(
+            type=RECITATION_REVIEWED,
+            actor="student",
+            mistake_id=None,
+            payload={"item_id": 7, "verdict": "remembered", "completed_on": TODAY.isoformat()},
+            occurred_at=datetime(2026, 10, 31, 12, tzinfo=UTC),
+        )
+    ]
+
+    summary = summarize_streak(events, TODAY)
+
+    assert summary.today_done is True
+    assert summary.current_streak == 1
+    assert summary.learning_days_total == 1
+
+
+def test_recitation_only_days_extend_streak_without_attempts() -> None:
+    events = [
+        Event(
+            type=RECITATION_REVIEWED,
+            actor="student",
+            mistake_id=None,
+            payload={"item_id": offset, "verdict": "forgot", "completed_on": day.isoformat()},
+            occurred_at=datetime(day.year, day.month, day.day, 12, tzinfo=UTC),
+        )
+        for offset, day in enumerate((TODAY, TODAY - timedelta(days=1)))
+    ]
+
+    summary = summarize_streak(events, TODAY)
+
+    assert summary.current_streak == 2
+    assert summary.learning_days_total == 2
 
 
 def test_missing_completed_on_falls_back_to_occurred_at() -> None:

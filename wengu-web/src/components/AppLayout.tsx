@@ -10,6 +10,7 @@ const NAV: { to: string; label: string; parentOnly?: boolean }[] = [
   { to: "/intake", label: "核对" },
   { to: "/mistakes", label: "错题本" },
   { to: "/review", label: "复习考核" },
+  { to: "/recitations", label: "英语背诵" },
   { to: "/schedule", label: "课表/日历" },
   { to: "/records", label: "练习记录" },
   { to: "/bank", label: "题库审核", parentOnly: true },

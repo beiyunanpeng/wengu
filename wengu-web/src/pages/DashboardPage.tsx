@@ -250,7 +250,7 @@ function StreakCard({ streak }: { streak: DashboardStreak }) {
         </Group>
         <StreakCalendar days={streak.recent_days} />
         <Text size="xs" c="dimmed">
-          当天做过任意一道题就算打卡（答错也算）；它只记录“来了”，不代表掌握程度。
+          当天做过任意一道题或背诵自评就算打卡（答错也算）；它只记录“来了”，不代表掌握程度。
         </Text>
       </Stack>
     </Card>
@@ -347,6 +347,11 @@ export default function DashboardPage() {
           label="今日番茄"
           value={data.pomodoros_today}
           hint={`本周专注 ${data.focus_minutes_this_week} 分钟`}
+        />
+        <MetricCard
+          label="今日背诵"
+          value={`${data.recitations_today}/${data.recitation_limit}`}
+          hint="记忆阶梯自评 · 不计入掌握度"
         />
         <MetricCard
           label="本周专注"

@@ -23,6 +23,7 @@ from app.api.pomodoro import router as pomodoro_router
 from app.api.practice import router as practice_router
 from app.api.problem_bank import router as problem_bank_router
 from app.api.quizzes import router as quizzes_router
+from app.api.recitations import router as recitations_router
 from app.api.reviews import router as reviews_router
 from app.api.schedule import router as schedule_router
 from app.api.seed import router as seed_router
@@ -83,6 +84,7 @@ def create_app() -> FastAPI:
     application.include_router(problem_bank_router)
     application.include_router(bank_router)
     application.include_router(reviews_router)
+    application.include_router(recitations_router)
     application.include_router(quizzes_router)
     application.include_router(imports_router)
     application.include_router(dashboard_router)

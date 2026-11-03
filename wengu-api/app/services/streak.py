@@ -1,8 +1,9 @@
 """P2-6 极简打卡：从 learning_events 事实推导，不落库、不调模型。
 
-口径（与 TICKETS P2-6 对齐）：
-- 打卡 = 当天产生任一作答事件（`attempt_correct` / `attempt_wrong`），
-  含复习（`payload.kind="review"`）与自造同类题考核（quiz）；答错也算"来了"；
+口径（P3-3a 显式变更）：
+- 打卡 = 当天产生任一学习动作事件（`attempt_correct` / `attempt_wrong` /
+  `recitation_reviewed`），含复习（`payload.kind="review"`）与自造同类题考核（quiz）；
+  答错也算"来了"，只背诵不做题也算打卡；
 - 学习日优先取事件的 `payload.completed_on`（本地日期），缺失或非法回退
   `occurred_at` 的日期；不把 UTC 时间拼成本地日期；
 - 锚定规则：今天有 → 从今天倒数；今天没有但昨天有 → 从昨天倒数，仍不算断；
@@ -18,10 +19,18 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Any
 
-from app.services.recompute import ATTEMPT_CORRECT, ATTEMPT_WRONG, Event
+from app.services.recompute import (
+    ATTEMPT_CORRECT,
+    ATTEMPT_WRONG,
+    RECITATION_REVIEWED,
+    Event,
+)
 
 RECENT_DAYS = 30
-ATTEMPT_TYPES = frozenset({ATTEMPT_CORRECT, ATTEMPT_WRONG})
+# 打卡白名单：作答与背诵自评都算"有学习动作"（P3-3a 口径变更，勿悄悄改回）。
+LEARNING_EVENT_TYPES = frozenset(
+    {ATTEMPT_CORRECT, ATTEMPT_WRONG, RECITATION_REVIEWED}
+)
 
 
 @dataclass(frozen=True)
@@ -66,9 +75,9 @@ def _fallback_day(moment: Any) -> date | None:
 
 
 def _learning_day(event: Event) -> date | None:
-    """作答事件对应的学习日；非作答事件返回 None。"""
+    """学习动作事件对应的学习日；白名单外的事件返回 None。"""
 
-    if event.type not in ATTEMPT_TYPES:
+    if event.type not in LEARNING_EVENT_TYPES:
         return None
     raw = _payload(event).get("completed_on")
     if isinstance(raw, str):

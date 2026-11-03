@@ -7,9 +7,12 @@ from pathlib import Path
 
 import pytest
 from app.core.runtime_config import (
+    DEFAULT_DAILY_RECITATION_LIMIT,
     DEFAULT_DAILY_REVIEW_LIMIT,
     DEFAULT_EXAM_DAY_LIMIT_FACTOR,
+    MAX_DAILY_RECITATION_LIMIT,
     MAX_DAILY_REVIEW_LIMIT,
+    daily_recitation_limit,
     daily_review_limit,
     exam_day_limit_factor,
 )
@@ -22,6 +25,12 @@ def _write_config(path: Path, value: object) -> None:
 def _write_factor(path: Path, value: object) -> None:
     path.write_text(
         json.dumps({"exam_day_limit_factor": value}), encoding="utf-8"
+    )
+
+
+def _write_recitation_limit(path: Path, value: object) -> None:
+    path.write_text(
+        json.dumps({"daily_recitation_limit": value}), encoding="utf-8"
     )
 
 
@@ -99,3 +108,37 @@ def test_exam_day_factor_invalid_falls_back(tmp_path, monkeypatch, raw) -> None:
     monkeypatch.setenv("WENGU_APP_CONFIG", str(path))
 
     assert exam_day_limit_factor() == DEFAULT_EXAM_DAY_LIMIT_FACTOR
+
+
+def test_recitation_limit_defaults_when_missing(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("WENGU_APP_CONFIG", str(tmp_path / "missing.json"))
+
+    assert daily_recitation_limit() == DEFAULT_DAILY_RECITATION_LIMIT
+
+
+@pytest.mark.parametrize("raw", ["5", 0, -1, True, None, 2.5, [3]])
+def test_recitation_limit_invalid_falls_back(tmp_path, monkeypatch, raw) -> None:
+    path = tmp_path / "app-config.json"
+    _write_recitation_limit(path, raw)
+    monkeypatch.setenv("WENGU_APP_CONFIG", str(path))
+
+    assert daily_recitation_limit() == DEFAULT_DAILY_RECITATION_LIMIT
+
+
+def test_recitation_limit_above_cap_is_clamped(tmp_path, monkeypatch) -> None:
+    path = tmp_path / "app-config.json"
+    _write_recitation_limit(path, MAX_DAILY_RECITATION_LIMIT + 1)
+    monkeypatch.setenv("WENGU_APP_CONFIG", str(path))
+
+    assert daily_recitation_limit() == MAX_DAILY_RECITATION_LIMIT
+
+
+def test_recitation_limit_hot_reload_picks_up_new_value(tmp_path, monkeypatch) -> None:
+    path = tmp_path / "app-config.json"
+    monkeypatch.setenv("WENGU_APP_CONFIG", str(path))
+
+    _write_recitation_limit(path, 3)
+    assert daily_recitation_limit() == 3
+
+    _write_recitation_limit(path, 1)
+    assert daily_recitation_limit() == 1

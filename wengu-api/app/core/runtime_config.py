@@ -19,6 +19,8 @@ from app.core.config import PROJECT_ROOT
 DEFAULT_DAILY_REVIEW_LIMIT = 10
 MAX_DAILY_REVIEW_LIMIT = 200
 DEFAULT_EXAM_DAY_LIMIT_FACTOR = 1.5
+DEFAULT_DAILY_RECITATION_LIMIT = 5
+MAX_DAILY_RECITATION_LIMIT = 20
 
 
 def app_config_path() -> Path:
@@ -47,6 +49,15 @@ def daily_review_limit() -> int:
     if isinstance(raw, bool) or not isinstance(raw, int) or raw < 1:
         return DEFAULT_DAILY_REVIEW_LIMIT
     return min(raw, MAX_DAILY_REVIEW_LIMIT)
+
+
+def daily_recitation_limit() -> int:
+    """每日到期背诵铺底条数；缺失/非法时用默认 5，超出硬上限按 20 收口。"""
+
+    raw = _load().get("daily_recitation_limit")
+    if isinstance(raw, bool) or not isinstance(raw, int) or raw < 1:
+        return DEFAULT_DAILY_RECITATION_LIMIT
+    return min(raw, MAX_DAILY_RECITATION_LIMIT)
 
 
 def exam_day_limit_factor() -> float:
