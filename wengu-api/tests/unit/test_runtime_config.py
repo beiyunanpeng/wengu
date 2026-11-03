@@ -15,6 +15,7 @@ from app.core.runtime_config import (
     DEFAULT_DAILY_RECITATION_LIMIT,
     DEFAULT_DAILY_REVIEW_LIMIT,
     DEFAULT_EXAM_DAY_LIMIT_FACTOR,
+    DEFAULT_SETUP_COMPLETED,
     MAX_DAILY_RECITATION_LIMIT,
     MAX_DAILY_REVIEW_LIMIT,
     ConfigError,
@@ -24,6 +25,7 @@ from app.core.runtime_config import (
     describe_config,
     exam_day_limit_factor,
     save_config,
+    setup_completed,
 )
 
 
@@ -41,6 +43,10 @@ def _write_recitation_limit(path: Path, value: object) -> None:
     path.write_text(
         json.dumps({"daily_recitation_limit": value}), encoding="utf-8"
     )
+
+
+def _write_completed(path: Path, value: object) -> None:
+    path.write_text(json.dumps({"setup_completed": value}), encoding="utf-8")
 
 
 def test_missing_file_falls_back_to_default(tmp_path, monkeypatch) -> None:
@@ -151,6 +157,55 @@ def test_recitation_limit_hot_reload_picks_up_new_value(tmp_path, monkeypatch) -
 
     _write_recitation_limit(path, 1)
     assert daily_recitation_limit() == 1
+
+
+def test_setup_completed_defaults_to_false_when_missing(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("WENGU_APP_CONFIG", str(tmp_path / "missing.json"))
+
+    assert setup_completed() is DEFAULT_SETUP_COMPLETED
+    assert setup_completed() is False
+
+
+def test_setup_completed_reads_true_and_false(tmp_path, monkeypatch) -> None:
+    path = tmp_path / "app-config.json"
+    monkeypatch.setenv("WENGU_APP_CONFIG", str(path))
+
+    _write_completed(path, True)
+    assert setup_completed() is True
+
+    _write_completed(path, False)
+    assert setup_completed() is False
+
+
+@pytest.mark.parametrize("raw", ["true", 1, 0, "yes", None, [True]])
+def test_setup_completed_invalid_falls_back_to_false(
+    tmp_path, monkeypatch, raw
+) -> None:
+    path = tmp_path / "app-config.json"
+    _write_completed(path, raw)
+    monkeypatch.setenv("WENGU_APP_CONFIG", str(path))
+
+    assert setup_completed() is False
+
+
+async def test_setup_completed_is_written_and_reported(tmp_path) -> None:
+    data_dir = tmp_path / "data"
+
+    await save_config(
+        _settings(data_dir),
+        updates={"setup_completed": True},
+        project_root=tmp_path / "repo",
+        env={},
+    )
+
+    payload = json.loads((data_dir / "app-config.json").read_text(encoding="utf-8"))
+    assert payload == {"setup_completed": True}
+    assert setup_completed(_settings(data_dir)) is True
+    description = describe_config(
+        _settings(data_dir), project_root=tmp_path / "repo", env={}
+    )
+    assert description["values"]["setup_completed"] is True
+    assert description["sources"]["setup_completed"] == "file"
 
 
 def _settings(data_dir: Path) -> SimpleNamespace:
@@ -264,6 +319,10 @@ async def test_env_override_is_read_and_write_target(tmp_path, monkeypatch) -> N
         {"exam_day_limit_factor": 0.5},
         {"exam_day_limit_factor": 3.5},
         {"exam_day_limit_factor": True},
+        {"setup_completed": "yes"},
+        {"setup_completed": 1},
+        {"setup_completed": 0},
+        {"setup_completed": None},
     ],
 )
 async def test_invalid_updates_rejected_before_write(tmp_path, updates) -> None:

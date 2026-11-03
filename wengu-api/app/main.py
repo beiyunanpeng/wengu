@@ -14,6 +14,7 @@ from app.api.attempts import router as attempts_router
 from app.api.backup import router as backup_router
 from app.api.bank import router as bank_router
 from app.api.concepts import router as concepts_router
+from app.api.config import public_router as config_public_router
 from app.api.config import router as config_router
 from app.api.dashboard import router as dashboard_router
 from app.api.health import router as health_router
@@ -91,6 +92,7 @@ def create_app() -> FastAPI:
     application.include_router(dashboard_router)
     application.include_router(session_router)
     application.include_router(config_router)
+    application.include_router(config_public_router)
     application.include_router(schedule_router)
     application.include_router(pomodoro_router)
     application.include_router(backup_router)

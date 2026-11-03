@@ -35,6 +35,7 @@ MIN_EXAM_DAY_LIMIT_FACTOR = 1.0
 MAX_EXAM_DAY_LIMIT_FACTOR = 3.0
 DEFAULT_DAILY_RECITATION_LIMIT = 5
 MAX_DAILY_RECITATION_LIMIT = 20
+DEFAULT_SETUP_COMPLETED = False
 
 ConfigSource = Literal["env", "data", "legacy", "default"]
 ValueSource = Literal["file", "default"]
@@ -125,6 +126,13 @@ def _effective_factor(data: Mapping[str, Any]) -> tuple[float, ValueSource]:
     return value, "file"
 
 
+def _effective_bool(data: Mapping[str, Any]) -> tuple[bool, ValueSource]:
+    raw = data.get("setup_completed")
+    if isinstance(raw, bool):
+        return raw, "file"
+    return DEFAULT_SETUP_COMPLETED, "default"
+
+
 def describe_config(
     settings: Settings | None = None,
     *,
@@ -145,6 +153,7 @@ def describe_config(
         MAX_DAILY_RECITATION_LIMIT,
     )
     factor, factor_source = _effective_factor(data)
+    completed, completed_source = _effective_bool(data)
 
     hint = None
     if location.legacy:
@@ -158,11 +167,13 @@ def describe_config(
             "daily_review_limit": review_limit,
             "daily_recitation_limit": recitation_limit,
             "exam_day_limit_factor": factor,
+            "setup_completed": completed,
         },
         "sources": {
             "daily_review_limit": review_source,
             "daily_recitation_limit": recitation_source,
             "exam_day_limit_factor": factor_source,
+            "setup_completed": completed_source,
         },
         "read_path": str(location.read_path),
         "write_path": str(location.write_path),
@@ -181,8 +192,13 @@ def validate_updates(updates: Mapping[str, Any]) -> dict[str, int | float]:
     if unknown:
         raise ConfigError(f"不支持的配置键：{', '.join(unknown)}")
 
-    validated: dict[str, int | float] = {}
+    validated: dict[str, int | float | bool] = {}
     for key, raw in updates.items():
+        if key == "setup_completed":
+            if not isinstance(raw, bool):
+                raise ConfigError("setup_completed 必须是布尔值")
+            validated[key] = raw
+            continue
         if key == "exam_day_limit_factor":
             if isinstance(raw, bool) or not isinstance(raw, int | float):
                 raise ConfigError("exam_day_limit_factor 必须是数字")
@@ -206,7 +222,7 @@ _RULES: dict[str, tuple[int, int]] = {
     "daily_review_limit": (1, MAX_DAILY_REVIEW_LIMIT),
     "daily_recitation_limit": (1, MAX_DAILY_RECITATION_LIMIT),
 }
-_ALLOWED_KEYS = frozenset({*_RULES, "exam_day_limit_factor"})
+_ALLOWED_KEYS = frozenset({*_RULES, "exam_day_limit_factor", "setup_completed"})
 
 
 def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
@@ -281,4 +297,11 @@ def exam_day_limit_factor(settings: Settings | None = None) -> float:
     """
 
     value, _ = _effective_factor(_load(settings))
+    return value
+
+
+def setup_completed(settings: Settings | None = None) -> bool:
+    """首次运行向导是否已标记完成；缺失或非布尔时视为未完成。"""
+
+    value, _ = _effective_bool(_load(settings))
     return value

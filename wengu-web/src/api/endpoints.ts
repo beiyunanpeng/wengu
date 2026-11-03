@@ -1,5 +1,6 @@
 import { apiRequest, requestJson } from "./client";
 import type {
+  AppConfig,
   AttemptListResponse,
   BackupExportResponse,
   BackupListResponse,
@@ -18,6 +19,7 @@ import type {
   CompleteReviewResponse,
   Concept,
   ConceptCreateResponse,
+  ConfigUpdate,
   DashboardResponse,
   DraftConfirmPayload,
   DraftConfirmResponse,
@@ -51,7 +53,9 @@ import type {
   RecitationListResponse,
   RecitationReviewResponse,
   ReviewQuizResponse,
+  SeedSummary,
   SessionStatus,
+  SetupStatus,
   TimetableResponse,
   TimetableSlot,
   TopicListResponse,
@@ -854,3 +858,20 @@ export function deleteCalendarEvent(
     "DELETE",
   );
 }
+
+export function getSeedSummary(): Promise<SeedSummary> {
+  return apiRequest<SeedSummary>("/api/seed/summary");
+}
+
+export function getAppConfig(): Promise<AppConfig> {
+  return apiRequest<AppConfig>("/api/config");
+}
+
+export function putAppConfig(update: ConfigUpdate): Promise<AppConfig> {
+  return requestJson<AppConfig>("/api/config", "PUT", update);
+}
+
+export function getSetupStatus(): Promise<SetupStatus> {
+  return apiRequest<SetupStatus>("/api/setup/status");
+}
+
