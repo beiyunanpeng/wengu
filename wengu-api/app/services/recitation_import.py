@@ -22,7 +22,11 @@ from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models import RecitationItem
 from app.services.recitation import (
+    CANDIDATE_SUBJECT,
+    CANDIDATE_TOKEN_PATTERN,
+    MAX_CANDIDATES,
     RecitationDuplicate,
     RecitationInvalid,
     create_item,
@@ -67,6 +71,14 @@ class ParsedImport:
 @dataclass(frozen=True, slots=True)
 class ImportReport:
     imported: int
+    duplicates: tuple[DuplicateRow, ...]
+    issues: tuple[RowIssue, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class CandidateBatchReport:
+    imported: int
+    created: tuple[RecitationItem, ...]
     duplicates: tuple[DuplicateRow, ...]
     issues: tuple[RowIssue, ...]
 
@@ -233,6 +245,81 @@ async def import_items(
     issues.sort(key=lambda issue: issue.line)
     return ImportReport(
         imported=imported,
+        duplicates=tuple(duplicates),
+        issues=tuple(issues),
+    )
+
+
+async def add_candidate_words(
+    session: AsyncSession,
+    *,
+    words: list[str],
+    unit: str | None = None,
+) -> CandidateBatchReport:
+    """家长勾选的候选词逐条走 `create_item`（subject=英语，answer 留空）。
+
+    `line` 是提交数组里的 1-based 位置；重复只报告、不更新已有行（含 retired）。
+    词形只接受英文 token（与候选抽取同一正则），不做翻译/释义。
+    """
+
+    if not words:
+        raise ImportRejected("words 不能为空", field="words")
+    if len(words) > MAX_CANDIDATES:
+        raise ImportRejected(
+            f"单次最多入库 {MAX_CANDIDATES} 个词", field="words"
+        )
+    cleaned_unit = unit.strip() if isinstance(unit, str) else None
+    if cleaned_unit and len(cleaned_unit) > MAX_UNIT_CHARS:
+        raise ImportRejected(
+            f"unit 超过 {MAX_UNIT_CHARS} 字符", field="unit"
+        )
+
+    issues: list[RowIssue] = []
+    duplicates: list[DuplicateRow] = []
+    created: list[RecitationItem] = []
+    for position, raw in enumerate(words, start=1):
+        word = raw.strip().lower()
+        if len(word) < 2 or CANDIDATE_TOKEN_PATTERN.fullmatch(word) is None:
+            issues.append(
+                RowIssue(
+                    line=position,
+                    field="words",
+                    reason="只接受英文单词（至少 2 个字母，可含 - 与 '）",
+                )
+            )
+            continue
+        if len(word) > MAX_PROMPT_CHARS:
+            issues.append(
+                RowIssue(
+                    line=position,
+                    field="prompt",
+                    reason=f"prompt 超过 {MAX_PROMPT_CHARS} 字符",
+                )
+            )
+            continue
+        try:
+            item = await create_item(
+                session,
+                subject=CANDIDATE_SUBJECT,
+                prompt=word,
+                answer=None,
+                unit=cleaned_unit or None,
+                created_by="parent",
+            )
+        except RecitationDuplicate:
+            duplicates.append(DuplicateRow(line=position, prompt=word))
+            continue
+        except RecitationInvalid as exc:
+            issues.append(
+                RowIssue(line=position, reason=str(exc), field="prompt")
+            )
+            continue
+        created.append(item)
+
+    issues.sort(key=lambda issue: issue.line)
+    return CandidateBatchReport(
+        imported=len(created),
+        created=tuple(created),
         duplicates=tuple(duplicates),
         issues=tuple(issues),
     )

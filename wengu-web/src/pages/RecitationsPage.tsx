@@ -3,6 +3,7 @@ import {
   Badge,
   Button,
   Card,
+  Checkbox,
   Divider,
   FileInput,
   Group,
@@ -21,15 +22,19 @@ import { useEffect, useState } from "react";
 
 import { errorMessage } from "../api/client";
 import {
+  addRecitationCandidates,
   createRecitation,
   getDashboard,
   getDueRecitations,
   importRecitations,
+  listRecitationCandidates,
   listRecitations,
   reviewRecitation,
   updateRecitation,
 } from "../api/endpoints";
 import type {
+  RecitationCandidate,
+  RecitationCandidateBatchResponse,
   RecitationDueItem,
   RecitationDueResponse,
   RecitationImportResponse,
@@ -77,6 +82,16 @@ export default function RecitationsPage() {
   const [importReport, setImportReport] =
     useState<RecitationImportResponse | null>(null);
 
+  const [candidates, setCandidates] = useState<RecitationCandidate[]>([]);
+  const [candidateLoading, setCandidateLoading] = useState(false);
+  const [selectedWords, setSelectedWords] = useState<string[]>([]);
+  const [candidateUnit, setCandidateUnit] = useState("");
+  const [candidateBusy, setCandidateBusy] = useState(false);
+  const [candidateReport, setCandidateReport] =
+    useState<RecitationCandidateBatchResponse | null>(null);
+  const [batchIds, setBatchIds] = useState<number[]>([]);
+  const [undoingBatch, setUndoingBatch] = useState(false);
+
   async function load(showSpinner = true) {
     if (showSpinner) {
       setLoading(true);
@@ -105,6 +120,17 @@ export default function RecitationsPage() {
   useEffect(() => {
     void load();
   }, []);
+
+  useEffect(() => {
+    if (unlocked) {
+      void loadCandidates();
+    } else {
+      setCandidates([]);
+      setSelectedWords([]);
+      setCandidateReport(null);
+      setBatchIds([]);
+    }
+  }, [unlocked]);
 
   async function mark(itemId: number, verdict: RecitationVerdict) {
     if (busyId !== null) {
@@ -194,7 +220,72 @@ export default function RecitationsPage() {
     }
   }
 
-  async function toggleStatus(item: RecitationItem) {    if (busyId !== null) {
+  async function loadCandidates() {
+    if (!unlocked) {
+      return;
+    }
+    setCandidateLoading(true);
+    try {
+      const rows = await listRecitationCandidates(50);
+      setCandidates(rows);
+      setSelectedWords((current) =>
+        current.filter((word) => rows.some((row) => row.word === word)),
+      );
+    } catch (cause) {
+      setActionError(errorMessage(cause));
+    } finally {
+      setCandidateLoading(false);
+    }
+  }
+
+  async function addSelectedCandidates() {
+    if (candidateBusy || selectedWords.length === 0) {
+      return;
+    }
+    setCandidateBusy(true);
+    setActionError(null);
+    setCandidateReport(null);
+    try {
+      const report = await addRecitationCandidates({
+        words: selectedWords,
+        unit: candidateUnit.trim() || null,
+      });
+      setCandidateReport(report);
+      setBatchIds(report.created.map((item) => item.id));
+      setSelectedWords([]);
+      setCandidateUnit("");
+      await load(false);
+      await loadCandidates();
+    } catch (cause) {
+      setActionError(errorMessage(cause));
+    } finally {
+      setCandidateBusy(false);
+    }
+  }
+
+  async function undoBatch() {
+    if (undoingBatch || batchIds.length === 0) {
+      return;
+    }
+    setUndoingBatch(true);
+    setActionError(null);
+    try {
+      for (const id of batchIds) {
+        await updateRecitation(id, { status: "retired" });
+      }
+      setLastResult(`已停用本批 ${batchIds.length} 条背诵条目。`);
+      setBatchIds([]);
+      await load(false);
+      await loadCandidates();
+    } catch (cause) {
+      setActionError(errorMessage(cause));
+    } finally {
+      setUndoingBatch(false);
+    }
+  }
+
+  async function toggleStatus(item: RecitationItem) {
+    if (busyId !== null) {
       return;
     }
     setBusyId(item.id);
@@ -476,6 +567,155 @@ export default function RecitationsPage() {
                       ))}
                       {importReport.errors.length === 0 && (
                         <Text size="sm">没有坏行。</Text>
+                      )}
+                    </Stack>
+                  </Alert>
+                )}
+
+                <Divider
+                  my="xs"
+                  label="从错题抽词（英语）"
+                  labelPosition="left"
+                />
+                <Group justify="space-between" align="center" wrap="wrap">
+                  <Text size="sm" c="dimmed">
+                    来自 active 英语错题的当前题面，按出现错题数排序；每次现算，
+                    不会自动入库。勾选后才会写入背诵池。
+                  </Text>
+                  <Button
+                    size="compact-sm"
+                    variant="subtle"
+                    onClick={() => void loadCandidates()}
+                    loading={candidateLoading}
+                  >
+                    刷新候选
+                  </Button>
+                </Group>
+                {candidates.length === 0 ? (
+                  <Text size="sm" c="dimmed">
+                    暂无新候选：需要已确认的英语错题，且词不能已在背诵池里。
+                  </Text>
+                ) : (
+                  <>
+                    <Table.ScrollContainer minWidth={360}>
+                      <Table striped highlightOnHover>
+                        <Table.Thead>
+                          <Table.Tr>
+                            <Table.Th w={48}>选</Table.Th>
+                            <Table.Th>词</Table.Th>
+                            <Table.Th>出现错题数</Table.Th>
+                          </Table.Tr>
+                        </Table.Thead>
+                        <Table.Tbody>
+                          {candidates.map((candidate) => (
+                            <Table.Tr key={candidate.word}>
+                              <Table.Td>
+                                <Checkbox
+                                  aria-label={`选择 ${candidate.word}`}
+                                  checked={selectedWords.includes(
+                                    candidate.word,
+                                  )}
+                                  onChange={() =>
+                                    setSelectedWords((current) =>
+                                      current.includes(candidate.word)
+                                        ? current.filter(
+                                            (word) => word !== candidate.word,
+                                          )
+                                        : [...current, candidate.word],
+                                    )
+                                  }
+                                />
+                              </Table.Td>
+                              <Table.Td>
+                                <Text size="sm" ff="monospace">
+                                  {candidate.word}
+                                </Text>
+                              </Table.Td>
+                              <Table.Td>{candidate.mistake_count}</Table.Td>
+                            </Table.Tr>
+                          ))}
+                        </Table.Tbody>
+                      </Table>
+                    </Table.ScrollContainer>
+                    <Group align="flex-end" gap="sm" wrap="wrap">
+                      <Button
+                        size="compact-sm"
+                        variant="subtle"
+                        onClick={() =>
+                          setSelectedWords(candidates.map((row) => row.word))
+                        }
+                      >
+                        全选
+                      </Button>
+                      <Button
+                        size="compact-sm"
+                        variant="subtle"
+                        onClick={() => setSelectedWords([])}
+                      >
+                        清空勾选
+                      </Button>
+                      <TextInput
+                        label="单元（可选）"
+                        value={candidateUnit}
+                        onChange={(event) =>
+                          setCandidateUnit(event.currentTarget.value)
+                        }
+                        placeholder="Unit 1"
+                        w={160}
+                      />
+                      <Button
+                        onClick={() => void addSelectedCandidates()}
+                        loading={candidateBusy}
+                        disabled={selectedWords.length === 0}
+                      >
+                        入库选中的 {selectedWords.length} 个词
+                      </Button>
+                    </Group>
+                    <Text size="xs" c="dimmed">
+                      候选词入库时释义留空（系统不翻译、不生成释义），
+                      需要时可在下方条目表里手动补。
+                    </Text>
+                  </>
+                )}
+                {candidateReport && (
+                  <Alert
+                    color={candidateReport.errors.length > 0 ? "yellow" : "teal"}
+                    variant="light"
+                    title={`抽词入库：成功 ${candidateReport.imported} 条`}
+                  >
+                    <Stack gap={4}>
+                      <Text size="sm">
+                        重复 {candidateReport.duplicates.length} 条（已跳过，不覆盖）
+                        {candidateReport.duplicates.length > 0
+                          ? `：${candidateReport.duplicates
+                              .slice(0, 5)
+                              .map((row) => row.prompt)
+                              .join("、")}${
+                              candidateReport.duplicates.length > 5 ? " 等" : ""
+                            }`
+                          : ""}
+                      </Text>
+                      {candidateReport.errors.map((issue) => (
+                        <Text
+                          key={`${issue.line}-${issue.field ?? "none"}`}
+                          size="sm"
+                        >
+                          第 {issue.line} 个词
+                          {issue.field ? `（${issue.field}）` : ""}：{issue.reason}
+                        </Text>
+                      ))}
+                      {batchIds.length > 0 && (
+                        <Group>
+                          <Button
+                            size="compact-sm"
+                            color="orange"
+                            variant="light"
+                            onClick={() => void undoBatch()}
+                            loading={undoingBatch}
+                          >
+                            撤销本批（{batchIds.length} 条）
+                          </Button>
+                        </Group>
                       )}
                     </Stack>
                   </Alert>

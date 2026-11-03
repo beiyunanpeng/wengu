@@ -43,6 +43,8 @@ import type {
   PracticeSubmitResponse,
   QuizPaperResponse,
   QuizTopicListResponse,
+  RecitationCandidate,
+  RecitationCandidateBatchResponse,
   RecitationDueResponse,
   RecitationImportResponse,
   RecitationItem,
@@ -711,6 +713,25 @@ export function importRecitations(payload: {
 }): Promise<RecitationImportResponse> {
   return requestJson<RecitationImportResponse>(
     "/api/recitations/import",
+    "POST",
+    payload,
+  );
+}
+
+export function listRecitationCandidates(
+  limit = 50,
+): Promise<RecitationCandidate[]> {
+  return apiRequest<RecitationCandidate[]>(
+    `/api/recitations/candidates?limit=${limit}`,
+  );
+}
+
+export function addRecitationCandidates(payload: {
+  words: string[];
+  unit?: string | null;
+}): Promise<RecitationCandidateBatchResponse> {
+  return requestJson<RecitationCandidateBatchResponse>(
+    "/api/recitations/candidates/batch",
     "POST",
     payload,
   );

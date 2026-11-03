@@ -719,6 +719,23 @@ export interface RecitationImportResponse {
   errors: RecitationImportError[];
 }
 
+export interface RecitationCandidate {
+  word: string;
+  mistake_count: number;
+}
+
+export interface RecitationCandidateCreated {
+  id: number;
+  prompt: string;
+}
+
+export interface RecitationCandidateBatchResponse {
+  imported: number;
+  created: RecitationCandidateCreated[];
+  duplicates: RecitationImportDuplicate[];
+  errors: RecitationImportError[];
+}
+
 export interface SessionStatus {
   pin_set: boolean;
   parent_unlocked: boolean;

@@ -9,6 +9,41 @@
 
 ### Added
 
+- **P3-3c 从错题抽词：候选现算视图 + 家长勾选入库（零迁移）**（2026-11-03）：
+  P3-3 第三期（C），把 active 英语错题当前版本题面里的词补进背诵池，作为手填（A）与
+  词表导入（B）之后的增量来源；**候选是现算视图、不是新表，无迁移、无新依赖**，
+  也**不改动错题链路语义与 0020 两表结构**。
+  - **纯函数** `services/recitation.py`：
+    - `english_word_tokens(text)`：正则 `[A-Za-z][A-Za-z'-]+` → lowercase、去尾 `'s`、
+      长度 ≥2；中文与数字天然跳过，不抽中文词。
+    - `extract_word_candidates(problem_texts, existing_prompts, limit)`：同一题面内的重复词
+      只计一次；排除内置英文停用词起步集（80 个功能词，硬编码常量并注明「按试用反馈增删，
+      不做配置化」）与背诵池已有词（`subject='英语'`，**active / retired 都算已有**，
+      大小写不敏感）；按**出现错题数降序**（同数按字母序稳定）取前 50。只有「错题数」一把尺，
+      不做 TF-IDF/权重。
+    - `candidate_words(session)`：`mistakes.status='active'` JOIN `knowledge_seed.subject='英语'`，
+      只取 `mistake_versions.version = mistakes.current_version` 且 `problem_text` 非空的题面。
+  - **API**（全部 `require_parent`）：
+    - `GET /api/recitations/candidates?limit=50` → `[{word, mistake_count}]`；只读，不写任何表。
+    - `POST /api/recitations/candidates/batch` body `{words:[...], unit?}` → 复用 `create_item`
+      （subject='英语'，`UNIQUE(subject,prompt)` 去重逐条报 duplicate），响应结构同 import 报告
+      并多带 `created:[{id,prompt}]` 供前端撤销；`answer` 留空（**不自动配释义**）；
+      单词校验：至少 2 个字母、可含 `-`/`'`，单次 ≤50 个。
+    - 撤销本批 = 前端对本批 ids 逐条 `PATCH status='retired'`，不新增撤销端点。
+  - **前端** `/recitations` 家长区「从错题抽词（英语）」：候选表（词 + 出现错题数）+ 勾选 +
+    全选/清空 + 可选 unit + 「入库选中的 N 个词」；成功后显示报告与「撤销本批（N 条）」。
+    候选每次现算，无后台任务、无定时同步、绝不未经勾选自动入库。
+  - **测试**：新增单测 11 条（token 归一/`'s`/长度、中文跳过、题内去重、错题数排序 + 字母序、
+    停用词、已有条目大小写不敏感、limit 截断与该范围外拒绝）+ 集成 7 条（active/英语/当前版本
+    取数边界、active+retired 排除、两个端点 403 零写入、批量重复/非法逐条报告、重复幂等与
+    51 词 422、**四表快照零变化**、retired 退出 `/due` 且再抽词不重现）+ `pytest -m e2e` 第 6 条
+    （确认 2 条英语错题含重复词与停用词 → 候选排序/去重/停用词断言 → 勾选入库 → `/due` →
+    自评走阶梯）。**实测**：全量 **484 passed**（unit 315 / integration 163 / e2e 6）；
+    `pytest -m e2e` **6** 条全绿；`ruff check --no-cache .` 全绿；`npm run build` 绿。
+  - **实测行为（写进 PR）**：批量入库后把条目 `retired`，它会退出 `/due`；由于「已有条目」
+    包含 retired，**该词不会重新出现在候选里**，再次提交同名词也报 duplicate——要恢复背诵
+    需家长在条目表手动「启用」，而不是重新抽词。
+
 - **P3-3b 教材词表批量导入：CSV / TSV 一次性入库 + 逐行报告**（2026-11-03）：
   在 P3-3a 的自评闭环上补齐内容来源 A 的批量入口；**无迁移、不动 0020 表结构**，
   解析与校验全部在服务端，前端只上传/粘贴原文。
