@@ -216,15 +216,19 @@
 - **P5-5 开源基线**：LICENSE + 中英 README（一行安装）+ 隐私声明（数据不出户；**v2.5 后无任何云转录/云推理，题目图片不进网络**——旧表述"云转录仅送题目图"已作废）+ CHANGELOG + `.env.example`；合规点名《个人信息保护法》《未成年人网络保护条例》；**第三方数据 License 署名 + NC 声明**强制。
   **现状（2026-11-02 审计）**：LICENSE / 中文 README / CHANGELOG / `wengu-api/.env.example` / 第三方署名 / 合规点名 **已在盘上**；**英文 README 与独立隐私声明文档仍缺**（本票未完结）。
 - **P5-6 交付口径与盘上一致性清理（v2.6 审计新增）**：把审计报告里 B/C 类"文档说的和代码不一致"一次性收干。
-  - **孤儿表退役**：`photo_captures` / `photo_capture_items` 是 v2.5 视觉栈退役后的遗留（`models/ingestion.py:21,40`
-    定义仍在、迁移仍建表，但业务代码**零引用**）→ 出**可逆迁移 0019** DROP 两表（`downgrade` 重建表结构，
-    不承诺找回数据），同步删 `models/ingestion.py` 里的两个 ORM 类与 `__init__` 导出；`backup.py` 的
-    `COUNT_TABLES` 同步去掉这两张表。
+  - **孤儿表退役**：`photo_captures` / `photo_capture_items` / `problem_extractions` 是 v2.5 视觉栈退役后的遗留
+    （迁移仍建表、但业务代码**零引用**；`problem_extractions` 的两个 FK 还指向另两表）→ 出**可逆迁移 0019**
+    DROP 三表（先子后父，`downgrade` 重建表结构，不承诺找回数据），同步删 `models/ingestion.py` 里的两个
+    ORM 类与 `__init__` 导出；`backup.py` 的 `COUNT_TABLES` 同步去掉这两张表（`problem_extractions` 本不在其中）。
   - **口径复核**：`docs/STATUS.md` 的 Phase 5 行与 §7 表格按盘上事实改写（不许再出现"中英 README 已就位"这类过实）；
     `wengu-web/README.md` 的目录/页面清单已按实际修正（2026-11-02）。
   - DoD：迁移 up/down/up 可重入并有 `test_migrations.py` 覆盖；DROP 前文档写明"先跑家长区导出备份"；
-    全测试绿；表清单与 STATUS 一致（业务表数随之从 22 变 20，需在 STATUS 明写）。
+    全测试绿；表清单与 STATUS 一致（业务表数随之从 22 变 19，需在 STATUS 明写）。
   - 禁止：顺手 DROP 任何仍被读的表；手改生产 `wengu.db`；把迁移写成不可逆。
+  **已完成（2026-11-03，孤儿表切片）**：迁移 `0019_drop_orphan_photo_tables` 实跑 up/down/up；
+  三张孤儿表及显式索引已一次 DROP（不留悬空外键），ORM 类/`__init__` 导出/`backup.py` 表计数同步清理；
+  业务表 22 → 19，STATUS §4.18/§5.2 已写清；全量 398 passed、`ruff check --no-cache .` 绿。**剩余**：
+  Phase 5 行与 §7 表格的进一步口径复核。
 
 ---
 

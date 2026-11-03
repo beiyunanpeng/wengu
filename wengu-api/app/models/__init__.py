@@ -1,12 +1,6 @@
 from app.models.events import Attempt, LearningEvent
 from app.models.grading import GradingResult, GradingVersion, ProblemBankItem
-from app.models.ingestion import (
-    BankDraft,
-    ImportBatch,
-    IngestionDraft,
-    PhotoCapture,
-    PhotoCaptureItem,
-)
+from app.models.ingestion import BankDraft, ImportBatch, IngestionDraft
 from app.models.knowledge import Concept, ConceptAlias, KnowledgeSeed, PrerequisiteEdge
 from app.models.mistakes import Mistake, MistakeVersion, PracticeRecord
 from app.models.review import ReviewSchedule
@@ -27,8 +21,6 @@ __all__ = [
     "LearningEvent",
     "Mistake",
     "MistakeVersion",
-    "PhotoCapture",
-    "PhotoCaptureItem",
     "PracticeRecord",
     "PrerequisiteEdge",
     "ProblemBankItem",

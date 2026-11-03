@@ -20,9 +20,6 @@ EXPECTED_TABLES = {
     "import_batches",
     "ingestion_drafts",
     "bank_drafts",
-    "photo_captures",
-    "photo_capture_items",
-    "problem_extractions",
     "problem_bank",
     "grading_results",
     "grading_versions",
@@ -586,6 +583,208 @@ def test_p3_2d_practice_dedup_up_down_up(tmp_path) -> None:
         assert dedup_values == {None}
     finally:
         engine.dispose()
+
+
+@pytest.mark.integration
+def test_p5_6_drops_orphan_photo_tables_up_down_up(tmp_path) -> None:
+    """0019：三张视觉栈孤儿表一并 DROP；down 重建结构（数据不回填），up/down/up 可重入。"""
+
+    db_path = tmp_path / "drop-photo-tables.db"
+    config = _alembic_config(db_path)
+
+    command.upgrade(config, "0018_practice_dedup")
+    assert {
+        "photo_captures",
+        "photo_capture_items",
+        "problem_extractions",
+    } <= _tables(db_path)
+
+    engine = create_engine(f"sqlite:///{db_path.as_posix()}")
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO photo_captures (sha256, stored_path, created_at)"
+                    " VALUES ('sha-1', 'uploads/a.jpg', CURRENT_TIMESTAMP)"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO photo_capture_items"
+                    " (photo_capture_id, seq, stored_path, bbox_json, created_at)"
+                    " VALUES (1, 1, 'uploads/a-1.jpg', '[0,0,1,1]',"
+                    " CURRENT_TIMESTAMP)"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO problem_extractions"
+                    " (photo_capture_id, photo_capture_item_id, seq, source_kind,"
+                    " image_path, problem_text, gate_status, review_reasons_json,"
+                    " figure_keywords_json, prompt_id, prompt_version, provider,"
+                    " model, created_at)"
+                    " VALUES (1, 1, 1, 'slice', 'uploads/a-1.jpg', '旧提取题',"
+                    " 'ready_for_grading', '[]', '[]', 'p1', 1, 'mock', 'm1',"
+                    " CURRENT_TIMESTAMP)"
+                )
+            )
+    finally:
+        engine.dispose()
+
+    command.upgrade(config, "head")
+    tables = _tables(db_path)
+    assert {
+        "photo_captures",
+        "photo_capture_items",
+        "problem_extractions",
+    }.isdisjoint(tables)
+    assert len(tables - {"alembic_version"}) == 19
+
+    engine = create_engine(f"sqlite:///{db_path.as_posix()}")
+    try:
+        with engine.connect() as connection:
+            violations = connection.execute(text("PRAGMA foreign_key_check")).fetchall()
+        assert violations == []
+    finally:
+        engine.dispose()
+
+    command.downgrade(config, "0018_practice_dedup")
+    engine = create_engine(f"sqlite:///{db_path.as_posix()}")
+    try:
+        with engine.connect() as connection:
+            inspector = inspect(connection)
+            assert {
+                "photo_captures",
+                "photo_capture_items",
+                "problem_extractions",
+            } <= set(inspector.get_table_names())
+            capture_columns = {
+                column["name"] for column in inspector.get_columns("photo_captures")
+            }
+            item_columns = {
+                column["name"]
+                for column in inspector.get_columns("photo_capture_items")
+            }
+            extraction_columns = {
+                column["name"]
+                for column in inspector.get_columns("problem_extractions")
+            }
+            capture_indexes = {
+                index["name"] for index in inspector.get_indexes("photo_captures")
+            }
+            item_indexes = {
+                index["name"]
+                for index in inspector.get_indexes("photo_capture_items")
+            }
+            extraction_indexes = {
+                index["name"]
+                for index in inspector.get_indexes("problem_extractions")
+            }
+            capture_uniques = {
+                constraint["name"]
+                for constraint in inspector.get_unique_constraints("photo_captures")
+            }
+            item_uniques = {
+                constraint["name"]
+                for constraint in inspector.get_unique_constraints(
+                    "photo_capture_items"
+                )
+            }
+            extraction_uniques = {
+                constraint["name"]
+                for constraint in inspector.get_unique_constraints(
+                    "problem_extractions"
+                )
+            }
+            item_fks = inspector.get_foreign_keys("photo_capture_items")
+            extraction_fks = {
+                fk["name"]: fk
+                for fk in inspector.get_foreign_keys("problem_extractions")
+            }
+            capture_count = connection.scalar(
+                text("SELECT COUNT(*) FROM photo_captures")
+            )
+            item_count = connection.scalar(
+                text("SELECT COUNT(*) FROM photo_capture_items")
+            )
+            extraction_count = connection.scalar(
+                text("SELECT COUNT(*) FROM problem_extractions")
+            )
+        assert capture_columns == {
+            "id",
+            "sha256",
+            "stored_path",
+            "original_name",
+            "source",
+            "status",
+            "created_at",
+        }
+        assert item_columns == {
+            "id",
+            "photo_capture_id",
+            "seq",
+            "stored_path",
+            "bbox_json",
+            "anchor_label",
+            "status",
+            "created_at",
+        }
+        assert extraction_columns == {
+            "id",
+            "photo_capture_id",
+            "photo_capture_item_id",
+            "seq",
+            "source_kind",
+            "image_path",
+            "problem_text",
+            "student_answer",
+            "confidence",
+            "problem_complete",
+            "gate_status",
+            "review_reasons_json",
+            "figure_keywords_json",
+            "prompt_id",
+            "prompt_version",
+            "provider",
+            "model",
+            "created_at",
+        }
+        assert "ix_photo_captures_status" in capture_indexes
+        assert "ix_photo_capture_items_capture_id" in item_indexes
+        assert {
+            "ix_problem_extractions_capture_id",
+            "ix_problem_extractions_item_id",
+        } <= extraction_indexes
+        assert "uq_photo_captures_sha256" in capture_uniques
+        assert "uq_photo_capture_items_capture_seq" in item_uniques
+        assert "uq_problem_extractions_capture_source_seq" in extraction_uniques
+        assert item_fks[0]["referred_table"] == "photo_captures"
+        assert item_fks[0]["name"] == "fk_photo_capture_items_capture_id"
+        assert set(extraction_fks) == {
+            "fk_problem_extractions_capture_id",
+            "fk_problem_extractions_item_id",
+        }
+        assert (
+            extraction_fks["fk_problem_extractions_capture_id"]["referred_table"]
+            == "photo_captures"
+        )
+        assert (
+            extraction_fks["fk_problem_extractions_item_id"]["referred_table"]
+            == "photo_capture_items"
+        )
+        for fk in extraction_fks.values():
+            assert fk["options"].get("ondelete") == "CASCADE"
+        # 只重建结构，不承诺找回历史数据
+        assert (capture_count, item_count, extraction_count) == (0, 0, 0)
+    finally:
+        engine.dispose()
+
+    command.upgrade(config, "head")
+    assert {
+        "photo_captures",
+        "photo_capture_items",
+        "problem_extractions",
+    }.isdisjoint(_tables(db_path))
 
 
 @pytest.mark.integration

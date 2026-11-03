@@ -481,6 +481,9 @@ docs/deploy/backup-restore.md：包结构、导出下载、Docker 恢复、原�
 
 > 来源：`docs/audit/pr1-24-retrospective.md` 的交付回顾审计 + 用户拍板（砍 PWA、归并补 UI、按建议顺序推进）。
 > 投单顺序 = **P5-6 → P0-3 → P5-1（既有票）→ P1-3e → P1-13**。每张卡可整段复制给 Qoder。
+> **2026-11-03 更新**：P5-6 孤儿表切片已交付（迁移 0019 一次退役 `problem_extractions` /
+> `photo_capture_items` / `photo_captures` 三表；见 `TICKETS.md` 与 `docs/STATUS.md` §4.18），
+> 本卡留作回溯；下一张待投 = P0-3。
 
 ## P5-6 —— 交付口径与盘上一致性清理（含孤儿表退役）
 
@@ -488,17 +491,18 @@ docs/deploy/backup-restore.md：包结构、导出下载、Docker 恢复、原�
 你在 wengu 仓库工作。开工前完整读：AGENTS.md（§3 技术栈、§8 提交规约）+ TICKETS.md 的 P5-6
 + docs/audit/pr1-24-retrospective.md 的 §4-B3。
 【全局纪律】一条 ticket = 一个 PR；DROP 表的迁移必须先出备份说明、必须可逆（up/down/up 实测）。
-禁止引入新依赖。禁止顺手 DROP 任何仍被读的表——本票只动下面点名的两张。
-【任务】photo_captures / photo_capture_items 是 v2.5 视觉栈退役后的孤儿表（models/ingestion.py 里 ORM 类
-仍在、迁移仍建表，但 app/ 业务代码零引用）。出迁移 0019 DROP 这两张表（含其索引），downgrade 重建
-表结构（不承诺找回数据）；同步删除这两个 ORM 类与 models/__init__.py 的导出；
-services/backup.py 的 COUNT_TABLES 去掉这两项；tests 里若引用这两个模型一并清理。
-再核对并修正文档口径：docs/STATUS.md 的"业务表 22 张"改为 20 张并在 §5.2 迁移说明里写清 0019；
+禁止引入新依赖。禁止顺手 DROP 任何仍被读的表——本票只动下面点名的三张。
+【任务】problem_extractions / photo_capture_items / photo_captures 是 v2.5 视觉栈退役后的孤儿表
+（迁移仍建表、但 app/ 业务代码零引用；problem_extractions 的两个 FK 还指向另两张表）。
+出迁移 0019 按"先子后父"一次 DROP 这三张表（含其索引），downgrade 反向重建表结构
+（不承诺找回数据）；同步删除两个 ORM 类与 models/__init__.py 的导出；
+services/backup.py 的 COUNT_TABLES 去掉 photo_captures / photo_capture_items 两项。
+再核对并修正文档口径：docs/STATUS.md 的"业务表 22 张"改为 19 张并在 §5.2 迁移说明里写清 0019；
 CHANGELOG 记一条 Changed（含"为何现在才删"一句）。
 【DoD】migrations 测试覆盖 0019 up/down/up 可重入；`alembic upgrade head` 后表清单与 STATUS 一致；
 全测试绿（当前基线 397 passed，本票删表后允许因移除相关断言而小幅变动，必须在 PR 里逐条说明原因）；
 `ruff check --no-cache .` 绿（本机不带 --no-cache 会假绿，不可用作证据）。
-【禁止】手改生产 wengu.db；把迁移写成不可逆；DROP photo_captures 之外的任何表；
+【禁止】手改生产 wengu.db；把迁移写成不可逆；DROP 点名的三张表之外的任何表；
 为了"数字好看"删测试断言而不说明。
 ```
 

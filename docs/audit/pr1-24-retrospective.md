@@ -122,7 +122,7 @@
 | --- | --- | --- | --- | --- |
 | B1 | `docs/STATUS.md:759` | "开源基线：LICENSE / **中英 README** / 安全合规声明 / CHANGELOG / `.env.example` 已就位" | 英文 README 不存在；隐私是 README 一节而非独立文档 | 改成"中文 README 已就位（英文待补）"，别写"中英" |
 | B2 | `docs/STATUS.md:106` | Phase 5"部分完成…`.env.example` 已就位" | **说法成立**（在 `wengu-api/.env.example`），但路径易被误读为仓库根 | 补一句路径 |
-| B3 | 表清单 | — | `photo_captures` / `photo_capture_items` 两张表仍在（`models/ingestion.py:21,40`），业务代码**零引用**——v2.5 视觉栈退役后的孤儿表 | 出一张可逆迁移删表（或明确保留理由），并记进 STATUS |
+| B3 | 表清单 | — | `photo_captures` / `photo_capture_items` 两张表仍在（`models/ingestion.py:21,40`），业务代码**零引用**——v2.5 视觉栈退役后的孤儿表（同族 `problem_extractions` 的 FK 亦指向这两表，已在 P5-6 一并退役） | 出一张可逆迁移删表（或明确保留理由），并记进 STATUS |
 | B4 | CHANGELOG P3-8 条目 | "被删序号会被 `next_local_id` 复用"列为残留风险 | 已被 P3-2d 的 `_id_counters.json` 关闭 | **本轮已修**（`e627b5f`） |
 
 ### C 类：治理瑕疵（不影响功能，影响可回溯性）
