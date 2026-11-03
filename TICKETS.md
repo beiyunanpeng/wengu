@@ -261,8 +261,23 @@
       **全量 465 passed（unit 304 / integration 156 / e2e 5）**，`ruff check --no-cache .`
       与 `npm run build` 全绿。实测：首导 4 行 → 成功 2 / 重复 0 / 第 4 行空 prompt；
       同文本重导 → 成功 0 / 重复 2（行号正确），数据仍 2 条；自评进第 2 档、看板 1/5。
-  - **P3-3c 从错题抽词（最后叠加）**：把英语错题出现过的词自动补进背诵池，作为 A/B 之后的增量来源；
-    必须可整批撤销、不得覆盖家长手工确认过的条目。
+  - **P3-3c 从错题抽词（第三期，2026-11-03 定稿）**：把**英语错题**出现过的词补进背诵池。
+    **候选是视图不是表（本票零迁移）**：从 active 英语错题（`primary_topic_id → knowledge_seed.subject='英语'`）
+    当前版本的 `problem_text` 确定性抽取英文 token（正则 `[A-Za-z][A-Za-z'-]+`，lowercase、去尾 `'s`、
+    长度 ≥2），排除 ① 已在任何状态的 `recitation_items` 里、② 内置英文停用词起步集（~40 个功能词，
+    硬编码常量并注明"按试用反馈增删，不做配置化"），按**出现错题数降序**取前 50。
+    - API（全部 `require_parent`——抽词与入库都是家长动作）：`GET /api/recitations/candidates`
+      返回候选词与错题数；`POST /api/recitations/candidates/batch`（body `{words, unit?}`）→
+      **复用 `create_item`**（subject='英语'，UNIQUE 去重逐条报 duplicate），批量创建后前端给
+      "撤销本批"按钮 = 对本批 ids 逐条 `PATCH status='retired'`（不新增撤销端点）。
+    - **必须家长勾选确认才入库**：候选只读展示，绝不自动写入 recitation_items；
+      不给候选词自动配释义（`answer` 留空，家长可后续手补，卡面只显示 prompt）。
+    - DoD：候选去重 / 词频排序 / 停用词 / 排除已有条目各有断言；批量创建走 UNIQUE 去重逐条报告；
+      四表快照断言（mistakes / mistake_versions / attempts / review_schedules）零变化；
+      撤销后条目 retired 且退出 /due；`pytest -m e2e` 加第 6 条（确认 2 条英语错题 → 候选排序与
+      去重正确 → 批量入库 → /due 出现 → 自评）；全量绿 + `ruff check --no-cache` + build。
+    - 禁：LLM 抽词/翻译/选词；TF-IDF 之类权重算法（只有"错题数降序"一把尺）；中文词抽取
+      （本票只做英文 token）；自动定期同步（候选每次现算，无后台任务）；未经家长确认自动入库。
 - **P3-4 听力+默写**：默写=卷面批改后走转录导入；听力"教材音频+TTS"+组卷。禁：口语 ASR。
 - **P3-5 语文客观并入**：字音/病句/默写并入转录；作文/阅读理解只走外部讲解不进本。
   **前置已交付（P3-8，2026-10-31）**：家长可自建语文章级 seed（`cnl_`）、语文题可挂

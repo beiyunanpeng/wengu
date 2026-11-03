@@ -480,7 +480,7 @@ docs/deploy/backup-restore.md：包结构、导出下载、Docker 恢复、原�
 # 待投工单卡（v2.6 决策轮登记，**未开工**）
 
 > 来源：`docs/audit/pr1-24-retrospective.md` 的交付回顾审计 + 用户拍板（砍 PWA、归并补 UI、按建议顺序推进）。
-> 投单顺序 = ~~P5-6~~（已合并 PR#27）→ ~~P0-3~~（已合并 PR#28）→ ~~P3-3a~~（已合并 PR#29）→ **P3-3b → P5-1（既有票）→ P1-3e → P1-13**。每张卡可整段复制给 Qoder。
+> 投单顺序 = ~~P5-6~~（已合并 PR#27）→ ~~P0-3~~（已合并 PR#28）→ ~~P3-3a~~（已合并 PR#29）→ ~~P3-3b~~（已合并 PR#30）→ **P3-3c → P5-1（既有票）→ P1-3e → P1-13**。每张卡可整段复制给 Qoder。
 > **2026-11-03 更新**：P5-6 孤儿表切片已交付（迁移 0019 一次退役 `problem_extractions` /
 > `photo_capture_items` / `photo_captures` 三表；见 `TICKETS.md` 与 `docs/STATUS.md` §4.18），
 > 本卡留作回溯；P0-3 亦已交付（PR#28），下一张待投 = **P3-3a**。
@@ -683,6 +683,48 @@ category_id/标签快照**一字未改**（用全表快照断言）；名称解�
 - `pytest -q` 全绿（当前基线 442 passed）、CI 绿、`ruff check --no-cache .` 绿、`npm run build` 绿。
 【禁止】静默丢弃坏行或重复行；静默更新已有条目；引入 pandas / 新依赖；做草稿暂存表；
 让 LLM 生成或翻译词表；把解析放前端（服务端是唯一解析与校验真源）；动 0020 的表结构。
+```
+
+## P3-3c —— 从错题抽词（候选视图 + 家长勾选入库，零迁移）
+
+```
+你在 wengu 仓库工作。开工前完整读：TICKETS.md 的 P3-3c + app/services/recitation.py
+（create_item / due_items 的写法）+ app/models/mistakes.py 与 app/models/knowledge.py
+（错题 → 主考点 → 学科的连接路径）。
+【全局纪律】一条 ticket = 一个 PR；**本票零迁移**（候选是现算视图，不是新表）；
+禁止引入新依赖；禁止改动错题链路语义与 recitation 两表结构。
+【定位】P3-3 第三期（C）：把英语错题出现过的词补进背诵池，作为手填（A）与词表导入（B）
+之后的增量来源。候选只读展示，**必须家长勾选确认才入库**。
+【任务】
+1) 候选抽取（纯函数放 services/recitation.py）：
+   - 取数：active 英语错题（mistakes JOIN knowledge_seed ON mistakes.primary_topic_id =
+     knowledge_seed.id，subject='英语'）当前版本（mistake_versions.version = mistakes.current_version）
+     的 problem_text（NOT NULL，核对页确认过的题面）。
+   - token：正则 [A-Za-z][A-Za-z'-]+，lowercase，去尾 's，长度 ≥2。
+   - 排除：已在 recitation_items（任何状态，按 subject='英语' + prompt 匹配）的词；
+     内置英文停用词起步集（~40 个功能词，硬编码常量 THE/OF/AND/IS/...，注释写明
+     "按试用反馈增删，不做配置化"——没有它 the/is 会霸榜，抽词就废了）。
+   - 排序与截断：按出现错题数降序（错得越多越该背），取前 50。
+2) API（全部挂 require_parent——抽词与入库都是家长动作）：
+   - GET /api/recitations/candidates?limit=50 → [{word, mistake_count}]
+   - POST /api/recitations/candidates/batch（body {words: [...], unit?}）→
+     复用 create_item（subject='英语'，UNIQUE 去重逐条报 duplicate），响应结构同 import 报告；
+     answer 留空（**不给候选词自动配释义**，家长可后续手补，卡面只显示 prompt）。
+   - 撤销本批 = 前端对本批 ids 逐条 PATCH status='retired'（不新增撤销端点）。
+3) 前端 /recitations 家长区新增"从错题抽词"：候选列表（词 + 出现错题数）+ 勾选 +
+   一键入库 + 成功后"撤销本批"；候选每次现算，无后台任务、无定时同步。
+【DoD】
+- 候选：去重 / 词频排序 / 停用词排除 / 排除已有条目（active 与 retired 都算"已有"）各有断言。
+- 批量入库：走 UNIQUE 去重逐条报告；**四表快照断言**（mistakes / mistake_versions /
+  attempts / review_schedules）零变化——抽词绝不改错题链路。
+- 撤销：retired 后退出 /due；再抽词时该词重新出现在候选里（因为 retired 也算"已有"→
+  不再出现在候选，此处以实测为准并在 PR 里写明行为）。
+- `pytest -m e2e` 第 6 条：确认 2 条英语错题（题干含重复词与停用词）→ 候选排序/去重/停用词
+  断言 → 勾选批量入库 → /due 出现 → 自评走阶梯。
+- `pytest -q` 全绿（当前基线 465 passed）、CI 绿、`ruff check --no-cache .` 绿、`npm run build` 绿。
+【禁止】LLM 抽词 / 翻译 / 选词；TF-IDF 等权重算法（只有"错题数降序"一把尺）；
+中文词抽取（本票只做英文 token）；自动定期同步或后台任务；**未经家长勾选自动入库**；
+给候选词自动配释义或例句；动 0020 两表结构；做新表或新迁移。
 ```
 
 > **状态同步（2026-11-03）**：本卡已交付（`feat/p3-3b-recitation-import`）。
