@@ -1,8 +1,8 @@
 # STATUS.md — 开发计划与完成情况
 
-> 快照日期：2026-11-03（**P5-6 孤儿表切片**：迁移 0019 退役 `problem_extractions` / `photo_capture_items` / `photo_captures` 三张视觉栈表）
-> 基线：`main` = `b481943`；本切片在 `feat/p5-6-orphan-tables` 分支，合并前工作区状态
-> 全量测试：**398 passed**（2026-11-03 本机实跑，unit 272 / integration 126 / **e2e 0**）；`ruff check --no-cache .` 全绿；`npm run build` 绿
+> 快照日期：2026-11-03（**P0-3 端到端回归**：`e2e` marker 从 0 条变 3 条；可逆迁移加 DDL 原文 before/after 对比）
+> 基线：`main` = `6121859`（P5-6 PR #27 已合并）；本切片在 `feat/p0-3-e2e` 分支，合并前工作区状态
+> 全量测试：**403 passed**（2026-11-03 本机实跑，unit 266 / integration 134 / **e2e 3**）；`pytest -m e2e` 收集 **3** 条全绿；`ruff check --no-cache .` 全绿
 > Alembic head：`0019_drop_orphan_photo_tables`；业务表 **19 张**（0019 已退役 3 张视觉栈孤儿表）
 
 本文件是**状态快照**，不替代以下事实源；冲突时以它们为准：
@@ -94,15 +94,25 @@
 - **Phase 1 剩余**：P1-7b 前置回溯诊断（未开始）；P1-6 遗留的**知识点归并无 UI**（新票 P1-13）；
   P1-3e 移动端投递入口（新票）。~~P1-7c 自动排复习~~ **已于 v2.5 作废**（入本一律经核对页人工确认，
   "未确认自动入库"场景消失）——本行此前写"仍受 Phase 0 闸门阻塞"与 `TICKETS.md` 作废清单不一致，2026-11-02 修正。
-- **下一步（v2.6 决策轮定的顺序）**：① P5-6 口径清理（孤儿表 + 文档过实）→ ② P0-3 端到端回归三条
-  → ③ P5-1 首次运行向导 + 英文 README + 独立隐私声明（开源分发票）→ ④ P1-3e 移动端投递 →
-  ⑤ P1-13 归并 UI → ⑥ 回功能线 P3-3/P3-4。**PWA 已砍**（设计文档 §17-A / §12 反清单）。
+- **P0-3 端到端回归已交付**：v2.6 审计发现 `e2e` marker 声明了却 0 条用例，端到端只在批次⑧
+  手工验过一次。本票新增 `wengu-api/tests/e2e/test_closed_loop.py` 三条：①投递 2 题
+  `agent_transcribe_v1` JSON → 草稿 → 核对页确认 → 到期队列出 `quiz` → 服务端判分写
+  `attempts(source=system_quiz)` → 看板/streak 与手工推导逐项相等；②作废 → 退出活跃与到期队列
+  → 撤销 → 回来；作废前历史事件与 `mistake_versions` 一行不改，只追加两条审计事件；③家长解锁
+  → 导出备份 → 快照 `integrity_check=ok` → manifest 计数与快照库/业务库三方逐项相等。
+  **全程真实 ASGI（`ASGITransport`）+ 临时 SQLite + 真迁移到 head**，不 mock 服务层、不调模型、
+  无浏览器栈。同时强化 `test_migrations.py`：0018（`batch_alter_table` 重建，按去引号/默认值
+  括号归一后逐项比列定义与约束）与 0019（**7 个 DDL 对象逐字节相等**）的可逆迁移 DDL
+  before/after 对比，已用"改坏 0019 `server_default` → 用例变红 → 改回变绿"证明断言有效。
+- **下一步（v2.6 决策轮定的顺序）**：① ~~P5-6 口径清理~~、~~P0-3 端到端回归~~ 已完成
+  → ② P5-1 首次运行向导 + 英文 README + 独立隐私声明（开源分发票）→ ③ P1-3e 移动端投递 →
+  ④ P1-13 归并 UI → ⑤ 回功能线 P3-3/P3-4。**PWA 已砍**（设计文档 §17-A / §12 反清单）。
 
 ## 2. 总体路线图状态
 
 | 阶段 | 目标 | 状态 | 说明 |
 |---|---|---|---|
-| Phase 0 | 摸底 + 回归基线 | 部分完成 | 首轮实测结论已在 `docs/methodology/phase0.md`；v2.5 后"识别瓶颈"由批改外移绕过，边界表不再是入本前置 |
+| Phase 0 | 摸底 + 回归基线 | 部分完成 | 首轮实测结论已在 `docs/methodology/phase0.md`；v2.5 后"识别瓶颈"由批改外移绕过，边界表不再是入本前置；**P0-3 端到端回归已交付**（e2e 3 条 + 迁移 DDL 文对比），P0-1/P0-2 待按新口径重定义 |
 | Phase 1 | 核心闭环 | 进行中 | P1-0～P1-12 完成（模型在环旧链路已退役）；仅剩 P1-7b，P1-7c 阻塞 |
 | Phase 2 | 每日任务 + 家长看板 | 进行中 | P2-5 家长看板、P2-4 两角色 + 本地 PIN、P2-6 极简打卡、P2-1 日队列（本轮仅到期复习/考核）、P2-3 课表/日历约束层、P2-2 番茄钟执行、P2-7 打印导出已完成；日队列的背诵/作业/硬事件权重未开始 |
 | Phase 3 | 内容与扩展 | 进行中 | P3-1 家长录题（真题入库审核流水线）+ P3-1b 家长题接入检索池 + P3-1c 题库修订/软作废 + P3-2 主动加练变式已完成；P3-5 前置（语文/化学家长自建章级 seed）已交付；英语背诵、听力默写、语文客观题、信奥、长期计划未开始 |
@@ -509,6 +519,42 @@
   级联/数据不回填/up-down-up/`foreign_key_check` 空）；`EXPECTED_TABLES` 移除三项。全量 398 passed
   （unit 272 / integration 126 / e2e 0），`ruff check --no-cache .` 全绿。
 - **残留**：无。三张视觉栈遗留表已一次删净，仓库内不再有指向缺失表的 FK。
+
+### 4.19 端到端回归与迁移 DDL 对比（P0-3）
+
+- **背景**：`pyproject.toml` 早已声明 `e2e` marker，但 `pytest -m e2e` 收集 **0 条**；AGENTS §8
+  写了 E2E，实际端到端只有批次⑧手工走过一次、不可重放。P5-6 审核还发现迁移测试只断
+  列名/索引名集合，挡不住类型与默认值漂移。
+- **三条 e2e**（`wengu-api/tests/e2e/test_closed_loop.py`，真实 `ASGITransport` + 临时库 +
+  `alembic upgrade head`）：
+  ① 导入 2 题 `agent_transcribe_v1` → 落 2 条草稿 → 逐条确认入本 → 同日到期队列 2 个 `quiz`
+  （题面无 `answer/accept/explanation/verify`）→ 一真答一错答（客户端故意谎报 `correct`）
+  → 服务端判 `["correct","wrong"]` 并写 `attempts(source=system_quiz)` → 看板断言
+  `inventory`/`weak_topics`/`weak_subjects`/`mastery=0.5`/`due=0`/`reviews_this_week=2`/
+  `event_stats`（6 事件、准确率 0.25）与 streak 逐项相等。
+  ② 作废 → 活跃 2→1、到期 2→1、详情 `voided`；幂等重复作废不叠加；撤销 → 恢复 2/2；全程
+  旧事件行与 `mistake_versions` 一字不改，只追加 `mistake_voided` + `mistake_reactivated`
+  两条审计事件（**与工单原文"不增"的差异见下文"口径"**）。
+  ③ 设 PIN → 上锁 → 导出 403 → 解锁 → 导出 200；下载字节的 size/sha256 与响应一致；zip 含
+  `wengu.db` + `manifest.json`；快照 `PRAGMA integrity_check=ok`；manifest 的 `counts`、
+  快照库实算、业务库实算三方逐表相等（11 张计数表 + `alembic_version`）。
+- **DDL 原文对比**（`tests/integration/test_migrations.py`）：
+  `test_p3_2d_reversible_ddl_matches_pre_migration` 覆盖 0018：升到 0017 存
+  `practice_records` 及其索引的 `sqlite_master.sql`，升 head 再降 0017 后对比；因
+  `batch_alter_table(recreate="always")` 会改变引号/默认值括号/约束顺序，先做**仅表现层归一**
+  （去标识符引号、`DEFAULT (X)`→`DEFAULT X`、列保序、约束排序），列类型/NOT NULL/默认值/
+  唯一与 FK 约束名仍逐字比对，索引定义精确比对。
+  `test_p5_6_reversible_ddl_is_byte_identical` 覆盖 0019：**7 个对象**（3 表 + 4 索引）零归一
+  **逐字节相等**——与 P5-6 审核方一次性脚本的结论一致，现在常驻为测试。
+- **可证伪证据**：临时把 0019 `downgrade` 里 `photo_captures.source` 的
+  `server_default="phone"` 改坏为 `"phone_tampered"` → 用例红，差异精确落到
+  `table:photo_captures` 的 `source TEXT DEFAULT ...` 一行；改回 → `2 passed`。
+- **口径（需审核注意）**：工单原文②写"全程历史事件与 versions 不增不改"，但按设计
+  `mistake_voided` / `mistake_reactivated` 本就是**只追加的审计事件**——业务上必须留痕。
+  用例按设计事实断言：**既有行零改动 + 恰好追加 2 条审计事件 + versions 零改动**。
+  未改业务代码迁就工单措辞。
+- **实测**：`pytest -m e2e` 收集 **3** 条全绿；全量 **403 passed**（unit 266 / integration 134 /
+  e2e 3，另 2 条为本次新增迁移用例）；`ruff check --no-cache .` 全绿。
 
 ## 5. API 与数据现状
 

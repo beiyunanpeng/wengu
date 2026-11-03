@@ -22,6 +22,7 @@
 - 禁止：只立结构不填样本；用 AI 自宣"通过"。
 
 ### P0-3 端到端回归（把已声明的 `e2e` marker 用起来；v2.6 审计新增）
+- **状态（2026-11-03）**：已交付。`tests/e2e/test_closed_loop.py` 三条全绿（`pytest -m e2e` 收集 3）；④ 的 DDL 对比在 `test_migrations.py` 覆盖 0018/0019（0019 的 7 个 DDL 对象逐字节相等），并已完成"改坏 `server_default` → 红 → 改回 → 绿"的可证伪验证。
 - 背景：`pyproject.toml` 声明了 `e2e` marker，但 `pytest -m e2e` 收集到 **0 条**（266 unit + 131 integration + 0 e2e）。AGENTS §8 DoD 写了"E2E"，实际端到端只在批次⑧当时手工验过一次、不可重放。
 - 交付：三条 e2e ——①投递 JSON → 核对页确认入本 → 到期队列出 quiz → 服务端判分 → streak/看板计数一致；②错题作废 → 退出到期队列 → 撤销 → 恢复；③家长导出备份 → 快照 `integrity_check=ok` 且表计数与 manifest 一致。
   ④（P5-6 审核期间追加）强化 `tests/integration/test_migrations.py`：给可逆迁移加 **DDL 原文

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -54,6 +56,96 @@ def _tables(db_path: Path) -> set[str]:
             return set(inspect(connection).get_table_names())
     finally:
         engine.dispose()
+
+
+def _master_ddl(db_path: Path, involved: set[str]) -> dict[str, str]:
+    """`sqlite_master.sql` 原文快照：涉及表本身 + 挂在它们上面的索引。"""
+
+    conn = sqlite3.connect(str(db_path))
+    try:
+        rows = conn.execute(
+            "SELECT type, name, tbl_name, sql FROM sqlite_master"
+            " WHERE sql IS NOT NULL"
+        ).fetchall()
+    finally:
+        conn.close()
+    return {
+        f"{kind}:{name}": sql
+        for kind, name, table, sql in rows
+        if table in involved
+    }
+
+
+def _split_ddl_items(body: str) -> list[str]:
+    """按括号深度 0 的逗号切列/约束，忽略单双引号里的逗号。"""
+
+    items: list[str] = []
+    buffer: list[str] = []
+    depth = 0
+    quote: str | None = None
+    for char in body:
+        if quote is not None:
+            buffer.append(char)
+            if char == quote:
+                quote = None
+            continue
+        if char in {"'", '"'}:
+            quote = char
+            buffer.append(char)
+        elif char == "(":
+            depth += 1
+            buffer.append(char)
+        elif char == ")":
+            depth -= 1
+            buffer.append(char)
+        elif char == "," and depth == 0:
+            items.append("".join(buffer))
+            buffer = []
+        else:
+            buffer.append(char)
+    if "".join(buffer).strip():
+        items.append("".join(buffer))
+    return items
+
+
+def _canonical_table_ddl(sql: str) -> tuple[str, tuple[str, ...], tuple[str, ...]]:
+    """SQLite batch 重建只改呈现方式时，仍保留全部语义 token 的规范化。
+
+    仅抹平三处 SQLite 自身产生的无意义差异：表名加不加双引号、
+    `DEFAULT CURRENT_TIMESTAMP` 是否带括号、约束子句顺序。列顺序保持原位，
+    列类型 / NOT NULL / DEFAULT / CHECK / 约束名 / REFERENCES / ON DELETE
+    全部逐字比较。
+    """
+
+    match = re.match(
+        r'CREATE TABLE\s+(?:"([^"]+)"|([A-Za-z0-9_]+))\s*\((.*)\)\s*$',
+        sql,
+        re.S,
+    )
+    assert match is not None, sql
+    name = match.group(1) or match.group(2)
+    columns: list[str] = []
+    constraints: list[str] = []
+    for item in _split_ddl_items(match.group(3)):
+        text = " ".join(item.split()).strip()
+        text = re.sub(r"DEFAULT\s*\(\s*([^()]+?)\s*\)", r"DEFAULT \1", text)
+        if text.upper().startswith(
+            ("CONSTRAINT ", "PRIMARY KEY", "UNIQUE", "FOREIGN KEY", "CHECK")
+        ):
+            constraints.append(text)
+        else:
+            columns.append(text)
+    return name, tuple(columns), tuple(sorted(constraints))
+
+
+def _ddl_mismatches(
+    before: dict[str, str], after: dict[str, str]
+) -> list[str]:
+    lines: list[str] = []
+    for key in sorted(set(before) | set(after)):
+        if before.get(key) != after.get(key):
+            lines.append(f"{key}\n  before: {before.get(key)!r}\n  after:  {after.get(key)!r}")
+    return lines
 
 
 @pytest.mark.integration
@@ -785,6 +877,76 @@ def test_p5_6_drops_orphan_photo_tables_up_down_up(tmp_path) -> None:
         "photo_capture_items",
         "problem_extractions",
     }.isdisjoint(_tables(db_path))
+
+
+@pytest.mark.integration
+def test_p3_2d_reversible_ddl_matches_pre_migration(tmp_path) -> None:
+    """0018 down 必须把 practice_records 恢复到 0017 的完整 DDL。
+
+    SQLite `batch_alter_table(recreate="always")` 会重写表名引号、DEFAULT 括号
+    和约束子句顺序；这三处是呈现差异，先规范化再逐字比对其余全部 token。
+    索引定义不做任何规范化，直接原文比较。
+    """
+
+    db_path = tmp_path / "practice-dedup-ddl.db"
+    config = _alembic_config(db_path)
+    involved = {"practice_records"}
+
+    command.upgrade(config, "0017_bank_item_lifecycle")
+    before = _master_ddl(db_path, involved)
+    assert before, "0017 应存在 practice_records 及其索引"
+
+    command.upgrade(config, "head")
+    command.downgrade(config, "0017_bank_item_lifecycle")
+    after = _master_ddl(db_path, involved)
+
+    assert before.keys() == after.keys()
+    for key in before:
+        if key.startswith("table:"):
+            assert _canonical_table_ddl(before[key]) == _canonical_table_ddl(
+                after[key]
+            ), key
+        else:
+            assert before[key] == after[key], key
+
+
+@pytest.mark.integration
+def test_p5_6_reversible_ddl_is_byte_identical(tmp_path) -> None:
+    """0019 down 重建的三张表与 7 个 DDL 对象必须与 0018 原文逐字一致。
+
+    0019 用 `op.create_table` 显式重建，不经过 batch 反射，因此这里不放过
+    任何格式化差异：列类型、NOT NULL、server_default、UNIQUE/FK 约束名、
+    ON DELETE 与索引定义都要求两侧 `sqlite_master.sql` 完全相同。
+    """
+
+    db_path = tmp_path / "drop-photo-ddl.db"
+    config = _alembic_config(db_path)
+    involved = {
+        "photo_captures",
+        "photo_capture_items",
+        "problem_extractions",
+    }
+
+    command.upgrade(config, "0018_practice_dedup")
+    before = _master_ddl(db_path, involved)
+    assert set(before) == {
+        "table:photo_captures",
+        "index:ix_photo_captures_status",
+        "table:photo_capture_items",
+        "index:ix_photo_capture_items_capture_id",
+        "table:problem_extractions",
+        "index:ix_problem_extractions_capture_id",
+        "index:ix_problem_extractions_item_id",
+    }, "0019 前置应看到三张表与四个索引共 7 个 DDL 对象"
+
+    command.upgrade(config, "head")
+    command.downgrade(config, "0018_practice_dedup")
+    after = _master_ddl(db_path, involved)
+
+    mismatches = _ddl_mismatches(before, after)
+    assert not mismatches, "0019 降级后的 DDL 与升级前不一致：\n" + "\n".join(
+        mismatches
+    )
 
 
 @pytest.mark.integration
