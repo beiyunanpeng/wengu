@@ -480,10 +480,12 @@ docs/deploy/backup-restore.md：包结构、导出下载、Docker 恢复、原�
 # 待投工单卡（v2.6 决策轮登记，**未开工**）
 
 > 来源：`docs/audit/pr1-24-retrospective.md` 的交付回顾审计 + 用户拍板（砍 PWA、归并补 UI、按建议顺序推进）。
-> 投单顺序 = ~~P5-6~~（PR#27）→ ~~P0-3~~（PR#28）→ ~~P3-3a~~（PR#29）→ ~~P3-3b~~（PR#30）→ ~~P3-3c~~（PR#31）→ **P5-1a → P5-1b → P1-3e → P1-13**。每张卡可整段复制给 Qoder。
+> 投单顺序 = ~~P5-6~~（PR#27）→ ~~P0-3~~（PR#28）→ ~~P3-3a~~（PR#29）→ ~~P3-3b~~（PR#30）→ ~~P3-3c~~（PR#31）→ ~~P5-1a~~（2026-11-04 交付，待评审）→ **P5-1b → P1-3e → P1-13**。每张卡可整段复制给 Qoder。
 > **2026-11-03 更新**：P5-6 孤儿表切片已交付（迁移 0019 一次退役 `problem_extractions` /
 > `photo_capture_items` / `photo_captures` 三表；见 `TICKETS.md` 与 `docs/STATUS.md` §4.18），
 > 本卡留作回溯；P0-3 亦已交付（PR#28），下一张待投 = **P3-3a**。
+> **2026-11-04 更新**：P5-1a 已交付（`<data_dir>/app-config.json` + legacy 只读回退 +
+> `GET/PUT /api/config` + 备份纳入；无迁移），本卡留作回溯；下一张待投 = **P5-1b**。
 
 ## 投单前言（每次连同卡一起复制，别单独发、也别塞进卡里）
 

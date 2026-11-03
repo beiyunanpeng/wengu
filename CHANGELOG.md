@@ -153,6 +153,40 @@
   - **实测**：`pytest -m e2e` 收集 **3** 且全绿；全量 **403 passed**（unit 266 /
     integration 134 / e2e 3）；`ruff check --no-cache .` 全绿。
 
+### Fixed
+
+- **P5-1a 运行时配置在 Docker 形态下读不到：改以 data 目录为准 + 家长配置端点**（2026-11-04）：
+  **仅 Docker 形态受影响，原生一直正常**。原生 `PROJECT_ROOT` = 仓库根，`config/app-config.json`
+  读得到；Docker 里 `WORKDIR=/app` → `PROJECT_ROOT=/`，旧逻辑指向容器根 `/config/app-config.json`，
+  而 Dockerfile 未 COPY `config/`、compose 只挂 `./data` 与 `./seeds`，于是
+  `daily_review_limit` / `daily_recitation_limit` / `exam_day_limit_factor` **永远静默用默认值**，
+  AGENTS §5 承诺的"UI 内改免重启"在主部署路径上是空的。
+  - **路径解析**（`app/core/runtime_config.py`）：`WENGU_APP_CONFIG`（测试覆盖）→
+    **`<data_dir>/app-config.json`**（Docker 与原生都持久）→ 兼容回退仓库根
+    `config/app-config.json`（存在则读，`GET /api/config` 返回 `legacy: true` 与迁移提示）；
+    **写入一律落 data_dir**，绝不自动搬运/删除老文件。Docker 下配置文件随 `./data` 卷持久，
+    **无需额外挂载 `config/`**。
+  - **原子写**：同目录 tmp + `flush` + `os.fsync` + `os.replace`，模块级 `asyncio.Lock` 串行
+    （照抄 `services/local_seed.py`）；并发 PUT 不留半截 JSON。保存时合并在盘已有键
+    （不静默丢用户手写键），但 **PUT 输入只接受白名单三键**。
+  - **API**（全部 `require_parent`）：`GET /api/config` 返回生效值 + 每项来源（`file`/`default`）+
+    读写路径 + 兼容提示；`PUT /api/config` 白名单 + 区间校验
+    （`daily_review_limit 1..200`、`daily_recitation_limit 1..20`、`exam_day_limit_factor 1..3`），
+    非法值 **422 且不写文件**，未知键一律拒绝（含显式拒绝布尔值，防止 `true` 被当成 `1`）。
+  - **备份纳入**：`services/backup.py` 打包 `<data>/app-config.json`（存在才加、不存在不报错），
+    manifest `files` 记 sha256；`scripts/restore.ps1` 恢复时替换该文件（旧包无此文件则保留现状），
+    `docs/deploy/backup-restore.md` 同步。顺带消除 P5-2"换机恢复后热参数回默认"的边界。
+  - **测试**：新增单测 16 条（含参数化：Docker 布局落 data_dir、data 优先于仓库根、legacy 只读且首存合并、
+    env 覆盖、11 类非法输入拒写、30 并发写 JSON 完整）+ 集成 6 条（PUT 后**不重启**
+    `GET /api/reviews/due` 的 `daily_limit` 立即变化、10 类非法 PUT 422 且文件字节不变、
+    未解锁 GET/PUT 均 403、legacy 读写边界、20 并发 PUT、备份含配置且解包后值不丢）；
+    `test_backup_api` 补一条"未创建配置时不凭空打包"。**实测**：全量 **506 passed**
+    （unit 331 / integration 169 / e2e 6，2026-11-04 本机实跑）；
+    `ruff check --no-cache .` 全绿；`npm run build` 绿；Alembic head 仍 `0020_recitation`（无迁移）。
+  - **已知边界（写进 PR）**：读取侧保留原有宽松口径（`daily_review_limit` 超 200 钳到 200、
+    系数 ≥1 即接受），PUT 校验更严（系数 ≤3）；手改文件写超范围值仍按宽松口径生效。
+    仓库根 legacy 配置**不进备份包**——想被备份需先迁到 data 目录。
+
 ### Changed
 
 - **打卡口径显式变更：`recitation_reviewed` 纳入 streak 白名单**（P3-3a，2026-11-03）：
@@ -182,11 +216,9 @@
     再升级再次缺席；带存量数据的 0018 库升级同样成功且其余表数据不变。
 
 下一批待投工单（可复制的施工卡在 `docs/tooling/qoder-build-plan.md` 末段）：
-**P5-1a** 配置持久化修复 + 家长配置端点——审计发现 **Docker 形态下热配置根本失效**
-（`PROJECT_ROOT=/` → 读容器根 `/config/app-config.json`，而该目录既未 COPY 也未挂载，
-三个运行时参数静默走默认值），改为 `<data_dir>/app-config.json` 并保留原生老路径只读回退，
-顺带把配置文件纳入备份包（解决 P5-2"换机恢复后热参数回默认"的已知边界）
-→ **P5-1b** 首次运行向导 UI → **P1-3e** 移动端粘贴转录 JSON 入口 → **P1-13** 知识点归并 UI。
+~~**P5-1a** 配置持久化修复 + 家长配置端点~~ **已交付（2026-11-04，见上 Fixed）**
+→ **P5-1b** 首次运行向导 UI（依赖 P5-1a 的 `PUT /api/config`）→ **P1-3e** 移动端粘贴转录 JSON 入口
+→ **P1-13** 知识点归并 UI。
 （P3-3 三期 B/A/C 已全部交付：手填 PR#29、词表导入 PR#30、错题抽词 PR#31。）
 
 历史口径提醒（避免照旧文案施工）：~~P1-7c 自动排复习~~ 已于 v2.5 **作废**——入本一律经核对页

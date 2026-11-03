@@ -11,16 +11,20 @@
 ```
 wengu.db                 # SQLite VACUUM INTO 一致性快照（含全部已提交数据，不含 -wal/-shm）
 manifest.json            # version / created_at / alembic 版本 / 各表计数 / 每个文件的 sha256
+app-config.json          # 运行时热参数（daily_review_limit / daily_recitation_limit / exam_day_limit_factor），存在才打包
 uploads/                 # 历史图片等上传文件（若存在）
 seeds_local/             # 家长自建章级 seed（含 _id_counters.json）
 inbox/                   # 监听目录里尚未处理的转录 JSON（若存在；.processed/ 不进包）
 ```
 
+> P5-1a 起运行时配置真源是 `<data>/app-config.json`，因此随 data 卷一起备份、换机恢复后
+> 热参数不再回默认值。仓库根 `config/app-config.json` 只是原生老用户的**兼容只读回退**，
+> 不会自动搬运，也不在备份包内——请按 `config/README.md` 的提示迁移到 data 目录后再备份。
+
 - 快照过程只读业务库：导出前后各表行数与内容不变。
 - 备份目录只保留最近 **10** 份，超出按时间删除最旧；删除日志只记文件名。
 - 备份**不包含**：仓库里的 `seeds/data`（随代码分发）、`data/.session_secret`（本机密钥）、
-  `config/app-config.json`（`daily_review_limit` / `exam_day_limit_factor` 等运行时热参数，
-  在仓库根 `config/` 下、不在数据目录内，换机时请手工另拷，否则恢复后回到默认值）、
+  仓库根 `config/app-config.json`（仅兼容回退路径；真源已移到 `<data>/app-config.json` 并进包）、
   `data/ai-cache`、`data/ai-raw`（v2.5 已退役的旧缓存，不再产生）。
 - 恢复后家长 PIN 沿用备份库里的 `user_role`；`data/.session_secret` 保留本机现有文件，
   因此恢复前后已解锁的浏览器会话仍可继续使用（如需强制失效，删掉该文件重启即可）。
@@ -55,10 +59,11 @@ curl -OJ http://127.0.0.1:8000/api/backup/download/<文件名> -b cookies.txt
 
 1. 打印目标并等待输入 `RESTORE` 确认（脚本化场景可加 `-Force`）；
 2. `docker compose stop api`；
-3. 把当前 `data/` 的 `wengu.db* / uploads / seeds_local / inbox / .session_secret`
+3. 把当前 `data/` 的 `wengu.db* / uploads / seeds_local / inbox / app-config.json / .session_secret`
    拷到 `backups/pre-restore-<时间戳>/`（回滚用）；
 4. 检查 zip 条目无路径遍历，并用 `manifest.json` 核对 `wengu.db` 的 sha256；
 5. 删除旧 `wengu.db / -wal / -shm`，覆盖 `wengu.db`、`uploads/`、`seeds_local/`、`inbox/`；
+   包内有 `app-config.json` 时一并覆盖（旧包没有则保留现有运行时配置）；
 6. `docker compose up -d api`，轮询 `/health` 最多 60 秒。
 
 只演练文件替换、不碰容器：
@@ -103,7 +108,7 @@ docker compose stop api
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
 mkdir -p "backups/pre-restore-$stamp"
 cp -a data/wengu.db data/wengu.db-wal data/wengu.db-shm \
-      data/uploads data/seeds_local data/inbox data/.session_secret \
+      data/uploads data/seeds_local data/inbox data/app-config.json data/.session_secret \
       "backups/pre-restore-$stamp/" 2>/dev/null || true
 
 # 2) 解包（只取需要覆盖的条目）
@@ -112,6 +117,8 @@ unzip -o backup.zip wengu.db -d data
 rm -rf data/uploads data/seeds_local data/inbox
 unzip -o backup.zip 'uploads/*' 'seeds_local/*' 'inbox/*' -d data 2>/dev/null || true
 mkdir -p data/uploads data/seeds_local data/inbox
+# 运行时配置：旧包没有该条目时保留现有文件
+unzip -o backup.zip app-config.json -d data 2>/dev/null || true
 
 # 3) 起服务（容器入口会跑 alembic upgrade head；同版本快照是幂等 no-op）
 docker compose up -d api

@@ -25,8 +25,10 @@ git archive --format=zip -o D:\MyProducts\wengu.zip HEAD
 > ⚠️ 别用"整目录拷贝"把 `wengu-api\venv`、`wengu-web\node_modules` 带过去——它们绑机器、跨机不可用，Docker 也用不到。
 
 ## 2. 迁移数据（可选，想带着已有错题去新机才做）
-**关键：Docker 的数据目录是 `<仓库>/data/`**（compose 里 `./data:/app/data`），里面是 `wengu.db` + `inbox/` + `uploads/`。
-> 注意：原生 `run-trial.ps1` 用的是 `wengu-api/data/`，和 Docker 的 `<仓库>/data/` **不是同一个目录**。若从原生迁到 Docker，把 `wengu-api/data/*` 拷进 `<仓库>/data/` 即可。
+**关键：Docker 的数据目录是 `<仓库>/data/`**（compose 里 `./data:/app/data`），里面是 `wengu.db` + `inbox/` + `uploads/` + **`app-config.json`（运行时配置）**。
+> 注意：原生 `run-trial.ps1` 用的是 `wengu-api/data/`，和 Docker 的 `<仓库>/data/` **不是同一个目录**。若从原生迁到 Docker，把 `wengu-api/data/*` 拷进 `<仓库>/data/` 即可（含其中的 `app-config.json`）。
+>
+> **运行时配置随 data 卷持久化，无需为 `config/` 额外挂载**：三个运行时参数（`daily_review_limit` / `daily_recitation_limit` / `exam_day_limit_factor`）P5-1a 起以 `<data_dir>/app-config.json` 为真源，Docker 下即 `<仓库>/data/app-config.json`，改文件或调 `PUT /api/config` 立即生效、重启不丢。仓库根 `config/app-config.json` 只是原生老用户的兼容回退（只读，不进镜像）。
 
 - **迁移**：停掉旧机服务 → 把旧机 `<仓库>/data/` 整个目录拷到新机 `<仓库>/data/` → 新机启动时容器会自动 `alembic upgrade head` 把库升到最新（含 0013 DROP 表）。
 - **全新开始**：不拷 data，首次启动自动建空库。
