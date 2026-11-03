@@ -24,8 +24,13 @@
 ### P0-3 端到端回归（把已声明的 `e2e` marker 用起来；v2.6 审计新增）
 - 背景：`pyproject.toml` 声明了 `e2e` marker，但 `pytest -m e2e` 收集到 **0 条**（266 unit + 131 integration + 0 e2e）。AGENTS §8 DoD 写了"E2E"，实际端到端只在批次⑧当时手工验过一次、不可重放。
 - 交付：三条 e2e ——①投递 JSON → 核对页确认入本 → 到期队列出 quiz → 服务端判分 → streak/看板计数一致；②错题作废 → 退出到期队列 → 撤销 → 恢复；③家长导出备份 → 快照 `integrity_check=ok` 且表计数与 manifest 一致。
-- DoD：`pytest -m e2e` 收集数 > 0 且全绿；三条用例走真实 ASGI + 临时库 + 真迁移到 head，不 mock 服务层；CI 已跑（同一 job 内）。
-- 禁止：为凑数写 `assert True`；把单测重贴一遍改名 e2e；引入 Playwright/浏览器栈（前端另议）。
+  ④（P5-6 审核期间追加）强化 `tests/integration/test_migrations.py`：给可逆迁移加 **DDL 原文
+  before/after 对比**——升级前从 `sqlite_master.sql` 存档涉及表与索引的完整建表语句，
+  upgrade 到 head 再 downgrade 回原 revision 后**逐字比对**（列类型 / NOT NULL / server_default /
+  UNIQUE 与 FK 约束名 / ON DELETE / 索引定义），差异必须为空；至少覆盖 0018 与 0019。
+  理由：inspector 断言只看名字集合，挡不住类型与默认值漂移。
+- DoD：`pytest -m e2e` 收集数 > 0 且全绿；三条用例走真实 ASGI + 临时库 + 真迁移到 head，不 mock 服务层；CI 已跑（同一 job 内）。④ 必须真断 DDL 文本相等（不得退化成"表存在"），并给出**可证伪证据**：临时改坏 0019 downgrade 的一处 `server_default` 或约束名 → 用例变红 → 改回 → 变绿，两次输出贴进 PR。
+- 禁止：为凑数写 `assert True`；把单测重贴一遍改名 e2e；只断表名存在冒充结构比对；引入 Playwright/浏览器栈（前端另议）。
 
 ---
 

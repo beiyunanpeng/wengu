@@ -22,13 +22,16 @@
   **升级前先跑家长区导出备份**（迁移说明已写）。
   - 测试：新增 0019 up/down/up 用例（三表列/索引/唯一约束/FK/级联/数据不回填 +
     `PRAGMA foreign_key_check` 为空），`EXPECTED_TABLES` 去掉三表；全量 **398 passed**
-    （unit 272 / integration 126 / e2e 0），`ruff check --no-cache .` 绿、`npm run build` 绿。
+    （按目录统计 unit 266 / integration 132；代理自述的"unit 272 / integration 126"是
+    `-m integration` 标记口径，两者都对但会误导，此处按目录口径记），
+    `ruff check --no-cache .` 绿、`npm run build` 绿。
   - 运行态证据：临时库 `alembic upgrade head` → head `0019`、**19 张业务表**、
     三表全部缺席且 `PRAGMA foreign_key_check` 返回空；`downgrade -1` 后三表按原结构重建（0 行），
     再升级再次缺席；带存量数据的 0018 库升级同样成功且其余表数据不变。
 
 下一批待投工单（可复制的施工卡在 `docs/tooling/qoder-build-plan.md` 末段）：
-**P0-3** 端到端回归三条（把空转的 `e2e` marker 用起来）
+**P0-3** 端到端回归三条（把空转的 `e2e` marker 用起来）+ 给可逆迁移加 **DDL 原文 before/after
+对比**（P5-6 审核期间追加：inspector 只看名字集合，挡不住类型与默认值漂移）
 → **P5-1** 首次运行向导（顺带补英文 README 与独立隐私声明）
 → **P1-3e** 移动端粘贴转录 JSON 入口 → **P1-13** 知识点归并 UI。
 

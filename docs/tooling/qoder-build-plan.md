@@ -480,7 +480,7 @@ docs/deploy/backup-restore.md：包结构、导出下载、Docker 恢复、原�
 # 待投工单卡（v2.6 决策轮登记，**未开工**）
 
 > 来源：`docs/audit/pr1-24-retrospective.md` 的交付回顾审计 + 用户拍板（砍 PWA、归并补 UI、按建议顺序推进）。
-> 投单顺序 = **P5-6 → P0-3 → P5-1（既有票）→ P1-3e → P1-13**。每张卡可整段复制给 Qoder。
+> 投单顺序 = ~~P5-6~~（**已合并，PR#27**）→ **P0-3 → P5-1（既有票）→ P1-3e → P1-13**。每张卡可整段复制给 Qoder。
 > **2026-11-03 更新**：P5-6 孤儿表切片已交付（迁移 0019 一次退役 `problem_extractions` /
 > `photo_capture_items` / `photo_captures` 三表；见 `TICKETS.md` 与 `docs/STATUS.md` §4.18），
 > 本卡留作回溯；下一张待投 = P0-3。
@@ -506,11 +506,11 @@ CHANGELOG 记一条 Changed（含"为何现在才删"一句）。
 为了"数字好看"删测试断言而不说明。
 ```
 
-## P0-3 —— 端到端回归三条（把空转的 e2e marker 用起来）
+## P0-3 —— 端到端回归三条 + 迁移 DDL 原文对比（把空转的 e2e marker 用起来）
 
 ```
 你在 wengu 仓库工作。开工前完整读：AGENTS.md §5（事实源/幂等）+ §8 DoD + TICKETS.md 的 P0-3
-+ 设计文档 §16-A（新闭环图）。
++ 设计文档 §16-A（新闭环图）+ tests/integration/test_migrations.py 现有的 0018/0019 用例。
 【全局纪律】一条 ticket = 一个 PR。禁止引入 Playwright/Selenium/任何浏览器栈或新依赖；
 禁止 mock 服务层（e2e 的价值就在于走真实 ASGI + 真实 SQLite + 真实迁移）。
 【任务】新建 tests/e2e/ 三条用例（marker 已在 pyproject 声明但目前 0 条）：
@@ -520,10 +520,20 @@ CHANGELOG 记一条 Changed（含"为何现在才删"一句）。
 ③ 家长解锁 → POST /api/backup/export → 解出快照 PRAGMA integrity_check=ok → manifest 表计数
    与库内实际计数逐项相等。
 用真迁移到 head（含 0018/0019）+ 临时库 + ASGITransport，参照 tests/integration 现有 fixture 风格。
-【DoD】`pytest -m e2e` 收集数 = 3 且全绿；`pytest -q` 全量绿；CI 绿。断言必须落在**跨引擎一致性**上
-（导入→确认→排期→判分→统计 五处数字互相咬合），不得只断"接口 200"。
-【禁止】把已有 integration 用例改名凑数；assert True；引入模型/网络调用；修改业务代码来迁就测试
-（若发现业务真有 bug，停下来单独报告，不要顺手改）。
+④ 强化 tests/integration/test_migrations.py：给可逆迁移加 **DDL 原文 before/after 对比**——
+   先把库升到目标 revision 的前一版，从 `sqlite_master.sql` 取出涉及表与其索引的完整建表语句存档；
+   再 upgrade 到 head、然后 downgrade 回该 revision，**逐字比对两侧 DDL**（列类型、NOT NULL、
+   server_default、UNIQUE 与 FK 约束名、ON DELETE 行为、索引定义），差异必须为空。
+   至少覆盖 0018 与 0019（0019 管三张孤儿表的重建，是最高危面）。
+   理由：现有 inspector 断言只看列名/索引名集合，挡不住类型与默认值漂移；P5-6 审核时审核方用
+   一次性脚本做过这件事并确认 7 个 DDL 对象零差异，现在要固化成常驻测试，别依赖人肉再跑。
+【DoD】`pytest -m e2e` 收集数 = 3 且全绿；`pytest -q` 全量绿；CI 绿。①②③ 的断言必须落在
+**跨引擎一致性**上（导入→确认→排期→判分→统计 五处数字互相咬合），不得只断"接口 200"。
+④ 必须真断 DDL 文本相等（不得退化成"表存在"）；并在 PR 描述里给出**可证伪证据**：
+临时把 0019 downgrade 里某一处 server_default 或约束名改坏 → 该用例变红 → 改回 → 变绿，
+把两次运行输出贴进 PR。做不到这一条就说明断言是假的。
+【禁止】把已有 integration 用例改名凑数；assert True；只断表名存在冒充结构比对；
+引入模型/网络调用；修改业务代码来迁就测试（若发现业务真有 bug，停下来单独报告，不要顺手改）。
 ```
 
 ## P1-3e —— 移动端投递入口：粘贴整段转录 JSON（PWA 的替代票）
