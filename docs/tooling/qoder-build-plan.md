@@ -483,7 +483,23 @@ docs/deploy/backup-restore.md：包结构、导出下载、Docker 恢复、原�
 > 投单顺序 = ~~P5-6~~（**已合并 PR#27**）→ ~~P0-3~~（**已合并 PR#28**）→ **P3-3a → P5-1（既有票）→ P1-3e → P1-13**。每张卡可整段复制给 Qoder。
 > **2026-11-03 更新**：P5-6 孤儿表切片已交付（迁移 0019 一次退役 `problem_extractions` /
 > `photo_capture_items` / `photo_captures` 三表；见 `TICKETS.md` 与 `docs/STATUS.md` §4.18），
-> 本卡留作回溯；下一张待投 = P0-3。
+> 本卡留作回溯；P0-3 亦已交付（PR#28），下一张待投 = **P3-3a**。
+
+## 投单前言（每次连同卡一起复制，别单独发、也别塞进卡里）
+
+```
+【投单纪律（本票必须遵守）】
+1. 新建分支，基点是最新 main：
+   git fetch origin
+   git switch -c feat/<本票号-英文名> origin/main
+2. 本票期间该分支冻结：上一张票没审完，不要在这条分支上继续写下一张票的改动。
+3. 提交前先跑 `git diff --cached --name-only` 核对暂存范围只含本票文件，把清单贴进交付描述；
+   工作区里出现不属于本票的文件时停下来报告，不要顺手提交（并行开发时 CHANGELOG/STATUS 最容易串）。
+4. 中文 commit message 一律 `git commit -F <UTF-8 文件>`，禁止 `git commit -m "中文"`（会被 GBK 编坏）；
+   lint 证据必须是 `ruff check --no-cache .`（不带 --no-cache 会因 .ruff_cache 给出假绿）。
+5. 交付描述里给"你自己实跑"的数字（passed 数、关键断言结果、表数等），并单列一段
+   「审核方需复核的点」；不要把计划说成已完成，也不要拿旧提交的绿凑数。
+```
 
 ## P5-6 —— 交付口径与盘上一致性清理（含孤儿表退役）
 
