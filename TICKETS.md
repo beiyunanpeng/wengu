@@ -196,7 +196,39 @@
   **全挂 `require_parent`**；前端 `/local-seed` 页（仅家长解锁可见）带"家长自建·未经教师审核"提示。
   单科上限 200 点、章级 40–80 点即止。**无迁移**。
   禁：写回 `seeds/data`（上游只读）；复用已发放 id；把细粒度知识点树做成家长手工录入（细粒度仍走错题受控生长）。
-- **P3-3 英语背诵**：自评间隔重复（档③）。
+- **P3-3 英语背诵（自评间隔重复，档③）**——v2.6 定：内容来源按 **B → A → C** 三阶段推进，各成一 PR。
+  - **P3-3a 家长手填背诵条目 + 记忆阶梯自评闭环（先做）**
+    - 数据：新增 `recitation_items`（`id / subject / prompt / answer? / unit? / status(active|retired) /
+      created_at / created_by`，`UNIQUE(subject, prompt)` 防手填重复）与 `recitation_reviews`
+      （`id / item_id / verdict(remembered|forgot) / rung / reviewed_on / scheduled_next? /
+      event_id / created_at`）。**背诵条目不是错题**，绝不写 `mistakes` / `mistake_versions`；
+      **也不写 `attempts`**（`attempts` 语义是"作答"，混入会脏掉练习记录页）。
+    - 事实：每次自评追加 `learning_events(type=recitation_reviewed, mistake_id=NULL)`，
+      payload 含 `item_id / verdict / rung / scheduled_next / completed_on`；排期状态全部可从事件重算。
+    - 阶梯：复用 `review_policy.MEMORY_LADDER = (1, 3, 7, 14, 30)`（英语已在 `MEMORY_SUBJECTS` 内）；
+      `remembered` 进一档、`forgot` **保持当前档**（抗挫败：不倒退），下次到期日一律从
+      **实际完成日**起算；到最高档仍 `remembered` → `scheduled_next=NULL`（毕业，不再排但条目保留）。
+    - 调度：日队列新增"背诵铺底"——每天固定塞 `daily_recitation_limit`（`config/app-config.json`
+      热加载，默认 5、上限 20）条到期条目，排在同类题考核**之后**；无到期条目则不塞、不硬凑。
+    - 打卡口径（**显式变更**）：把 `recitation_reviewed` 纳入 `streak` 计入白名单——
+      连续天数语义从"有作答的日子"改为"有学习动作的日子"，孩子只背诵不做题也算打卡；
+      必须同步改注释与测试，不得悄悄改。
+    - API：`GET /api/recitations`（家长/孩子可列）、`POST/PATCH /api/recitations*`
+      （**挂 `require_parent`**，手填归家长）、`GET /api/recitations/due`、
+      `POST /api/recitations/{id}/review`（孩子区免 PIN，幂等键 `recitation:{item_id}:{reviewed_on}`
+      → 同一天重复提交不产生第二条事实）。
+    - 前端：`/recitations` 页（孩子：今日卡片 + "记得 / 没记住"；家长解锁后可增删改）；
+      看板加"今日背诵"计数；窄屏可用（手机是目标场景）。**无迁移 0020 之外的结构改动**。
+    - DoD：迁移 0020 可逆且 **DDL before/after 用例覆盖**（沿用 P0-3 加的守卫）；
+      全表快照断言 `mistakes / attempts / review_schedules` 零变化（证明不污染掌握度）；
+      同日重复自评幂等；阶梯与"不倒退"有测试；streak 口径变更有测试；`pytest -m e2e` 加第 4 条
+      （手填条目 → 到期 → 自评 → 阶梯推进 → 看板与 streak 一致）。
+    - 禁：LLM 生成背诵内容或判"背得对不对"；把条目塞进错题本；背诵计入掌握度；
+      做"自动检测重复条目"的相似度猜测。
+  - **P3-3b 教材词表导入（后做）**：按单元批量导入 `recitation_items`（CSV/TSV 或 JSON 教材包），
+    与 `UNIQUE(subject, prompt)` 冲突时逐条报告不静默丢弃；依赖 P5-4 教材包机制定稿。
+  - **P3-3c 从错题抽词（最后叠加）**：把英语错题出现过的词自动补进背诵池，作为 A/B 之后的增量来源；
+    必须可整批撤销、不得覆盖家长手工确认过的条目。
 - **P3-4 听力+默写**：默写=卷面批改后走转录导入；听力"教材音频+TTS"+组卷。禁：口语 ASR。
 - **P3-5 语文客观并入**：字音/病句/默写并入转录；作文/阅读理解只走外部讲解不进本。
   **前置已交付（P3-8，2026-10-31）**：家长可自建语文章级 seed（`cnl_`）、语文题可挂

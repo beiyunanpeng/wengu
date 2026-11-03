@@ -1,4 +1,4 @@
-# Qoder 施工计划 · v2.5（MVP 8 批 + P2/P3 存档 + 4 张待投卡，每卡可直接复制）
+# Qoder 施工计划 · v2.5（MVP 8 批 + P2/P3 存档 + 5 张待投卡，每卡可直接复制）
 
 > **本文件是唯一有效的批次工单**——每张卡都已内联"读哪些文件 + 全局护栏 + 验收口径"，**复制整段贴给 Qoder 即可，无需再补任何上下文**。（聊天记录里的旧版含已作废的 `primary_concept_id` 写法，别用。）
 > 结构：**上半部 = MVP 八批**（批次①~⑧，已全部合并）；**中部 = P2 批次存档**（补票 B + P2-5/4/6/1/3/2/7，PR#9–#16 已全部合并）；**下部 = P3 批次存档**（P3-1a/1b/1c/8/2/2d + P5-2，PR#17–#24 已全部合并）+ 投单纪律附录。三段都只是**已交付工单的存档**，保留决策/边界/红线/DoD 供追溯与重建，不是待办。
@@ -480,7 +480,7 @@ docs/deploy/backup-restore.md：包结构、导出下载、Docker 恢复、原�
 # 待投工单卡（v2.6 决策轮登记，**未开工**）
 
 > 来源：`docs/audit/pr1-24-retrospective.md` 的交付回顾审计 + 用户拍板（砍 PWA、归并补 UI、按建议顺序推进）。
-> 投单顺序 = ~~P5-6~~（**已合并，PR#27**）→ **P0-3 → P5-1（既有票）→ P1-3e → P1-13**。每张卡可整段复制给 Qoder。
+> 投单顺序 = ~~P5-6~~（**已合并 PR#27**）→ ~~P0-3~~（**已合并 PR#28**）→ **P3-3a → P5-1（既有票）→ P1-3e → P1-13**。每张卡可整段复制给 Qoder。
 > **2026-11-03 更新**：P5-6 孤儿表切片已交付（迁移 0019 一次退役 `problem_extractions` /
 > `photo_capture_items` / `photo_captures` 三表；见 `TICKETS.md` 与 `docs/STATUS.md` §4.18），
 > 本卡留作回溯；下一张待投 = P0-3。
@@ -572,4 +572,62 @@ category_id/标签快照**一字未改**（用全表快照断言）；名称解�
 未解锁调用 403；对已归并的源再调一次幂等、不产生新行；全测试绿 + build 绿。
 【禁止】把建点入口也锁上 PIN（会破坏孩子边做边长标签的路径）；顺手改 recompute/排期逻辑；
 把归并做成"删除多余点"。
+```
+
+## P3-3a —— 英语背诵（家长手填条目 + 记忆阶梯自评闭环）
+
+```
+你在 wengu 仓库工作。开工前完整读：AGENTS.md §5（事实源/幂等/确定性重算）+ §6（固定阶梯 + 抗挫败
+三规则）+ TICKETS.md 的 P3-3a + 现有 app/services/review_policy.py（MEMORY_LADDER / MEMORY_SUBJECTS）
+与 app/services/review.py（自评档 self_eval 与 source=student_self 的写法）。
+【全局纪律】一条 ticket = 一个 PR；事实源纪律照旧（只追加 learning_events + 确定性重算，
+不存易变字段）；禁止引入新依赖；禁止改动错题链路（mistakes / mistake_versions / review_schedules）
+的既有语义。
+【定位】P3-3 按 B → A → C 三期推进，**本票只做 B**（家长手填 + 自评闭环）；
+教材词表导入（A，P3-3b）与从错题抽词（C，P3-3c）不在本票范围。
+【任务】
+1) 迁移 0020（可逆）新增两表：
+   recitation_items(id PK, subject TEXT NOT NULL, prompt TEXT NOT NULL, answer TEXT NULL,
+     unit TEXT NULL, status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','retired')),
+     created_by TEXT NOT NULL, created_at DATETIME NOT NULL, UNIQUE(subject, prompt))
+   recitation_reviews(id PK, item_id INTEGER NOT NULL REFERENCES recitation_items(id) ON DELETE CASCADE,
+     verdict TEXT NOT NULL CHECK(verdict IN ('remembered','forgot')), rung INTEGER NOT NULL,
+     reviewed_on DATE NOT NULL, scheduled_next DATE NULL,
+     event_id INTEGER NOT NULL REFERENCES learning_events(id) ON DELETE RESTRICT,
+     created_at DATETIME NOT NULL, UNIQUE(item_id, reviewed_on))
+   背诵条目**不是错题**：绝不写 mistakes / mistake_versions；**也不写 attempts**
+   （attempts 语义是"作答"，混入会脏掉练习记录页）。
+2) 阶梯与排期写成纯函数（services/recitation.py）：复用 review_policy.MEMORY_LADDER=(1,3,7,14,30)；
+   remembered → rung+1，forgot → **保持当前 rung**（抗挫败：不倒退）；下次到期一律从
+   **实际完成日**起算（reviewed_on + ladder[rung]）；已到最高档且再次 remembered →
+   scheduled_next=NULL（毕业，不再排，条目保留）。
+3) 每次自评追加 learning_events(type='recitation_reviewed', mistake_id=NULL)，payload 含
+   item_id / verdict / rung / scheduled_next / completed_on；幂等键
+   `recitation:{item_id}:{reviewed_on}`——同一天重复自评**不产生**第二条 review/事件，返回既有结果。
+   mastery 天然不受影响（recompute 按 mistake_id 归属，背诵事件无 mistake 归属）。
+4) 打卡口径**显式变更**：把 recitation_reviewed 纳入 streak 的计入白名单，连续天数语义从
+   "有作答的日子"改为"有学习动作的日子"；同步改 streak.py 注释与测试，**不得悄悄改**。
+5) 日队列铺底：新增运行时配置 daily_recitation_limit（config/app-config.json 热加载，
+   默认 5、上限 20）；每日到期队列在同类题考核**之后**追加最多 N 条到期背诵；无到期不塞、不硬凑；
+   看板加"今日背诵 x/N"。
+6) API：GET /api/recitations?subject=&status=&limit=；POST /api/recitations 与
+   PATCH /api/recitations/{id} **挂 require_parent**（手填归家长）；
+   GET /api/recitations/due?today=；POST /api/recitations/{id}/review（孩子区免 PIN）。
+7) 前端 /recitations：孩子视图 = 今日卡片 + "记得 / 没记住"两个按钮 + 今日进度；
+   家长解锁后可见"管理条目"（增/改/停用）；窄屏可用（手机是目标场景）。
+【DoD】
+- 迁移 0020 可逆，且 **DDL before/after 用例覆盖**（沿用 test_migrations.py 里 P0-3 新增的
+  _master_ddl / _ddl_mismatches 写法；0020 用 op.create_table 显式建表 → 要求逐字一致）。
+- **全表快照断言**：做一轮背诵自评后 mistakes / mistake_versions / attempts / review_schedules
+  行数与内容零变化——这是"不污染掌握度"的唯一硬证据，必须真断。
+- 阶梯：remembered 逐档推进到 30 天、forgot 保持当前档、到期日从 reviewed_on 起算，各有断言。
+- 幂等：同一 item 同日提交两次 → 只有一条 review、一条事件，第二次返回既有结果。
+- streak：当天只有背诵动作也计为一个学习日（新用例），且原有"只做题"用例不回归。
+- 日队列：改 daily_recitation_limit 无需重启即生效；超过 20 收口到 20。
+- `pytest -m e2e` 新增第 4 条：家长手填 3 条 → due 返回 3 条 → 逐条自评（记得/没记住混合）→
+  阶梯与 scheduled_next 正确 → 看板"今日背诵"与 streak 一致。
+- `pytest -q` 全绿、CI 绿、`ruff check --no-cache .` 绿、`npm run build` 绿。
+【禁止】让模型生成背诵内容或判断"背得对不对"（本票 100% 确定性）；
+把背诵条目塞进错题本或写 attempts；背诵计入 mastery；做"相似条目自动合并"的猜测；
+把 daily_recitation_limit 硬编码；改错题链路的既有语义；顺手动 P3-3b/c 的范围。
 ```
