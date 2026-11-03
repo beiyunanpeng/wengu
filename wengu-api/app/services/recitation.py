@@ -14,7 +14,8 @@ mistake_versions / attempts / review_schedules，因此掌握度与复习排期�
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping, Sequence
+import re
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -24,7 +25,14 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.runtime_config import daily_recitation_limit
-from app.models import LearningEvent, RecitationItem, RecitationReview
+from app.models import (
+    KnowledgeSeed,
+    LearningEvent,
+    Mistake,
+    MistakeVersion,
+    RecitationItem,
+    RecitationReview,
+)
 from app.services.events import record_event
 from app.services.recompute import RECITATION_REVIEWED
 from app.services.review_policy import MEMORY_LADDER
@@ -38,6 +46,27 @@ VERDICT_FORGOT = "forgot"
 VERDICTS = (VERDICT_REMEMBERED, VERDICT_FORGOT)
 
 MAX_LIST_LIMIT = 200
+
+# P3-3c：候选词只从 active 英语错题的当前版本题面里抽；候选是现算视图，不落表。
+CANDIDATE_SUBJECT = "英语"
+MAX_CANDIDATES = 50
+CANDIDATE_TOKEN_PATTERN = re.compile(r"[A-Za-z][A-Za-z'-]+")
+
+# 英文停用词起步集：按试用反馈增删，不做配置化。
+# 没有它会 the / is / and 霸榜，抽词结果就废了。
+CANDIDATE_STOPWORDS = frozenset(
+    {
+        "a", "an", "the", "and", "or", "but", "if", "because", "so", "than",
+        "then", "as", "of", "to", "in", "on", "at", "by", "for", "with",
+        "from", "about", "is", "am", "are", "was", "were", "be", "been",
+        "being", "do", "does", "did", "have", "has", "had", "i", "me", "my",
+        "we", "us", "our", "you", "your", "he", "him", "his", "she", "her",
+        "it", "its", "they", "them", "their", "this", "that", "these",
+        "those", "there", "here", "not", "no", "yes", "can", "could", "will",
+        "would", "should", "may", "might", "must", "what", "which", "who",
+        "whom", "whose", "when", "where", "why", "how",
+    }
+)
 
 
 class RecitationError(Exception):
@@ -108,6 +137,12 @@ class ItemList:
     total: int
 
 
+@dataclass(frozen=True)
+class WordCandidate:
+    word: str
+    mistake_count: int
+
+
 def decide(
     rung: int,
     verdict: str,
@@ -172,6 +207,83 @@ def is_due(state: ItemState, today: date) -> bool:
     if state.graduated or state.scheduled_next is None:
         return False
     return state.scheduled_next <= today
+
+
+def english_word_tokens(text: str) -> tuple[str, ...]:
+    """题面 → 英文 token：小写、去尾 `'s`、长度 ≥2。中文按正则自然被跳过。"""
+
+    tokens: list[str] = []
+    for match in CANDIDATE_TOKEN_PATTERN.finditer(text):
+        token = match.group(0).lower()
+        if token.endswith("'s"):
+            token = token[:-2]
+        if len(token) >= 2:
+            tokens.append(token)
+    return tuple(tokens)
+
+
+def extract_word_candidates(
+    problem_texts: Sequence[str],
+    *,
+    existing_prompts: Collection[str] = (),
+    limit: int = MAX_CANDIDATES,
+) -> tuple[WordCandidate, ...]:
+    """纯函数：按出现错题数降序（同数按字母序）返回去重候选。
+
+    每个错题题面内的重复词只算一次；`existing_prompts` 无论 active/retired
+    都视为已有条目（大小写不敏感）；停用词不进入候选。
+    """
+
+    if limit < 1 or limit > MAX_CANDIDATES:
+        raise RecitationInvalid(f"limit 必须在 1..{MAX_CANDIDATES}")
+    existing = {prompt.strip().casefold() for prompt in existing_prompts}
+    counts: dict[str, int] = {}
+    for text in problem_texts:
+        seen: set[str] = set()
+        for token in english_word_tokens(text):
+            if token in CANDIDATE_STOPWORDS or token in existing or token in seen:
+                continue
+            seen.add(token)
+            counts[token] = counts.get(token, 0) + 1
+    ranked = sorted(counts.items(), key=lambda pair: (-pair[1], pair[0]))
+    return tuple(
+        WordCandidate(word=word, mistake_count=count)
+        for word, count in ranked[:limit]
+    )
+
+
+async def candidate_words(
+    session: AsyncSession,
+    *,
+    limit: int = MAX_CANDIDATES,
+) -> tuple[WordCandidate, ...]:
+    """现算候选：active 英语错题 × 当前版本题面，排除背诵池已有词。"""
+
+    texts = (
+        await session.scalars(
+            select(MistakeVersion.problem_text)
+            .join(Mistake, Mistake.id == MistakeVersion.mistake_id)
+            .join(KnowledgeSeed, KnowledgeSeed.id == Mistake.primary_topic_id)
+            .where(
+                Mistake.status == "active",
+                KnowledgeSeed.subject == CANDIDATE_SUBJECT,
+                MistakeVersion.version == Mistake.current_version,
+                MistakeVersion.problem_text.is_not(None),
+            )
+        )
+    ).all()
+    existing = (
+        await session.scalars(
+            select(RecitationItem.prompt).where(
+                RecitationItem.subject == CANDIDATE_SUBJECT
+            )
+        )
+    ).all()
+    return extract_word_candidates(
+        [text for text in texts if text],
+        existing_prompts=existing,
+        limit=limit,
+    )
 
 
 def _normalize_text(value: str, field: str) -> str:

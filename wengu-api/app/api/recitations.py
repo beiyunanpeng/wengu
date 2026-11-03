@@ -18,11 +18,13 @@ from app.api.session import require_parent
 from app.core.database import get_session
 from app.models import RecitationItem
 from app.services.recitation import (
+    MAX_CANDIDATES,
     RecitationConflict,
     RecitationDuplicate,
     RecitationInvalid,
     RecitationNotFound,
     ReviewOutcome,
+    candidate_words,
     create_item,
     due_items,
     list_items,
@@ -31,7 +33,9 @@ from app.services.recitation import (
 )
 from app.services.recitation_import import (
     MAX_IMPORT_BODY_BYTES,
+    MAX_UNIT_CHARS,
     ImportRejected,
+    add_candidate_words,
     import_items,
 )
 
@@ -127,6 +131,28 @@ class ImportResponse(BaseModel):
     errors: list[ImportErrorView]
 
 
+class CandidateWordView(BaseModel):
+    word: str
+    mistake_count: int
+
+
+class CandidateBatchRequest(BaseModel):
+    words: list[str] = Field(min_length=1, max_length=MAX_CANDIDATES)
+    unit: str | None = Field(default=None, max_length=MAX_UNIT_CHARS)
+
+
+class CandidateCreatedView(BaseModel):
+    id: int
+    prompt: str
+
+
+class CandidateBatchResponse(BaseModel):
+    imported: int
+    created: list[CandidateCreatedView]
+    duplicates: list[ImportDuplicateView]
+    errors: list[ImportErrorView]
+
+
 def _item_view(item: RecitationItem) -> ItemView:
     return ItemView(
         id=item.id,
@@ -209,6 +235,75 @@ async def get_due_recitations(
         returned=due.returned,
         limit=due.limit,
         today=day,
+    )
+
+
+@router.get(
+    "/api/recitations/candidates",
+    response_model=list[CandidateWordView],
+    dependencies=[Depends(require_parent)],
+)
+async def get_recitation_candidates(
+    limit: int = Query(default=MAX_CANDIDATES, ge=1, le=MAX_CANDIDATES),
+    session: AsyncSession = Depends(get_session),
+) -> list[CandidateWordView]:
+    """从 active 英语错题现算候选词；只读，不写任何表。"""
+
+    async with session.begin():
+        try:
+            candidates = await candidate_words(session, limit=limit)
+        except RecitationInvalid as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from None
+    return [
+        CandidateWordView(
+            word=entry.word, mistake_count=entry.mistake_count
+        )
+        for entry in candidates
+    ]
+
+
+@router.post(
+    "/api/recitations/candidates/batch",
+    response_model=CandidateBatchResponse,
+    dependencies=[Depends(require_parent)],
+)
+async def add_recitation_candidates(
+    payload: CandidateBatchRequest,
+    session: AsyncSession = Depends(get_session),
+) -> CandidateBatchResponse:
+    """家长勾选后入库；answer 留空，重复词逐条报告且不覆盖已有条目。"""
+
+    async with session.begin():
+        try:
+            report = await add_candidate_words(
+                session, words=payload.words, unit=payload.unit
+            )
+        except ImportRejected as exc:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "message": "批量入库被拒绝",
+                    "line": exc.line,
+                    "field": exc.field,
+                    "reason": str(exc),
+                },
+            ) from None
+    return CandidateBatchResponse(
+        imported=report.imported,
+        created=[
+            CandidateCreatedView(id=item.id, prompt=item.prompt)
+            for item in report.created
+        ],
+        duplicates=[
+            ImportDuplicateView(line=row.line, prompt=row.prompt)
+            for row in report.duplicates
+        ],
+        errors=[
+            ImportErrorView(
+                line=issue.line, field=issue.field, reason=issue.reason
+            )
+            for issue in report.issues
+        ],
     )
 
 

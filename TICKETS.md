@@ -278,6 +278,17 @@
       去重正确 → 批量入库 → /due 出现 → 自评）；全量绿 + `ruff check --no-cache` + build。
     - 禁：LLM 抽词/翻译/选词；TF-IDF 之类权重算法（只有"错题数降序"一把尺）；中文词抽取
       （本票只做英文 token）；自动定期同步（候选每次现算，无后台任务）；未经家长确认自动入库。
+    - **状态（2026-11-03）已交付** ✅：`services/recitation.py` 的
+      `english_word_tokens` / `extract_word_candidates` / `candidate_words` +
+      `services/recitation_import.py` 的 `add_candidate_words`；`GET
+      /api/recitations/candidates` 与 `POST /api/recitations/candidates/batch`
+      （均 `require_parent`）+ `/recitations` 家长区「从错题抽词（英语）」。
+      **无迁移、无新依赖、未改 0020 DDL、未改错题链语义**。新增单测 11 + 集成 7 + e2e 第 6 条；
+      **全量 484 passed（unit 315 / integration 163 / e2e 6）**，`ruff check --no-cache .`
+      与 `npm run build` 全绿。实测：确认 2 条英语错题 → `diligent` 跨题计 2 次排第一、
+      同题重复只算一次、停用词不进候选 → 勾选 2 词入库 → `/due` 出现且 answer 为空 →
+      自评 remembered 进第 2 档 / forgot 保持第 1 档；四表快照零变化。撤销 = 前端逐条
+      `PATCH retired`，retired 后退出 `/due` 且**不再出现在候选**（再提交同名词报 duplicate）。
 - **P3-4 听力+默写**：默写=卷面批改后走转录导入；听力"教材音频+TTS"+组卷。禁：口语 ASR。
 - **P3-5 语文客观并入**：字音/病句/默写并入转录；作文/阅读理解只走外部讲解不进本。
   **前置已交付（P3-8，2026-10-31）**：家长可自建语文章级 seed（`cnl_`）、语文题可挂

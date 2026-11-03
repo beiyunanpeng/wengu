@@ -685,6 +685,13 @@ category_id/标签快照**一字未改**（用全表快照断言）；名称解�
 让 LLM 生成或翻译词表；把解析放前端（服务端是唯一解析与校验真源）；动 0020 的表结构。
 ```
 
+> **状态同步（2026-11-03）**：本卡已交付（`feat/p3-3b-recitation-import`）。
+> 落地：`wengu-api/app/services/recitation_import.py`（stdlib `csv`、TSV 判定、表头/空行/注释、
+> 限额与 U+FFFD 拒绝、物理行号）+ `POST /api/recitations/import`（`require_parent`）+
+> `/recitations` 家长区「批量导入」；**无迁移、未改 0020 DDL、无新依赖**。
+> 验证：新增单测 11 + 集成 11 + e2e 第 5 条；全量 **465 passed**（unit 304 / integration 156 /
+> e2e 5）；`ruff check --no-cache .` 与 `npm run build` 全绿。
+
 ## P3-3c —— 从错题抽词（候选视图 + 家长勾选入库，零迁移）
 
 ```
@@ -727,9 +734,18 @@ category_id/标签快照**一字未改**（用全表快照断言）；名称解�
 给候选词自动配释义或例句；动 0020 两表结构；做新表或新迁移。
 ```
 
-> **状态同步（2026-11-03）**：本卡已交付（`feat/p3-3b-recitation-import`）。
-> 落地：`wengu-api/app/services/recitation_import.py`（stdlib `csv`、TSV 判定、表头/空行/注释、
-> 限额与 U+FFFD 拒绝、物理行号）+ `POST /api/recitations/import`（`require_parent`）+
-> `/recitations` 家长区「批量导入」；**无迁移、未改 0020 DDL、无新依赖**。
-> 验证：新增单测 11 + 集成 11 + e2e 第 5 条；全量 **465 passed**（unit 304 / integration 156 /
-> e2e 5）；`ruff check --no-cache .` 与 `npm run build` 全绿。下一张待投 = **P5-1**（P3-3c 排在期后）。
+> **状态同步（2026-11-03，本卡已交付）**：分支 `feat/p3-3c-candidates`。
+> 落地：`wengu-api/app/services/recitation.py`（`english_word_tokens` / `extract_word_candidates`
+> 纯函数 + `candidate_words` 现算查询）、`wengu-api/app/services/recitation_import.py`
+> （`add_candidate_words` 复用 `create_item`）、`GET /api/recitations/candidates` 与
+> `POST /api/recitations/candidates/batch`（均 `require_parent`）+ `/recitations` 家长区
+> 「从错题抽词」候选表（勾选 / 全选 / 清空 / 可选 unit / 入库 / 撤销本批）。
+> 候选口径：active 英语错题当前版本题面 → 正则 token → 小写去尾 `'s` → 长度 ≥2 →
+> 去停用词（硬编码 80 词起步集，注释「按试用反馈增删，不做配置化」）→ 排除 `recitation_items`
+> 任意状态同词（不区分大小写）→ 同题内去重 → 按出现错题数降序、同数按字母升序 → 取前 50。
+> `answer` 留空，不自动配释义。撤销走前端逐条 PATCH `status='retired'`，无新端点。
+> **零迁移**（alembic head 仍 0020）、零新依赖、未改错题链路与 recitation 两表结构。
+> 验证：新增单测 11 + 集成 7 + e2e 第 6 条；全量 **484 passed**（unit 315 / integration 163 /
+> e2e 6）；四表快照（`mistakes`/`mistake_versions`/`attempts`/`review_schedules`）在 GET 与批量
+> 入库前后零变化。retired 行为实测：仍算「已有」→ 再抽词**不**重新出现，重新入库报 duplicate，
+> 家长需手动把条目改回 active。下一张待投 = **P5-1**。

@@ -50,6 +50,8 @@ PIN = "2468"
 CHANNEL = "agent_transcribe_v1"
 TOPIC_ID = "cnm_001"
 SUBJECT = "数学"
+ENGLISH_TOPIC_ID = "eng_e2e_001"
+ENGLISH_SUBJECT = "英语"
 FORBIDDEN_KEYS = {"answer", "accept", "explanation", "verify"}
 
 
@@ -129,6 +131,34 @@ async def _seed_topic_and_concept(
         return TOPIC_ID, concept.id
 
 
+async def _seed_english_topic_and_concept(
+    factory: async_sessionmaker,
+) -> tuple[str, int]:
+    async with factory() as session, session.begin():
+        session.add(
+            KnowledgeSeed(
+                id=ENGLISH_TOPIC_ID,
+                subject=ENGLISH_SUBJECT,
+                name="英语词汇",
+                grade="七年级",
+                type="topic",
+                unaudited=True,
+                blind_verified=True,
+            )
+        )
+        await session.flush()
+        concept = Concept(
+            name="词汇拼写",
+            category_id=ENGLISH_TOPIC_ID,
+            source="parent",
+            status="confirmed",
+            created_at=datetime.now(UTC),
+        )
+        session.add(concept)
+        await session.flush()
+        return ENGLISH_TOPIC_ID, concept.id
+
+
 def _items() -> list[dict]:
     return [
         {
@@ -154,31 +184,70 @@ def _items() -> list[dict]:
     ]
 
 
+def _english_items() -> list[dict]:
+    return [
+        {
+            "subject": ENGLISH_SUBJECT,
+            "problem_text": (
+                "The diligent student is diligent in the library."
+            ),
+            "student_answer": (
+                "The diligent student is diligent in library."
+            ),
+            "standard_answer": (
+                "The diligent student is diligent in the library."
+            ),
+            "error_cause_suggestion": "拼写与介词",
+            "suggested_topic_id": ENGLISH_TOPIC_ID,
+            "source_ref": "e2e 英语第1题",
+            "captured_at": "2026-11-01",
+        },
+        {
+            "subject": ENGLISH_SUBJECT,
+            "problem_text": (
+                "A diligent plan and patient practice bring patient progress."
+            ),
+            "student_answer": (
+                "A diligent plan and patient practice bring patient progres."
+            ),
+            "standard_answer": (
+                "A diligent plan and patient practice bring patient progress."
+            ),
+            "error_cause_suggestion": "拼写错误",
+            "suggested_topic_id": ENGLISH_TOPIC_ID,
+            "source_ref": "e2e 英语第2题",
+            "captured_at": "2026-11-01",
+        },
+    ]
+
+
 async def _import_and_confirm(
     client: AsyncClient,
     factory: async_sessionmaker,
     *,
     concept_id: int,
     actor: str = "parent",
+    items: list[dict] | None = None,
+    topic_id: str = TOPIC_ID,
 ) -> list[dict]:
+    payload_items = _items() if items is None else items
     response = await client.post(
         "/api/imports",
         content=json.dumps(
-            {"channel": CHANNEL, "items": _items()}, ensure_ascii=False
+            {"channel": CHANNEL, "items": payload_items}, ensure_ascii=False
         ),
     )
     assert response.status_code == 201, response.text
     imported = response.json()
-    assert imported["accepted_count"] == 2
-    assert imported["draft_count"] == 2
+    assert imported["accepted_count"] == len(payload_items)
+    assert imported["draft_count"] == len(payload_items)
     assert imported["duplicate"] is False
 
     drafts = await client.get(f"/api/imports/{imported['batch_id']}/drafts")
     assert drafts.status_code == 200, drafts.text
     ordered = sorted(drafts.json()["drafts"], key=lambda row: row["seq"])
     assert [row["normalized"]["problem_text"] for row in ordered] == [
-        "计算 -3 + 5",
-        "计算 7 - 12",
+        row["problem_text"] for row in payload_items
     ]
     assert all(row["status"] == "draft" for row in ordered)
     assert all(row["normalized"]["standard_answer"] for row in ordered)
@@ -188,7 +257,7 @@ async def _import_and_confirm(
         confirmed = await client.post(
             f"/api/imports/drafts/{draft['id']}/confirm",
             json={
-                "primary_topic_id": TOPIC_ID,
+                "primary_topic_id": topic_id,
                 "concept_ids": [concept_id],
                 "error_cause": "calculation",
                 "actor": actor,
@@ -197,13 +266,13 @@ async def _import_and_confirm(
         assert confirmed.status_code == 200, confirmed.text
         body = confirmed.json()
         assert body["already_promoted"] is False
-        assert body["primary_topic_id"] == TOPIC_ID
+        assert body["primary_topic_id"] == topic_id
         confirmations.append(body)
 
     pending = await client.get("/api/imports/drafts")
     promoted = await client.get("/api/imports/drafts?status=promoted")
     assert pending.json()["total"] == 0
-    assert promoted.json()["total"] == 2
+    assert promoted.json()["total"] == len(payload_items)
     return confirmations
 
 
@@ -275,6 +344,48 @@ async def _version_rows(factory: async_sessionmaker) -> list[tuple]:
             )
             for row in rows
         ]
+
+
+async def _mistake_chain_snapshot(factory: async_sessionmaker) -> tuple:
+    """四表快照：抽词/入库前后必须逐行相等。"""
+
+    async with factory() as session:
+        mistakes = (
+            await session.execute(select(Mistake).order_by(Mistake.id))
+        ).scalars().all()
+        versions = (
+            await session.execute(
+                select(MistakeVersion).order_by(MistakeVersion.id)
+            )
+        ).scalars().all()
+        attempts = len((await session.execute(select(Attempt))).all())
+        schedules = len(
+            (await session.execute(select(ReviewSchedule))).all()
+        )
+        return (
+            [
+                (
+                    row.id,
+                    row.status,
+                    row.current_version,
+                    row.primary_topic_id,
+                )
+                for row in mistakes
+            ],
+            [
+                (
+                    row.id,
+                    row.mistake_id,
+                    row.version,
+                    row.problem_text,
+                    row.status,
+                    row.confirmed_category_id,
+                )
+                for row in versions
+            ],
+            attempts,
+            schedules,
+        )
 
 
 def _learning_days(events: list[tuple]) -> set[date]:
@@ -917,3 +1028,96 @@ async def test_backup_export_snapshot_and_manifest_agree(tmp_path) -> None:
     assert manifest["counts"]["ingestion_drafts"] == 2
     assert manifest["counts"]["attempts"] == 0
     assert manifest["counts"]["knowledge_seed"] == 1
+
+
+@pytest.mark.e2e
+async def test_english_candidates_batch_import_then_due_and_ladder(tmp_path) -> None:
+    """⑥ 2 条已确认英语错题 → 抽词排序/去重/停用词 → 勾选入库 → /due → 自评走阶梯。"""
+
+    factory = _migrated(tmp_path / "recitation-candidates-loop.db")
+    _, concept_id = await _seed_english_topic_and_concept(factory)
+    day = date(2026, 11, 3)
+
+    async with _client(factory) as client:
+        await _unlock(client)
+        confirmations = await _import_and_confirm(
+            client,
+            factory,
+            concept_id=concept_id,
+            items=_english_items(),
+            topic_id=ENGLISH_TOPIC_ID,
+        )
+        assert len(confirmations) == 2
+        before = await _mistake_chain_snapshot(factory)
+
+        candidates = await client.get("/api/recitations/candidates")
+        assert candidates.status_code == 200, candidates.text
+        rows = candidates.json()
+        # 跨两题出现两次的 diligent 排第一；同题内重复只算一次。
+        assert rows[0] == {"word": "diligent", "mistake_count": 2}
+        assert {"word": "patient", "mistake_count": 1} in rows
+        assert [row["word"] for row in rows] == [
+            "diligent",
+            "bring",
+            "library",
+            "patient",
+            "plan",
+            "practice",
+            "progress",
+            "student",
+        ]
+        assert not {"the", "a", "and", "is", "in"} & {
+            row["word"] for row in rows
+        }
+
+        batch = await client.post(
+            "/api/recitations/candidates/batch",
+            json={"words": ["diligent", "patient"], "unit": "错题抽词"},
+        )
+        assert batch.status_code == 200, batch.text
+        report = batch.json()
+        assert report["imported"] == 2
+        assert report["duplicates"] == []
+        created = report["created"]
+        assert [row["prompt"] for row in created] == ["diligent", "patient"]
+
+        due = await client.get(
+            "/api/recitations/due", params={"today": day.isoformat()}
+        )
+        assert due.status_code == 200, due.text
+        assert due.json()["due_total"] == 2
+        assert [
+            entry["item"]["prompt"] for entry in due.json()["items"]
+        ] == ["diligent", "patient"]
+        assert all(
+            entry["item"]["answer"] is None for entry in due.json()["items"]
+        )
+
+        remaining = await client.get("/api/recitations/candidates")
+        remaining_words = [row["word"] for row in remaining.json()]
+        assert "diligent" not in remaining_words
+        assert "patient" not in remaining_words
+
+        remembered = await client.post(
+            f"/api/recitations/{created[0]['id']}/review",
+            json={"verdict": "remembered", "reviewed_on": day.isoformat()},
+        )
+        assert remembered.status_code == 200, remembered.text
+        assert remembered.json()["rung"] == 1
+        assert remembered.json()["scheduled_next"] == (
+            day + timedelta(days=3)
+        ).isoformat()
+
+        forgot = await client.post(
+            f"/api/recitations/{created[1]['id']}/review",
+            json={"verdict": "forgot", "reviewed_on": day.isoformat()},
+        )
+        assert forgot.status_code == 200, forgot.text
+        assert forgot.json()["rung"] == 0
+        assert forgot.json()["scheduled_next"] == (
+            day + timedelta(days=1)
+        ).isoformat()
+
+    after = await _mistake_chain_snapshot(factory)
+    assert after == before
+    assert before[0] and before[1]
