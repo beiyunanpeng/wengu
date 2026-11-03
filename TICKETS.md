@@ -306,7 +306,41 @@
 ---
 
 ## Phase 5 —— 开源分发与打包
-- **P5-1 首次运行向导 + 热配置**：孩子/年级→勾选学科→选教材 seed；**v2.5 内核零模型、通常无需 API Key**（仅当家长选装 P4-3 本地模型时才配）；产出配置不逼手改 .env。**运行时参数走 `config/app-config.json` 热加载、优先 .env、UI 内改免重启**；密钥仍只 .env。
+- **P5-1 首次运行向导 + 热配置**——2026-11-03 拆成两票，先修地基再做界面。
+  - **背景（审计发现的真实缺陷，必须先修）**：`app/core/config.py` 里 `PROJECT_ROOT = API_DIR.parent`。
+    原生跑时它是仓库根、`config/app-config.json` 读得到；**Docker 形态下 `API_DIR=/app`（WORKDIR），
+    `PROJECT_ROOT=/`，`app_config_path()` 指向容器根的 `/config/app-config.json`** ——Dockerfile 没有
+    COPY `config/`、compose 也只挂载 `./data` 与 `./seeds`，于是 `daily_review_limit` /
+    `daily_recitation_limit` / `exam_day_limit_factor` **在 Docker 下永远读不到、静默用默认值**，
+    AGENTS §5 承诺的"UI 内改免重启"在主部署路径上是空的。
+  - **P5-1a 配置持久化修复 + 家长配置端点（先做，本票）**
+    - 路径改为：`WENGU_APP_CONFIG`（测试覆盖）→ **`<data_dir>/app-config.json`**（Docker 与原生都持久）
+      → 兼容回退仓库根 `config/app-config.json`（原生老用户，读到就用并提示迁移，**不自动搬、不静默覆盖**）；
+      写入一律落 `data_dir` 那份（同目录 tmp + fsync + `os.replace`，参照 `services/local_seed.py` 的原子写）。
+    - `GET /api/config`（**require_parent**）返回生效值 + 来源（file/default/env）+ 当前落盘路径；
+      `PUT /api/config`（require_parent）只接受白名单键并校验区间：
+      `daily_review_limit 1..200`、`daily_recitation_limit 1..20`、`exam_day_limit_factor 1..3`；
+      非法 422 且不写文件；未知键拒绝（防"顺手写脏配置"）。
+    - **备份纳入**：`services/backup.py` 打包清单加 `<data>/app-config.json`（存在才加），
+      顺带解决 P5-2 已知边界"换机恢复后热参数回默认"；manifest 的 `files` 记录其 sha256。
+    - 文档：`config/README.md` 与 `app-config.example.json` 说明新位置与兼容回退；
+      `docs/deploy/docker.md` 增补"配置随 data 卷持久、无需额外挂载"；AGENTS §5 的路径口径同步。
+    - DoD：Docker 布局回归测试（monkeypatch `API_DIR=/app` 断言解析落 `data_dir`）；
+      原生老路径仍可读且**不被写入**；PUT 成功后**不重启**、`GET /api/reviews/due` 的上限立即变化
+      （热加载的真实证据）；未解锁 GET/PUT 403；备份包含该文件且恢复后值不丢；全量绿 +
+      `ruff check --no-cache` + build。
+    - 禁：把密钥写进 app-config（密钥仍只 `.env`）；自动搬运/删除老路径文件；接受白名单外的键；
+      为"以后可能要"预留配置项。
+  - **P5-1b 首次运行向导 UI（后做，依赖 P5-1a）**
+    - `/setup` 页：年级（7–9，粗粒度、不采集姓名生日等 PII）→ 展示各学科 seed 覆盖实况
+      （数学/英语/物理有 seed；语文/化学为空并**引导去 `/local-seed` 建章级点**）→ 复习与背诵上限
+      （调 P5-1a 的 `PUT /api/config`）→ 完成标记。**不做"勾选学科"装饰性字段**：家里就一个孩子、
+      全部学科都是他的，勾选没有真实作用。
+    - 完成/跳过状态存 `<data>/app-config.json`（配置，非派生状态，合规）；未完成时全站顶部横幅提示
+      并可一键进入 `/setup`，**不劫持路由**（避免孩子一打开被迫填表）；家长可"跳过"不再骚扰。
+    - DoD：横幅出现/消失有测试；向导写入的值经 P5-1a 端点生效（不重启）；窄屏可用；
+      `pytest -m e2e` 加一条端到端向导用例。
+    - 禁：采集姓名/生日/照片；强制路由劫持；在向导里放模型 Key 输入（v2.5 零模型，放了就是邀请回归）。
 - **P5-2 一键备份/恢复（UI 内 + 可选云备份）**：本地导出 SQLite + 图片目录 + `data/inbox` zip / 导入恢复；可选云备份（KuroTutor 模式）AESGCM+scrypt 逐文件加密 → 每日独立 git commit 推家长私有仓库 → `git checkout` 回滚；清空级联清理原文/派生/证据/`practice_records`（`attempts` 里 `source=system_quiz` 的行随错题级联）。
   **已完成（2026-10-31，v1）**：家长区「备份」页导出 `VACUUM INTO` 一致性快照 + `uploads/` + `seeds_local/`（含 `_id_counters.json`）+ 未处理 `inbox/` + `manifest.json`（各文件 sha256、alembic 版本、表计数），只留最近 10 份；导出全程只读、不写业务表。恢复走 `scripts/restore.ps1` + `docs/deploy/backup-restore.md`（停服 → 安全副本 → 整库替换 → `/health` 核对），**明确不做运行中热恢复**；三端点挂 `require_parent`，下载名做路径遍历防护。**剩余**：可选加密云备份/回滚、清空级联清理、在线导入 UI。
 - **P5-3 可选密码 session 鉴权开关**（默认关）；README/首页醒目警告公网须先加鉴权与隔离或走 Tailscale。禁：做用户体系/多租户。

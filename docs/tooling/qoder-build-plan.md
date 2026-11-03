@@ -1,4 +1,4 @@
-# Qoder 施工计划 · v2.5（MVP 8 批 + P2/P3 存档 + 5 张待投卡，每卡可直接复制）
+# Qoder 施工计划 · v2.5（MVP 8 批 + P2/P3 存档 + 待投卡与投单前言，每卡可直接复制）
 
 > **本文件是唯一有效的批次工单**——每张卡都已内联"读哪些文件 + 全局护栏 + 验收口径"，**复制整段贴给 Qoder 即可，无需再补任何上下文**。（聊天记录里的旧版含已作废的 `primary_concept_id` 写法，别用。）
 > 结构：**上半部 = MVP 八批**（批次①~⑧，已全部合并）；**中部 = P2 批次存档**（补票 B + P2-5/4/6/1/3/2/7，PR#9–#16 已全部合并）；**下部 = P3 批次存档**（P3-1a/1b/1c/8/2/2d + P5-2，PR#17–#24 已全部合并）+ 投单纪律附录。三段都只是**已交付工单的存档**，保留决策/边界/红线/DoD 供追溯与重建，不是待办。
@@ -480,7 +480,7 @@ docs/deploy/backup-restore.md：包结构、导出下载、Docker 恢复、原�
 # 待投工单卡（v2.6 决策轮登记，**未开工**）
 
 > 来源：`docs/audit/pr1-24-retrospective.md` 的交付回顾审计 + 用户拍板（砍 PWA、归并补 UI、按建议顺序推进）。
-> 投单顺序 = ~~P5-6~~（已合并 PR#27）→ ~~P0-3~~（已合并 PR#28）→ ~~P3-3a~~（已合并 PR#29）→ ~~P3-3b~~（已合并 PR#30）→ **P3-3c → P5-1（既有票）→ P1-3e → P1-13**。每张卡可整段复制给 Qoder。
+> 投单顺序 = ~~P5-6~~（PR#27）→ ~~P0-3~~（PR#28）→ ~~P3-3a~~（PR#29）→ ~~P3-3b~~（PR#30）→ ~~P3-3c~~（PR#31）→ **P5-1a → P5-1b → P1-3e → P1-13**。每张卡可整段复制给 Qoder。
 > **2026-11-03 更新**：P5-6 孤儿表切片已交付（迁移 0019 一次退役 `problem_extractions` /
 > `photo_capture_items` / `photo_captures` 三表；见 `TICKETS.md` 与 `docs/STATUS.md` §4.18），
 > 本卡留作回溯；P0-3 亦已交付（PR#28），下一张待投 = **P3-3a**。
@@ -732,6 +732,51 @@ category_id/标签快照**一字未改**（用全表快照断言）；名称解�
 【禁止】LLM 抽词 / 翻译 / 选词；TF-IDF 等权重算法（只有"错题数降序"一把尺）；
 中文词抽取（本票只做英文 token）；自动定期同步或后台任务；**未经家长勾选自动入库**；
 给候选词自动配释义或例句；动 0020 两表结构；做新表或新迁移。
+```
+
+## P5-1a —— 配置持久化修复 + 家长配置端点（先修 Docker 下热配置失效）
+
+```
+你在 wengu 仓库工作。开工前完整读：AGENTS.md §5（配置热加载那条承诺）+ §7（开源分发护栏）
++ TICKETS.md 的 P5-1a（含缺陷背景）+ app/core/runtime_config.py、app/core/config.py、
+app/services/backup.py、app/services/local_seed.py（原子写参照）。
+【全局纪律】一条 ticket = 一个 PR；禁止引入新依赖；禁止改任何迁移与表结构；
+禁止把密钥写进 app-config（密钥仍只 `.env`）；本票不做 /setup 界面（那是 P5-1b）。
+【缺陷背景（必读，别当成增强）】`PROJECT_ROOT = API_DIR.parent`：原生跑 =仓库根（正常），
+Docker 跑 WORKDIR=/app → PROJECT_ROOT=/ → `app_config_path()` 指向容器根 `/config/app-config.json`，
+而 Dockerfile 没 COPY config/、compose 只挂 ./data 与 ./seeds。结论：**Docker 形态下
+daily_review_limit / daily_recitation_limit / exam_day_limit_factor 永远读不到、静默用默认值**，
+AGENTS §5 的"UI 内改免重启"在主部署路径上是空的。
+【任务】
+1) `app_config_path()` 解析顺序改为：`WENGU_APP_CONFIG`（测试覆盖）→
+   **`<settings.data_dir>/app-config.json`**（Docker 与原生都持久）→
+   兼容回退仓库根 `config/app-config.json`（存在则读，并在 GET /api/config 的响应里
+   标明来源与"建议迁移到 data 目录"提示）。**写入一律落 data_dir 那份**，
+   绝不自动搬运、绝不删除或覆盖老路径文件（那是用户的文件）。
+2) 原子写：同目录 tmp + fsync + `os.replace`，进程内锁串行（照抄 services/local_seed.py 的写法）。
+3) API（全部挂 require_parent）：
+   - `GET /api/config` → 生效值 + 每项来源（file / default）+ 当前落盘路径 + 兼容提示。
+   - `PUT /api/config` → 只接受白名单键并校验区间：daily_review_limit 1..200、
+     daily_recitation_limit 1..20、exam_day_limit_factor 1..3（浮点）；
+     非法值 422 且**不写文件**；白名单外的键一律拒绝（不做"以后可能要"的预留）。
+4) 备份纳入：services/backup.py 的打包清单加 `<data>/app-config.json`（文件存在才加、
+   不存在不报错），manifest 的 files 记录其 sha256；顺带解决 P5-2 已知边界
+   "换机恢复后热参数回默认"。恢复脚本 restore.ps1 与文档同步（该文件随 data 目录整库替换）。
+5) 文档同步：config/README.md 与 app-config.example.json 写明新位置 + 兼容回退；
+   docs/deploy/docker.md 增补"配置随 data 卷持久化，无需额外挂载"；AGENTS §5 的路径口径更新；
+   CHANGELOG [Unreleased] 记 Fixed（写清"仅 Docker 形态受影响、原生一直正常"）。
+【DoD】
+- 路径解析回归测试：模拟 Docker 布局（API_DIR=/app）断言解析结果落在 data_dir 内；
+  原生布局断言优先 data_dir、data_dir 无文件时回退仓库根 config/ 且**只读不写**。
+- 热加载真实证据：PUT 改 daily_review_limit 后**不重启**，`GET /api/reviews/due` 的上限立即变化
+  （断言响应里的 limit 字段），并断言非法值 422 后文件内容未变。
+- 权限：未解锁 GET/PUT /api/config 均 403。
+- 备份：导出包内含 app-config.json（存在时）；模拟恢复后配置值不丢；文件不存在时导出不报错。
+- 原子写：并发 PUT 不产生半截 JSON（进程内锁 + os.replace 的测试）。
+- `pytest -q` 全绿（当前基线 484 passed）、CI 绿、`ruff check --no-cache .` 绿、`npm run build` 绿。
+【禁止】把密钥或任何凭据写进 app-config；自动搬运/删除老路径 config/ 文件；
+接受白名单外的配置键；改表结构或加迁移；在本票顺手做 /setup 界面；
+把 app_config_path 改成"只认 data_dir"从而弄坏原生老用户的现有配置（必须保留回退）。
 ```
 
 > **状态同步（2026-11-03，本卡已交付）**：分支 `feat/p3-3c-candidates`。
