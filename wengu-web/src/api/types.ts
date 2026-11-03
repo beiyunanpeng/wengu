@@ -651,6 +651,55 @@ export interface DashboardResponse {
   streak: DashboardStreak;
   pomodoros_today: number;
   focus_minutes_this_week: number;
+  recitations_today: number;
+  recitation_limit: number;
+}
+
+export type RecitationStatus = "active" | "retired";
+export type RecitationVerdict = "remembered" | "forgot";
+
+export interface RecitationItem {
+  id: number;
+  subject: string;
+  prompt: string;
+  answer: string | null;
+  unit: string | null;
+  status: RecitationStatus;
+  created_by: string;
+  created_at: string;
+}
+
+export interface RecitationListResponse {
+  items: RecitationItem[];
+  total: number;
+}
+
+export interface RecitationDueItem {
+  item: RecitationItem;
+  rung: number;
+  scheduled_next: string | null;
+  graduated: boolean;
+  reviewed_on: string | null;
+}
+
+export interface RecitationDueResponse {
+  items: RecitationDueItem[];
+  due_total: number;
+  returned: number;
+  limit: number;
+  today: string;
+}
+
+export interface RecitationReviewResponse {
+  item: RecitationItem;
+  review_id: number;
+  event_id: number;
+  verdict: RecitationVerdict;
+  rung: number;
+  reviewed_on: string;
+  scheduled_next: string | null;
+  graduated: boolean;
+  created: boolean;
 }
 
 export interface SessionStatus {

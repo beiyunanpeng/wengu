@@ -43,6 +43,10 @@ import type {
   PracticeSubmitResponse,
   QuizPaperResponse,
   QuizTopicListResponse,
+  RecitationDueResponse,
+  RecitationItem,
+  RecitationListResponse,
+  RecitationReviewResponse,
   ReviewQuizResponse,
   SessionStatus,
   TimetableResponse,
@@ -616,6 +620,87 @@ export function getDashboard(
   const query = search.toString();
   return apiRequest<DashboardResponse>(
     `/api/dashboard${query ? `?${query}` : ""}`,
+  );
+}
+
+export interface RecitationFilters {
+  subject?: string;
+  status?: "active" | "retired";
+  limit?: number;
+  offset?: number;
+}
+
+export function listRecitations(
+  filters: RecitationFilters = {},
+): Promise<RecitationListResponse> {
+  const params = new URLSearchParams();
+  if (filters.subject) {
+    params.set("subject", filters.subject);
+  }
+  if (filters.status) {
+    params.set("status", filters.status);
+  }
+  params.set("limit", String(filters.limit ?? 50));
+  params.set("offset", String(filters.offset ?? 0));
+  return apiRequest<RecitationListResponse>(
+    `/api/recitations?${params.toString()}`,
+  );
+}
+
+export function getDueRecitations(
+  today?: string,
+  limit?: number,
+): Promise<RecitationDueResponse> {
+  const params = new URLSearchParams();
+  if (today) {
+    params.set("today", today);
+  }
+  if (limit) {
+    params.set("limit", String(limit));
+  }
+  const query = params.toString();
+  return apiRequest<RecitationDueResponse>(
+    `/api/recitations/due${query ? `?${query}` : ""}`,
+  );
+}
+
+export function createRecitation(payload: {
+  subject: string;
+  prompt: string;
+  answer?: string | null;
+  unit?: string | null;
+}): Promise<RecitationItem> {
+  return requestJson<RecitationItem>("/api/recitations", "POST", payload);
+}
+
+export function updateRecitation(
+  itemId: number,
+  payload: {
+    prompt?: string;
+    answer?: string | null;
+    unit?: string | null;
+    status?: "active" | "retired";
+  },
+): Promise<RecitationItem> {
+  return requestJson<RecitationItem>(
+    `/api/recitations/${itemId}`,
+    "PATCH",
+    payload,
+  );
+}
+
+export function reviewRecitation(
+  itemId: number,
+  payload: {
+    verdict: "remembered" | "forgot";
+    reviewed_on?: string;
+    actor?: "student" | "parent";
+  },
+): Promise<RecitationReviewResponse> {
+  return requestJson<RecitationReviewResponse>(
+    `/api/recitations/${itemId}/review`,
+    "POST",
+    { actor: "student", ...payload },
   );
 }
 

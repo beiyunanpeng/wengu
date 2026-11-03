@@ -9,6 +9,47 @@
 
 ### Added
 
+- **P3-3a 英语背诵：家长手填条目 + 记忆阶梯自评闭环**（2026-11-03）：
+  v2.6 把英语背诵定为"自评间隔重复（档③）"，内容来源按 B → A → C 三阶段推进；
+  本票先交付 **A（家长手填）**：零模型、零相似度猜测，背诵条目**不是错题**。
+  - **迁移 0020（可逆）**：新增 `recitation_items`（`id / subject / prompt / answer? /
+    unit? / status(active|retired) / created_by / created_at`，`UNIQUE(subject,prompt)`、
+    `CHECK status`）与 `recitation_reviews`（`id / item_id / verdict(remembered|forgot) /
+    rung / reviewed_on / scheduled_next? / event_id / created_at`，`CHECK verdict`、
+    `UNIQUE(item_id, reviewed_on)`、条目 FK `ON DELETE CASCADE`、事件 FK `ON DELETE RESTRICT`）。
+    `downgrade` 按原定义删表；备份 `COUNT_TABLES` 同步加入两表（业务表 19 → **21**）。
+  - **纯函数** `services/recitation.py`：复用 `review_policy.MEMORY_LADDER = (1,3,7,14,30)`；
+    `remembered` 进一档、`forgot` **保持当前档且不倒退**；下次到期日从**实际自评日**起算；
+    最高档仍 `remembered` → `scheduled_next=NULL`（毕业，条目保留）；状态可从未改动的事件
+    历史确定性重算。
+  - **事实与幂等**：每次自评追加 `learning_events(type='recitation_reviewed',
+    mistake_id=NULL)`，payload 含 `item_id / verdict / rung / scheduled_next / completed_on`，
+    幂等键 `recitation:{item_id}:{reviewed_on}`；同日重复提交返回既有结果，不产生第二条自评/事件。
+    **全程不写 `mistakes` / `mistake_versions` / `attempts` / `review_schedules`，不影响掌握度。**
+  - **调度**：新增运行时配置 `daily_recitation_limit`（`config/app-config.json` 热加载，
+    默认 5、上限 20，非法值回退默认）；`GET /api/recitations/due` 最多返回该条数，
+    前端在复习页把"今日背诵 N 条"卡片排在同类题考核之后；无到期条目则不显示、不硬凑。
+    看板新增"今日背诵 x/N"（`recitations_today` + `recitation_limit`）。
+  - **API**：`GET /api/recitations?subject=&status=&limit=`、`POST /api/recitations`、
+    `PATCH /api/recitations/{id}`（写操作挂 `require_parent`，手填归家长）、
+    `GET /api/recitations/due?today=`、`POST /api/recitations/{id}/review`（孩子区免 PIN）。
+    错误映射 404/409/422；重复条目 409，已退役条目不可再自评。
+  - **前端**：新增 `/recitations` 页（今日卡片 + 记得/没记住 + 今日进度；家长解锁后新增/编辑/
+    退役/恢复；窄屏单列可用），导航"英语背诵"排在"复习考核"之后；看板加"今日背诵"卡片。
+  - **测试**：`tests/unit/test_recitation.py`（阶梯逐档、毕业、不倒退、重放、校验）+
+    `tests/integration/test_recitations_api.py` 9 条（家长门控、CRUD/重复/校验、全阶梯
+    `BASE→+3→+10→+24→毕业+54`、同日幂等、四张错题链全表快照零变化、看板/streak、
+    热改 5→2→25 收口 20、退役退出队列）；迁移 0020 up/down/up + **DDL 逐字对比**
+    （回退再升级与首次升级、ORM 模型一致）；`pytest -m e2e` 新增第 4 条（手填 3 条 →
+    到期 3 → 混合自评 → 阶梯推进 → 看板与 streak 咬合）。
+  - **实测**：全量 **442 passed**（unit 293 / integration 145 / e2e 4）；`pytest -m e2e`
+    收集 **4** 全绿；`ruff check --no-cache .` 全绿；`npm run build` 绿。
+  - **运行态证据**：临时库迁到 `0020` + 本机 uvicorn/Vite 实走——家长设 PIN 解锁 →
+    `/recitations` 手填 `abandon / 放弃；抛弃 / Unit 1` → 今日卡片立即出现、到期 1 条 →
+    点「记得」→ 进度 1/5、提示 `下次复习 2026-11-06（第 2 档）`（11-03 + 3 天）→
+    看板显示「今日背诵 1/5」且仅背诵即点亮当日打卡、掌握度仍 0%、活跃错题 0 →
+    再加 `benefit` 后复习页在「今天没有到期复习」之后显示「今日背诵 1 条 · 排在考核任务之后」。
+
 - **P0-3 端到端回归：把空转的 `e2e` marker 用起来 + 可逆迁移 DDL 原文对比**（2026-11-03）：
   v2.6 审计发现 `pyproject.toml` 声明了 `e2e` marker 但 `pytest -m e2e` 收集 **0 条**，端到端
   只在批次⑧手工验过一次、不可重放。本票新增 `wengu-api/tests/e2e/test_closed_loop.py`
@@ -43,6 +84,12 @@
 
 ### Changed
 
+- **打卡口径显式变更：`recitation_reviewed` 纳入 streak 白名单**（P3-3a，2026-11-03）：
+  连续天数语义从"当天有作答"改为"当天有学习动作"——孩子只背诵、不做题也算打卡。
+  `services/streak.py` 的白名单常量更名 `ATTEMPT_TYPES` → `LEARNING_EVENT_TYPES` 并加注释；
+  `services/dashboard.py` 的按日统计同步识别背诵事件。原有"仅作答"用例保留不改，
+  新增"仅背诵也计学习日 / 跨天延伸"用例；e2e 的独立推导函数同样纳入该类型，避免口径漂移。
+
 - **P5-6（孤儿表切片）：退役视觉栈遗留的三张孤儿表 `problem_extractions` / `photo_capture_items` / `photo_captures`**（2026-11-03）：
   v2.5 视觉栈退役后，这三张表在 `app/` 已零读写，只剩建表迁移（0004/0005/0006）当"活化石"。
   **为何现在才删**：P1-12 只删了调用方、端点与 `model_runs` 审计表，0004/0005/0006 建的表
@@ -64,12 +111,10 @@
     再升级再次缺席；带存量数据的 0018 库升级同样成功且其余表数据不变。
 
 下一批待投工单（可复制的施工卡在 `docs/tooling/qoder-build-plan.md` 末段）：
-**P3-3a** 英语背诵（家长手填条目 + 记忆阶梯自评闭环；100% 确定性、不进错题本、不计掌握度、
-不写 attempts）
-→ **P5-1** 首次运行向导（顺带补英文 README 与独立隐私声明）
+**P5-1** 首次运行向导（顺带补英文 README 与独立隐私声明）
 → **P1-3e** 移动端粘贴转录 JSON 入口 → **P1-13** 知识点归并 UI。
-（P0-3 端到端回归含 DDL 对比已于本切片交付，见上。P3-3 按 B → A → C 三期，
-`TICKETS.md` 已拆为 P3-3a 手填 / P3-3b 教材词表导入 / P3-3c 从错题抽词。）
+（P3-3a 英语背诵已于本切片交付，见上；P3-3 余下 **P3-3b 教材词表导入** /
+**P3-3c 从错题抽词**，各成一 PR，按 B → C 继续。）
 
 历史口径提醒（避免照旧文案施工）：~~P1-7c 自动排复习~~ 已于 v2.5 **作废**——入本一律经核对页
 人工确认，"未确认自动入库"这个被闸门卡住的场景已不存在；~~P0-1 边界表回填~~ 不再是入本前置

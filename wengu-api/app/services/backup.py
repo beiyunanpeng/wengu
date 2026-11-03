@@ -50,6 +50,8 @@ COUNT_TABLES = (
     "bank_drafts",
     "timetable_slots",
     "calendar_events",
+    "recitation_items",
+    "recitation_reviews",
 )
 
 logger = logging.getLogger(__name__)

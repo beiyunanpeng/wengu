@@ -21,6 +21,9 @@
   streak 只做习惯展示、不入库、不参与任何学习效果结论。
 - 番茄：`services.pomodoro` 汇总 `pomodoro_completed` 事实（今日个数 +
   本周专注分钟），只展示专注时长；不计入掌握度 / streak / 错题本。
+- 背诵：今日 `recitation_reviewed` 事件数（同日每条目最多一条）与运行时
+  `daily_recitation_limit` 组成"今日背诵 x/N"；背诵不写 mistakes/attempts，
+  因此不进入上面的错题存量、到期与掌握度统计。
 """
 
 from __future__ import annotations
@@ -34,6 +37,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.runtime_config import daily_recitation_limit
 from app.models import (
     Concept,
     GradingVersion,
@@ -50,6 +54,7 @@ from app.services.pomodoro import summarize_pomodoros
 from app.services.recompute import (
     ATTEMPT_CORRECT,
     ATTEMPT_WRONG,
+    RECITATION_REVIEWED,
     Event,
     is_graduated,
     mastery,
@@ -130,6 +135,8 @@ class DashboardSnapshot:
     streak: StreakSummary
     pomodoros_today: int
     focus_minutes_this_week: int
+    recitations_today: int
+    recitation_limit: int
 
 
 def _payload(event: Event) -> dict[str, Any]:
@@ -157,6 +164,18 @@ def _review_completed_on(event: Event) -> date | None:
     if payload.get("kind") != REVIEW_EVENT_KIND:
         return None
     raw = payload.get("completed_on")
+    if not isinstance(raw, str):
+        return None
+    try:
+        return date.fromisoformat(raw)
+    except ValueError:
+        return None
+
+
+def _recitation_completed_on(event: Event) -> date | None:
+    if event.type != RECITATION_REVIEWED:
+        return None
+    raw = _payload(event).get("completed_on")
     if not isinstance(raw, str):
         return None
     try:
@@ -450,6 +469,12 @@ async def build_dashboard(
     void_events = sum(1 for event in events if event.type == MISTAKE_VOIDED_EVENT)
     reactivate_events = sum(1 for event in events if event.type == MISTAKE_REACTIVATED_EVENT)
     pomodoro = summarize_pomodoros(events, today, week_start)
+    recitations_today = sum(
+        1
+        for event in events
+        if event.type == RECITATION_REVIEWED
+        and _recitation_completed_on(event) == today
+    )
 
     return DashboardSnapshot(
         today=today,
@@ -479,4 +504,6 @@ async def build_dashboard(
         streak=summarize_streak(events, today),
         pomodoros_today=pomodoro.pomodoros_today,
         focus_minutes_this_week=pomodoro.focus_minutes_this_week,
+        recitations_today=recitations_today,
+        recitation_limit=daily_recitation_limit(),
     )

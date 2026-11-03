@@ -30,7 +30,15 @@ from alembic.config import Config
 from app.core.config import Settings, get_settings
 from app.core.database import create_sqlite_engine, get_session
 from app.main import create_app
-from app.models import Concept, KnowledgeSeed, LearningEvent, MistakeVersion
+from app.models import (
+    Attempt,
+    Concept,
+    KnowledgeSeed,
+    LearningEvent,
+    Mistake,
+    MistakeVersion,
+    ReviewSchedule,
+)
 from app.services.backup import BACKUP_NAME_RE, DB_NAME, MANIFEST_NAME
 from app.services.bank import get_bank
 from httpx import ASGITransport, AsyncClient
@@ -270,11 +278,18 @@ async def _version_rows(factory: async_sessionmaker) -> list[tuple]:
 
 
 def _learning_days(events: list[tuple]) -> set[date]:
-    """按 AGENTS/streak 文档：优先 payload.completed_on，缺失回退 occurred_at。"""
+    """按 AGENTS/streak 文档：优先 payload.completed_on，缺失回退 occurred_at。
+
+    P3-3a 起 `recitation_reviewed` 也计入学习日（只背诵不做题同样算打卡）。
+    """
 
     days: set[date] = set()
     for _id, event_type, _actor, _mistake, payload, occurred_at, _key in events:
-        if event_type not in ("attempt_correct", "attempt_wrong"):
+        if event_type not in (
+            "attempt_correct",
+            "attempt_wrong",
+            "recitation_reviewed",
+        ):
             continue
         data = json.loads(payload) if payload else {}
         raw = data.get("completed_on")
@@ -583,6 +598,149 @@ async def test_void_unvoid_does_not_rewrite_history(tmp_path) -> None:
     assert [row[2] for row in appended] == ["parent", "student"]
     # 幂等重复请求不重复写审计事件：只追加这一对。
     assert len(after_events) == len(before_events) + 2
+
+
+@pytest.mark.e2e
+async def test_recitation_manual_entry_ladder_dashboard_streak(tmp_path) -> None:
+    """④ 家长手填 3 条 → 到期 3 条 → 混合自评 → 阶梯/看板/打卡互相咬合。"""
+
+    factory = _migrated(tmp_path / "recitation-loop.db")
+    day = date(2026, 11, 2)
+
+    async with _client(factory) as client:
+        await _unlock(client)
+        items = []
+        for prompt, answer, unit in [
+            ("abandon", "放弃", "Unit 1"),
+            ("ability", "能力", "Unit 1"),
+            ("absorb", "吸收", "Unit 2"),
+        ]:
+            created = await client.post(
+                "/api/recitations",
+                json={
+                    "subject": "英语",
+                    "prompt": prompt,
+                    "answer": answer,
+                    "unit": unit,
+                },
+            )
+            assert created.status_code == 200, created.text
+            items.append(created.json())
+        assert [item["id"] for item in items] == [1, 2, 3]
+
+        due = await client.get(
+            "/api/recitations/due", params={"today": day.isoformat()}
+        )
+        assert due.status_code == 200, due.text
+        due_body = due.json()
+        assert due_body["due_total"] == 3
+        assert due_body["returned"] == 3
+        assert due_body["limit"] == 5
+        assert [entry["item"]["prompt"] for entry in due_body["items"]] == [
+            "abandon",
+            "ability",
+            "absorb",
+        ]
+        assert all(entry["rung"] == 0 for entry in due_body["items"])
+        assert all(entry["reviewed_on"] is None for entry in due_body["items"])
+
+        # 混合自评：第 1、3 条记得（新条目进一档 +3 天）；
+        # 第 2 条没记住（新条目保持 rung 0，下次从当天 +1 天起算）。
+        first_round = [
+            ("remembered", 1, 3),
+            ("forgot", 0, 1),
+            ("remembered", 1, 3),
+        ]
+        for item, (verdict, expected_rung, wait) in zip(
+            items, first_round, strict=True
+        ):
+            reviewed = await client.post(
+                f"/api/recitations/{item['id']}/review",
+                json={
+                    "verdict": verdict,
+                    "reviewed_on": day.isoformat(),
+                    "actor": "student",
+                },
+            )
+            assert reviewed.status_code == 200, reviewed.text
+            body = reviewed.json()
+            assert body["created"] is True
+            assert body["rung"] == expected_rung
+            assert body["scheduled_next"] == (
+                day + timedelta(days=wait)
+            ).isoformat()
+            assert body["graduated"] is False
+
+        # 同日重复提交幂等：不新增自评/事件，也不改写阶梯。
+        repeated = await client.post(
+            "/api/recitations/1/review",
+            json={"verdict": "forgot", "reviewed_on": day.isoformat()},
+        )
+        assert repeated.status_code == 200, repeated.text
+        assert repeated.json()["created"] is False
+        assert repeated.json()["rung"] == 1
+
+        due_after = await client.get(
+            "/api/recitations/due", params={"today": day.isoformat()}
+        )
+        assert due_after.json()["due_total"] == 0
+
+        # 第二轮（第 1 条再次记得）：rung 1 → 2，下次 +7 天；第 2 条仍是 rung 0。
+        ladder_day = day + timedelta(days=3)
+        second = await client.post(
+            "/api/recitations/1/review",
+            json={"verdict": "remembered", "reviewed_on": ladder_day.isoformat()},
+        )
+        assert second.status_code == 200, second.text
+        assert second.json()["rung"] == 2
+        assert second.json()["scheduled_next"] == (
+            ladder_day + timedelta(days=7)
+        ).isoformat()
+
+        dashboard = await client.get(
+            "/api/dashboard", params={"today": day.isoformat()}
+        )
+        assert dashboard.status_code == 200, dashboard.text
+        board = dashboard.json()
+
+    assert board["recitations_today"] == 3
+    assert board["recitation_limit"] == 5
+    assert board["streak"]["today_done"] is True
+    assert board["streak"]["learning_days_total"] == 2
+    assert board["event_stats"]["by_type"]["recitation_reviewed"] == 4
+    assert board["event_stats"]["attempts_correct"] == 0
+    assert board["event_stats"]["attempts_wrong"] == 0
+    assert board["mastery"]["overall"] == 0.0
+    assert board["inventory"]["active"] == 0
+
+    events = await _event_rows(factory)
+    recitations = [row for row in events if row[1] == "recitation_reviewed"]
+    assert len(recitations) == 4
+    assert all(row[3] is None for row in recitations)
+    assert [row[6] for row in recitations] == [
+        f"recitation:1:{day.isoformat()}",
+        f"recitation:2:{day.isoformat()}",
+        f"recitation:3:{day.isoformat()}",
+        f"recitation:1:{ladder_day.isoformat()}",
+    ]
+
+    expected_streak = _expected_streak(events, day)
+    assert {
+        key: board["streak"][key] for key in expected_streak
+    } == expected_streak
+
+    async with factory() as session:
+        for model in (Mistake, MistakeVersion, Attempt, ReviewSchedule):
+            assert (await session.execute(select(model))).all() == []
+        assert (
+            await session.execute(
+                select(LearningEvent).where(
+                    LearningEvent.type.in_(
+                        ("attempt_correct", "attempt_wrong")
+                    )
+                )
+            )
+        ).all() == []
 
 
 @pytest.mark.e2e

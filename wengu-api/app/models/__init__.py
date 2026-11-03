@@ -3,6 +3,7 @@ from app.models.grading import GradingResult, GradingVersion, ProblemBankItem
 from app.models.ingestion import BankDraft, ImportBatch, IngestionDraft
 from app.models.knowledge import Concept, ConceptAlias, KnowledgeSeed, PrerequisiteEdge
 from app.models.mistakes import Mistake, MistakeVersion, PracticeRecord
+from app.models.recitation import RecitationItem, RecitationReview
 from app.models.review import ReviewSchedule
 from app.models.schedule import CalendarEvent, TimetableSlot
 from app.models.users import UserRole
@@ -24,6 +25,8 @@ __all__ = [
     "PracticeRecord",
     "PrerequisiteEdge",
     "ProblemBankItem",
+    "RecitationItem",
+    "RecitationReview",
     "ReviewSchedule",
     "TimetableSlot",
     "UserRole",

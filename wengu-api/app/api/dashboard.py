@@ -130,6 +130,8 @@ class DashboardResponse(BaseModel):
     streak: StreakView
     pomodoros_today: int
     focus_minutes_this_week: int
+    recitations_today: int
+    recitation_limit: int
 
 
 def _to_response(snapshot: DashboardSnapshot) -> DashboardResponse:
@@ -208,6 +210,8 @@ def _to_response(snapshot: DashboardSnapshot) -> DashboardResponse:
         ),
         pomodoros_today=snapshot.pomodoros_today,
         focus_minutes_this_week=snapshot.focus_minutes_this_week,
+        recitations_today=snapshot.recitations_today,
+        recitation_limit=snapshot.recitation_limit,
     )
 
 

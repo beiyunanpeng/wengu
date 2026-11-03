@@ -198,6 +198,14 @@
   禁：写回 `seeds/data`（上游只读）；复用已发放 id；把细粒度知识点树做成家长手工录入（细粒度仍走错题受控生长）。
 - **P3-3 英语背诵（自评间隔重复，档③）**——v2.6 定：内容来源按 **B → A → C** 三阶段推进，各成一 PR。
   - **P3-3a 家长手填背诵条目 + 记忆阶梯自评闭环（先做）**
+    - **状态（2026-11-03）**：已交付。迁移 `0020_recitation`（可逆；up/down/up 与 DDL 逐字对比）。
+      纯函数复用 `MEMORY_LADDER`；`remembered` 进档、`forgot` 不倒退、实际自评日起算、最高档毕业；
+      同日幂等、只写 `learning_events(recitation_reviewed)`，全表快照证明不碰
+      `mistakes/mistake_versions/attempts/review_schedules`。热配置 `daily_recitation_limit`
+      （默认 5、上限 20）；`/recitations` 页 + 看板"今日背诵 x/N" + streak 白名单显式变更。
+      `pytest -m e2e` 收集 **4** 条（新增手填→到期→混合自评→阶梯→看板/streak 咬合）；
+      全量 **442 passed**（unit 293 / integration 145 / e2e 4）；`ruff check --no-cache .` 与
+      `npm run build` 全绿。
     - 数据：新增 `recitation_items`（`id / subject / prompt / answer? / unit? / status(active|retired) /
       created_at / created_by`，`UNIQUE(subject, prompt)` 防手填重复）与 `recitation_reviews`
       （`id / item_id / verdict(remembered|forgot) / rung / reviewed_on / scheduled_next? /

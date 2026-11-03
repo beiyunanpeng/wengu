@@ -16,6 +16,7 @@ GRADUATION_STREAK = 3  # 抗挫败规则：尾部连续对 ≥3 才毕业（设�
 
 ATTEMPT_CORRECT = "attempt_correct"
 ATTEMPT_WRONG = "attempt_wrong"
+RECITATION_REVIEWED = "recitation_reviewed"
 
 # 掌握度双来源（设计文档 §16.D）：系统判考核 + 原题重做自评各计 1 次，仅打标签；
 # manual（手工补录）与旧批改建议不进掌握度。缺失 source 的旧事件按历史自评计入。

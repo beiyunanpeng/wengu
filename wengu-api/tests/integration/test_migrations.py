@@ -8,7 +8,9 @@ import pytest
 import sqlalchemy.exc
 from alembic import command
 from alembic.config import Config
+from app.models import RecitationItem, RecitationReview
 from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.schema import CreateTable
 
 API_DIR = Path(__file__).resolve().parents[2]
 
@@ -32,6 +34,8 @@ EXPECTED_TABLES = {
     "prerequisite_edges",
     "timetable_slots",
     "calendar_events",
+    "recitation_items",
+    "recitation_reviews",
 }
 
 # 易变状态一律不存字段（AGENTS §5：掌握度/毕业/统计由事实推导）
@@ -730,7 +734,7 @@ def test_p5_6_drops_orphan_photo_tables_up_down_up(tmp_path) -> None:
         "photo_capture_items",
         "problem_extractions",
     }.isdisjoint(tables)
-    assert len(tables - {"alembic_version"}) == 19
+    assert len(tables - {"alembic_version"}) == 21
 
     engine = create_engine(f"sqlite:///{db_path.as_posix()}")
     try:
@@ -945,6 +949,226 @@ def test_p5_6_reversible_ddl_is_byte_identical(tmp_path) -> None:
 
     mismatches = _ddl_mismatches(before, after)
     assert not mismatches, "0019 降级后的 DDL 与升级前不一致：\n" + "\n".join(
+        mismatches
+    )
+
+
+@pytest.mark.integration
+def test_p3_3a_recitation_tables_up_down_up(tmp_path) -> None:
+    """0020：两张背诵表可逆；CHECK/UNIQUE/FK 由库层兜底，删条目级联清自评。"""
+
+    db_path = tmp_path / "recitation.db"
+    config = _alembic_config(db_path)
+
+    command.upgrade(config, "0019_drop_orphan_photo_tables")
+    assert {"recitation_items", "recitation_reviews"}.isdisjoint(_tables(db_path))
+
+    command.upgrade(config, "head")
+    engine = create_engine(f"sqlite:///{db_path.as_posix()}")
+    try:
+        with engine.connect() as connection:
+            inspector = inspect(connection)
+            item_columns = {
+                column["name"]: column["nullable"]
+                for column in inspector.get_columns("recitation_items")
+            }
+            review_columns = {
+                column["name"]: column["nullable"]
+                for column in inspector.get_columns("recitation_reviews")
+            }
+            item_checks = {
+                constraint["name"]
+                for constraint in inspector.get_check_constraints("recitation_items")
+            }
+            review_checks = {
+                constraint["name"]
+                for constraint in inspector.get_check_constraints(
+                    "recitation_reviews"
+                )
+            }
+            item_uniques = {
+                constraint["name"]
+                for constraint in inspector.get_unique_constraints("recitation_items")
+            }
+            review_uniques = {
+                constraint["name"]
+                for constraint in inspector.get_unique_constraints(
+                    "recitation_reviews"
+                )
+            }
+            review_fks = {
+                fk["name"]: fk
+                for fk in inspector.get_foreign_keys("recitation_reviews")
+            }
+        assert item_columns == {
+            "id": False,
+            "subject": False,
+            "prompt": False,
+            "answer": True,
+            "unit": True,
+            "status": False,
+            "created_by": False,
+            "created_at": False,
+        }
+        assert review_columns == {
+            "id": False,
+            "item_id": False,
+            "verdict": False,
+            "rung": False,
+            "reviewed_on": False,
+            "scheduled_next": True,
+            "event_id": False,
+            "created_at": False,
+        }
+        assert "ck_recitation_items_status" in item_checks
+        assert "ck_recitation_reviews_verdict" in review_checks
+        assert "uq_recitation_items_subject_prompt" in item_uniques
+        assert "uq_recitation_reviews_item_reviewed_on" in review_uniques
+        assert set(review_fks) == {
+            "fk_recitation_reviews_item_id",
+            "fk_recitation_reviews_event_id",
+        }
+        assert (
+            review_fks["fk_recitation_reviews_item_id"]["referred_table"]
+            == "recitation_items"
+        )
+        assert (
+            review_fks["fk_recitation_reviews_item_id"]["options"].get("ondelete")
+            == "CASCADE"
+        )
+        assert (
+            review_fks["fk_recitation_reviews_event_id"]["referred_table"]
+            == "learning_events"
+        )
+        assert (
+            review_fks["fk_recitation_reviews_event_id"]["options"].get("ondelete")
+            == "RESTRICT"
+        )
+
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO learning_events (id, type, actor, idempotency_key)"
+                    " VALUES (1, 'recitation_reviewed', 'student',"
+                    " 'recitation:1:2026-11-03')"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO recitation_items"
+                    " (subject, prompt, answer, unit, created_by, created_at)"
+                    " VALUES ('英语', 'abandon', '放弃', 'Unit 1', 'parent',"
+                    " CURRENT_TIMESTAMP)"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO recitation_reviews"
+                    " (item_id, verdict, rung, reviewed_on, scheduled_next,"
+                    " event_id, created_at)"
+                    " VALUES (1, 'remembered', 0, '2026-11-03', '2026-11-04', 1,"
+                    " CURRENT_TIMESTAMP)"
+                )
+            )
+            with pytest.raises(
+                sqlalchemy.exc.IntegrityError, match="recitation_items.subject"
+            ):
+                connection.execute(
+                    text(
+                        "INSERT INTO recitation_items"
+                        " (subject, prompt, created_by, created_at)"
+                        " VALUES ('英语', 'abandon', 'parent', CURRENT_TIMESTAMP)"
+                    )
+                )
+            with pytest.raises(sqlalchemy.exc.IntegrityError, match="CHECK"):
+                connection.execute(
+                    text(
+                        "INSERT INTO recitation_items"
+                        " (subject, prompt, status, created_by, created_at)"
+                        " VALUES ('英语', 'retire-me', 'deleted', 'parent',"
+                        " CURRENT_TIMESTAMP)"
+                    )
+                )
+            with pytest.raises(
+                sqlalchemy.exc.IntegrityError, match="recitation_reviews.item_id"
+            ):
+                connection.execute(
+                    text(
+                        "INSERT INTO recitation_reviews"
+                        " (item_id, verdict, rung, reviewed_on, event_id, created_at)"
+                        " VALUES (1, 'forgot', 0, '2026-11-03', 1,"
+                        " CURRENT_TIMESTAMP)"
+                    )
+                )
+            with pytest.raises(sqlalchemy.exc.IntegrityError, match="CHECK"):
+                connection.execute(
+                    text(
+                        "INSERT INTO recitation_reviews"
+                        " (item_id, verdict, rung, reviewed_on, event_id, created_at)"
+                        " VALUES (1, 'maybe', 0, '2026-11-04', 1,"
+                        " CURRENT_TIMESTAMP)"
+                    )
+                )
+            assert (
+                connection.scalar(text("SELECT COUNT(*) FROM recitation_reviews"))
+                == 1
+            )
+    finally:
+        engine.dispose()
+
+    # 默认连接不开 foreign_keys，单独开 PRAGMA 验证 ON DELETE CASCADE
+    conn = sqlite3.connect(str(db_path))
+    try:
+        conn.execute("PRAGMA foreign_keys=ON")
+        conn.execute("DELETE FROM recitation_items WHERE id = 1")
+        conn.commit()
+        assert conn.execute("SELECT COUNT(*) FROM recitation_reviews").fetchone() == (
+            0,
+        )
+    finally:
+        conn.close()
+
+    command.downgrade(config, "0019_drop_orphan_photo_tables")
+    assert {"recitation_items", "recitation_reviews"}.isdisjoint(_tables(db_path))
+
+    command.upgrade(config, "head")
+    assert {"recitation_items", "recitation_reviews"} <= _tables(db_path)
+
+
+@pytest.mark.integration
+def test_p3_3a_recitation_reversible_ddl_is_byte_identical(tmp_path) -> None:
+    """0020 用 op.create_table 显式建表：回退再升级的 DDL 与首次升级、ORM 模型逐字一致。"""
+
+    db_path = tmp_path / "recitation-ddl.db"
+    config = _alembic_config(db_path)
+    involved = {"recitation_items", "recitation_reviews"}
+
+    command.upgrade(config, "0019_drop_orphan_photo_tables")
+    assert _master_ddl(db_path, involved) == {}
+
+    command.upgrade(config, "head")
+    before = _master_ddl(db_path, involved)
+    assert set(before) == {
+        "table:recitation_items",
+        "table:recitation_reviews",
+    }
+
+    model_engine = create_engine("sqlite://")
+    try:
+        for model in (RecitationItem, RecitationReview):
+            compiled = str(CreateTable(model.__table__).compile(model_engine)).strip()
+            assert before[f"table:{model.__tablename__}"] == compiled
+    finally:
+        model_engine.dispose()
+
+    command.downgrade(config, "0019_drop_orphan_photo_tables")
+    assert _master_ddl(db_path, involved) == {}
+
+    command.upgrade(config, "head")
+    after = _master_ddl(db_path, involved)
+
+    mismatches = _ddl_mismatches(before, after)
+    assert not mismatches, "0020 回退再升级后的 DDL 与首次升级不一致：\n" + "\n".join(
         mismatches
     )
 
