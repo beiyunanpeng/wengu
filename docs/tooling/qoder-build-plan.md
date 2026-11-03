@@ -516,7 +516,9 @@ CHANGELOG 记一条 Changed（含"为何现在才删"一句）。
 【任务】新建 tests/e2e/ 三条用例（marker 已在 pyproject 声明但目前 0 条）：
 ① 投递一段含 2 题的 agent_transcribe_v1 JSON → 落草稿 → 核对页端点确认入本 → 到期队列出 quiz →
    提交作答 → 服务端判分写 attempts(source=system_quiz) → 看板与 streak 数字与手工推导一致；
-② 错题作废 → 退出活跃列表与到期队列 → 撤销 → 回到期队列，全程历史事件与 versions 不增不改；
+② 错题作废 → 退出活跃列表与到期队列 → 撤销 → 回到期队列。断言口径（勿照抄旧话"事件不增不改"）：
+   **既有事件行与 `mistake_versions` 逐行、按序原样保留**，按设计**仅追加** `mistake_voided` /
+   `mistake_reactivated` 两条审计事件（append-only = 只追加、不改不删，**不是"不追加"**）；
 ③ 家长解锁 → POST /api/backup/export → 解出快照 PRAGMA integrity_check=ok → manifest 表计数
    与库内实际计数逐项相等。
 用真迁移到 head（含 0018/0019）+ 临时库 + ASGITransport，参照 tests/integration 现有 fixture 风格。
