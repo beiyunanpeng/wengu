@@ -102,7 +102,7 @@
 - 禁止：导入时调模型/自动建错题/自动转正；跳过 `standard_answer` 校验。
 
 ### P1-3e 移动端投递入口：粘贴整段转录 JSON（v2.6 审计新增，PWA 的替代票）
-- **状态：已完成（2026-11-04，分支 `feat/p1-3e-paste-import`，待评审）**——
+- **状态：已交付并合并（2026-11-04，PR#35，`main` = `b600d4d`）**——
   `/import` 新增原文粘贴 + 本地 `.json` 读取（`file.text()`），共用 `POST /api/imports`；
   `importRawText` 原文直发避免二次序列化；422 逐行渲染 `index/field/reason`；
   e2e 第 8 条覆盖原文路径 → 部分坏项 → 重投去重 → 核对页确认入本；无迁移、无新依赖、后端零改动。
@@ -126,6 +126,24 @@
 - 禁止：新写一条绕过 `ingest_raw_payload` 的入库路径；给这个入口加自动转正；引入文件上传/对象存储；
   二次序列化（double-encode）；把内部异常栈原样吐给用户（P1-9b 纪律照旧）；
   为"看起来像 App"重新引入 manifest/service worker（已进 §12 反清单）。
+
+### P1-3f 粘贴/文件导入显式剥离 BOM（P1-3e 审计登记的后续小改）
+- **背景（审核方实测）**：`ImportPage.submitRaw` 现在靠 `text.trim()` **顺带**去掉了 BOM——
+  ECMAScript 规范把 `U+FEFF` 列为 WhiteSpace，所以 `trim()` 会去掉它；而 Python
+  `json.loads` **拒绝** BOM 开头的文本（实测 `JSONDecodeError`）。也就是说：
+  Windows 记事本/Excel 导出的"UTF-8（带 BOM）".json 现在能导入，**但这是巧合不是设计**——
+  代码里没注释、没测试、DoD 也没要求。将来任何人把 `trim()` 换成别的空白处理
+  （例如只 `replace(/\s+$/,'')` 或改成 `text.slice(...)`），BOM 报文会立刻变成 400。
+- 交付：在 `submitRaw`（或其前置）加**显式** BOM 剥离——`text.replace(/^\uFEFF+/, '')` 后再
+  `trim()`，并写一行注释说明"为何必须显式处理：Python json.loads 拒绝 BOM"；
+  文件读取路径（`file.text()`）与粘贴路径共用同一处理，保证两者对同一内容得到**同一 sha256**
+  （去重语义一致）。
+- DoD：新增断言——带 BOM 的合法报文（`\uFEFF{...}`）经前端提交路径返回 **201**、
+  草稿数正确、且与去 BOM 的同内容报文命中同一批次去重（`duplicate=true`）；
+  非 JSON / 空文本仍分别 400 / 不发请求；`pytest -q` 全绿（基线 522 passed）、
+  `ruff check --no-cache` 绿、`npm run build` 绿。
+- 禁止：改后端 `ingest_raw_payload` 去容忍 BOM（真源在投递侧清洗，后端契约不动）；
+  顺手重构 ImportPage 其它逻辑；引入文件上传/编码检测库。
 
 ### P1-4b 版本化外部提取模板 `docs/templates/doubao_transcribe_v1.md`（v2.5 新增）
 - 依赖：P1-1b（知识点 id 空间）。

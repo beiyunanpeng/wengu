@@ -480,7 +480,7 @@ docs/deploy/backup-restore.md：包结构、导出下载、Docker 恢复、原�
 # 待投工单卡（v2.6 决策轮登记，**未开工**）
 
 > 来源：`docs/audit/pr1-24-retrospective.md` 的交付回顾审计 + 用户拍板（砍 PWA、归并补 UI、按建议顺序推进）。
-> 投单顺序 = ~~P5-6~~（PR#27）→ ~~P0-3~~（PR#28）→ ~~P3-3a~~（PR#29）→ ~~P3-3b~~（PR#30）→ ~~P3-3c~~（PR#31）→ ~~P5-1a~~（PR#32）→ ~~P5-1b~~（PR#33）→ ~~P0-4~~（**PR#34 已合并**）→ ~~P1-3e~~（**`feat/p1-3e-paste-import` 待评审**）→ **P1-13**。每张卡可整段复制给 Qoder。
+> 投单顺序 = ~~P5-6~~（PR#27）→ ~~P0-3~~（PR#28）→ ~~P3-3a~~（PR#29）→ ~~P3-3b~~（PR#30）→ ~~P3-3c~~（PR#31）→ ~~P5-1a~~（PR#32）→ ~~P5-1b~~（PR#33）→ ~~P0-4~~（PR#34）→ ~~P1-3e~~（**PR#35 已合并**）→ **P1-3f（BOM 显式剥离，小改）→ P1-13**。每张卡可整段复制给 Qoder。
 > **2026-11-03 更新**：P5-6 孤儿表切片已交付（迁移 0019 一次退役 `problem_extractions` /
 > `photo_capture_items` / `photo_captures` 三表；见 `TICKETS.md` 与 `docs/STATUS.md` §4.18），
 > 本卡留作回溯；P0-3 亦已交付（PR#28），下一张待投 = **P3-3a**。
@@ -932,3 +932,30 @@ app/core/database.py（create_sqlite_engine）+ 任意两个"建引擎不 dispos
 > 不复用 `requestJson`；422 逐行渲染 `index/field/reason`；e2e 第 8 条走原文路径
 > （部分坏项 → 重投去重 → 核对页确认入本）。实跑 522 passed、e2e 8、ruff 绿、build 绿；
 > 后端零改动、无迁移、无新依赖。
+> **已合并：PR#35，`main` = `b600d4d`。**
+
+## P1-3f —— 粘贴/文件导入显式剥离 BOM（P1-3e 后续小改）
+
+```
+你在 wengu 仓库工作。开工前完整读：TICKETS.md 的 P1-3f + wengu-web/src/pages/ImportPage.tsx
+的 submitRaw / handleRawFile + wengu-api/app/services/inbox.py 的 ingest_raw_payload（sha256 去重）。
+【背景（审核方实测，别当成增强）】现在 BOM 是被 `text.trim()` **顺带**去掉的——
+ECMAScript 把 U+FEFF 列为 WhiteSpace，所以 trim 会去掉它；而 Python `json.loads` 拒绝 BOM 开头
+（实测 JSONDecodeError）。也就是说 Windows 记事本/Excel 导出的"UTF-8（带 BOM）.json"今天能导入，
+**但这是巧合不是设计**：没注释、没测试、DoD 也没要求。任何人把 trim 换成别的空白处理
+（例如只 `replace(/\s+$/,'')` 或改 slice），BOM 报文立刻变 400。
+【全局纪律】一条 ticket = 一个 PR；只动前端投递侧清洗，**后端契约不动**
+（不许让 `ingest_raw_payload` 去容忍 BOM——清洗应在投递侧）；禁止引入编码检测库；
+禁止顺手重构 ImportPage 其它逻辑。
+【任务】在 submitRaw 的前置加**显式** BOM 剥离：`text.replace(/^\uFEFF+/, "")` 之后再 trim，
+并写一行注释说明"为何必须显式处理：Python json.loads 拒绝 BOM"。
+文件路径（`file.text()`）与粘贴路径共用同一处理，确保同一内容（带或不带 BOM）
+得到**同一 sha256**、命中同一批次去重。
+【DoD】
+- 新增断言：带 BOM 的合法报文（`\uFEFF{...}`）走前端提交路径返回 **201**、草稿数正确；
+- 同内容去 BOM 与带 BOM 两次提交 → 第二次 `duplicate=true`（证明归一到同一 sha256）；
+- 非 JSON 文本 → 400 且错误可读；空文本 / 全 BOM 文本 → 不发请求（按钮禁用或提前返回）；
+- `pytest -q` 全绿（当前基线 522 passed）、CI 绿、`ruff check --no-cache .` 绿、`npm run build` 绿。
+【禁止】改后端 `ingest_raw_payload`/`imports.py` 去容忍 BOM；引入 jschardet 之类检测库；
+顺手重构 ImportPage；把 trim 删掉（BOM 剥离要在它之前或独立生效，两者都要保留）。
+```
