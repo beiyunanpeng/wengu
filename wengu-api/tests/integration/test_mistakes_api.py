@@ -769,6 +769,7 @@ async def test_merge_preview_and_merge_keep_history_and_resolve_family(tmp_path)
     assert preview_body["source"]["id"] == source_id
     assert preview_body["target"]["id"] == target_id
     assert preview_body["source_aliases"] == ["移项法则"]
+    assert preview_body["projected_aliases_moved"] == 2  # 源名称 + 源别名
     assert preview_body["affected_mistakes"] == 2  # 2 道 active，voided 不计
     assert preview_body["same_category"] is True
 
@@ -776,6 +777,8 @@ async def test_merge_preview_and_merge_keep_history_and_resolve_family(tmp_path)
     merged_body = merged.json()
     assert merged_body["source"]["merged_into_id"] == target_id
     assert merged_body["aliases_moved"] == 2  # 源名称 + 源别名
+    # 确认框显示的数字必须与归并响应一致（不把源名称漏报）
+    assert preview_body["projected_aliases_moved"] == merged_body["aliases_moved"]
     assert "移项" in merged_body["target"]["aliases"]
     assert "移项法则" in merged_body["target"]["aliases"]
 

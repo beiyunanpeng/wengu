@@ -133,6 +133,7 @@ export interface ConceptMergePreview {
   source: Concept;
   target: Concept;
   source_aliases: string[];
+  projected_aliases_moved: number;
   affected_mistakes: number;
   same_category: boolean;
 }

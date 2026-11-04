@@ -70,6 +70,7 @@ class ConceptMergePreviewResponse(BaseModel):
     source: ConceptInfo
     target: ConceptInfo
     source_aliases: list[str]
+    projected_aliases_moved: int
     affected_mistakes: int
     same_category: bool
 
@@ -149,13 +150,15 @@ async def merge_preview_endpoint(
             )
         except ConceptNotFound as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from None
-    return ConceptMergePreviewResponse(
-        source=_info(preview.source, list(preview.source_aliases)),
-        target=_info(preview.target, list(preview.target_aliases)),
-        source_aliases=list(preview.source_aliases),
-        affected_mistakes=preview.affected_mistakes,
-        same_category=preview.same_category,
-    )
+        response = ConceptMergePreviewResponse(
+            source=_info(preview.source, list(preview.source_aliases)),
+            target=_info(preview.target, list(preview.target_aliases)),
+            source_aliases=list(preview.source_aliases),
+            projected_aliases_moved=preview.projected_aliases_moved,
+            affected_mistakes=preview.affected_mistakes,
+            same_category=preview.same_category,
+        )
+    return response
 
 
 @router.post(

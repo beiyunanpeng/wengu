@@ -1031,4 +1031,6 @@ wengu-web/src/pages/MistakeDetailPage.tsx（已管 concepts 的标签区）与 L
 > "源 → 目标 · N 个别名 · M 道错题"）；`mistake_versions` 全表快照逐行不变。实跑
 > 526 passed（unit 344 / integration 173 / e2e 9）、`ruff check --no-cache .` 绿、
 > `npm run build` 绿；临时库浏览器实测归并与未解锁 403、375px 无溢出。无迁移、无新依赖。
-> **与卡偏差：预览在两个选择器都选好后请求（非打开即调）；"N 个别名"不含源名称本身。**
+> **与卡偏差：预览在两个选择器都选好后请求（非打开即调）。**
+> **PR#37 返工：预览改用 `projected_aliases_moved`（含源名称，与 `aliases_moved` 同源计算），
+> 响应在 `session.begin()` 块内构造、不依赖 `expire_on_commit=False`。**

@@ -14,7 +14,7 @@
     `POST /api/concepts/merge`，前端零调用，家长没有入口把重复建出的细粒度点并掉。
   - 后端：`POST /api/concepts/merge` 挂 `require_parent`；新增只读
     `GET /api/concepts/merge-preview?source_id=&target_id=`（同样 `require_parent`），返回
-    `{source, target, source_aliases, affected_mistakes, same_category}`。
+    `{source, target, source_aliases, projected_aliases_moved, affected_mistakes, same_category}`。
     `affected_mistakes` 只统计"当前版本 `confirmed_concept_ids_json` 含源点"的 **active**
     错题（只读扫描，不建表、不加索引）；跨 category 返回 `same_category=false` 而不报错；
     概念不存在 404。`GET /api/concepts` 与 `POST /api/concepts` **保持孩子区可用**。
@@ -38,8 +38,11 @@
     `pytest -m e2e` **9 passed**；`ruff check --no-cache .` 全绿；`npm run build` 绿。
     无迁移（head 仍 `0020_recitation`）、无新依赖。
   - 与施工卡的偏差（以实际代码为准）：预览在**两个选择器都选好后**才请求，不是"打开弹窗
-    即调"；确认框"N 个别名"取 `source_aliases.length`，服务端 `aliases_moved` 另含源名称本身；
-    测试 helper 为复用锁定态新增 `unlock` 参数。
+    即调"；测试 helper 为复用锁定态新增 `unlock` 参数。
+  - 评审返工（PR#37）：`merge-preview` 新增 `projected_aliases_moved`，与 `merge_concepts`
+    共用同一投影逻辑（源名称 + 源别名，按目标已有名称/别名与匹配键去重），确认框直接显示
+    该值，集成测试断言它与 merge 响应的 `aliases_moved` 相等，不再少报源名称；
+    预览响应改为在 `session.begin()` 块内构造，去掉对 `expire_on_commit=False` 的隐式依赖。
 
 - **P1-3f 投递侧显式剥离 BOM（零迁移）**（2026-11-04）：
   - 背景：`ImportPage.submitRaw` 之前只靠 `text.trim()` 顺带去掉 BOM——ECMAScript 把

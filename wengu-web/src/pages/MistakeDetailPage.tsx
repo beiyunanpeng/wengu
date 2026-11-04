@@ -729,7 +729,7 @@ export default function MistakeDetailPage() {
           {mergePreview && (
             <Text size="sm">
               {mergePreview.source.name} → {mergePreview.target.name} · 将并入{" "}
-              {mergePreview.source_aliases.length} 个别名 · 影响{" "}
+              {mergePreview.projected_aliases_moved} 个别名 · 影响{" "}
               {mergePreview.affected_mistakes} 道错题
             </Text>
           )}
