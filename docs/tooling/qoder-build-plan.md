@@ -480,7 +480,7 @@ docs/deploy/backup-restore.md：包结构、导出下载、Docker 恢复、原�
 # 待投工单卡（v2.6 决策轮登记，**未开工**）
 
 > 来源：`docs/audit/pr1-24-retrospective.md` 的交付回顾审计 + 用户拍板（砍 PWA、归并补 UI、按建议顺序推进）。
-> 投单顺序 = ~~P5-6~~（PR#27）→ ~~P0-3~~（PR#28）→ ~~P3-3a~~（PR#29）→ ~~P3-3b~~（PR#30）→ ~~P3-3c~~（PR#31）→ ~~P5-1a~~（PR#32）→ ~~P5-1b~~（PR#33）→ ~~P0-4~~（**PR#34 已合并**）→ **P1-3e → P1-13**。每张卡可整段复制给 Qoder。
+> 投单顺序 = ~~P5-6~~（PR#27）→ ~~P0-3~~（PR#28）→ ~~P3-3a~~（PR#29）→ ~~P3-3b~~（PR#30）→ ~~P3-3c~~（PR#31）→ ~~P5-1a~~（PR#32）→ ~~P5-1b~~（PR#33）→ ~~P0-4~~（**PR#34 已合并**）→ ~~P1-3e~~（**`feat/p1-3e-paste-import` 待评审**）→ **P1-13**。每张卡可整段复制给 Qoder。
 > **2026-11-03 更新**：P5-6 孤儿表切片已交付（迁移 0019 一次退役 `problem_extractions` /
 > `photo_capture_items` / `photo_captures` 三表；见 `TICKETS.md` 与 `docs/STATUS.md` §4.18），
 > 本卡留作回溯；P0-3 亦已交付（PR#28），下一张待投 = **P3-3a**。
@@ -573,6 +573,10 @@ errors[]（逐条 index/field/reason，复用 P1-9b 的错误呈现）→ 给"�
 【禁止】让这个入口自动转正/自动建错题；把原始报文写进日志（PII 纪律）；前端解析后再拼一遍字段
 （应原样透传给后端，校验只有一套）。
 ```
+
+> **状态：已完成（2026-11-04，分支 `feat/p1-3e-paste-import`，待评审）**——实跑 522 passed
+> （unit 344 / integration 170 / e2e 8）、`pytest -m e2e` 8 条全绿、`ruff check --no-cache .`
+> 全绿、`npm run build` 绿；无迁移、无新依赖、后端零改动。
 
 ## P1-13 —— 知识点归并 UI（补受控生长的另一半）
 
@@ -922,3 +926,9 @@ app/core/database.py（create_sqlite_engine）+ 任意两个"建引擎不 dispos
 【禁止】让模型或前端"修好"坏行再提交（坏行就该报错给家长）；自动转正；二次序列化；
 引入文件上传/对象存储/manifest；把内部异常栈原样吐给用户；动 0020 与错题链路。
 ```
+
+> **状态：已完成（2026-11-04，分支 `feat/p1-3e-paste-import`，待评审）**——`/import` 新增
+> 原文粘贴 + 本地 `.json` 读取（`file.text()`）共用提交函数；`importRawText` 原文直发、
+> 不复用 `requestJson`；422 逐行渲染 `index/field/reason`；e2e 第 8 条走原文路径
+> （部分坏项 → 重投去重 → 核对页确认入本）。实跑 522 passed、e2e 8、ruff 绿、build 绿；
+> 后端零改动、无迁移、无新依赖。

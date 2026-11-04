@@ -267,6 +267,19 @@ export function importTranscribe(
   );
 }
 
+export function importRawText(text: string): Promise<ImportResult> {
+  // 原文直发：requestJson 会 JSON.stringify，把粘贴的报文二次编码成字符串。
+  return apiRequest<ImportResult>(
+    "/api/imports",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: text,
+    },
+    60_000,
+  );
+}
+
 export function listQuizTopics(filters: {
   subject?: string;
   q?: string;

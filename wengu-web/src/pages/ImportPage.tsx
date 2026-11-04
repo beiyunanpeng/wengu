@@ -4,6 +4,7 @@ import {
   Button,
   Card,
   Code,
+  FileButton,
   Group,
   Loader,
   Select,
@@ -13,12 +14,16 @@ import {
   TextInput,
   Title,
 } from "@mantine/core";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-import { errorMessage } from "../api/client";
-import { getInboxInfo, importTranscribe } from "../api/endpoints";
-import type { ImportResult, InboxInfo } from "../api/types";
+import { ApiError, errorMessage } from "../api/client";
+import {
+  getInboxInfo,
+  importRawText,
+  importTranscribe,
+} from "../api/endpoints";
+import type { ImportItemError, ImportResult, InboxInfo } from "../api/types";
 
 const SUBJECTS = ["数学", "英语", "物理", "语文", "化学"];
 
@@ -38,10 +43,58 @@ const EXAMPLE = `{
   ]
 }`;
 
+function isImportItemError(value: unknown): value is ImportItemError {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const row = value as Record<string, unknown>;
+  return (
+    typeof row.index === "number" &&
+    typeof row.field === "string" &&
+    typeof row.reason === "string"
+  );
+}
+
+function importFailure(cause: unknown): {
+  message: string;
+  errors: ImportItemError[];
+} {
+  const message = errorMessage(cause);
+  if (!(cause instanceof ApiError)) {
+    return { message, errors: [] };
+  }
+  const body = cause.detail;
+  if (!body || typeof body !== "object") {
+    return { message, errors: [] };
+  }
+  const detail = (body as { detail?: unknown }).detail;
+  if (!detail || typeof detail !== "object") {
+    return { message, errors: [] };
+  }
+  const record = detail as Record<string, unknown>;
+  return {
+    message: typeof record.message === "string" ? record.message : message,
+    errors: Array.isArray(record.errors)
+      ? record.errors.filter(isImportItemError)
+      : [],
+  };
+}
+
 export default function ImportPage() {
   const navigate = useNavigate();
   const [inbox, setInbox] = useState<InboxInfo | null>(null);
   const [inboxError, setInboxError] = useState<string | null>(null);
+
+  const [rawText, setRawText] = useState("");
+  const [rawFileError, setRawFileError] = useState<string | null>(null);
+  const [rawSubmitting, setRawSubmitting] = useState(false);
+  const [rawResult, setRawResult] = useState<ImportResult | null>(null);
+  const [rawFailure, setRawFailure] = useState<{
+    message: string;
+    errors: ImportItemError[];
+    status: number;
+  } | null>(null);
+  const resetFileRef = useRef<(() => void) | null>(null);
 
   const [subject, setSubject] = useState<string | null>("数学");
   const [problemText, setProblemText] = useState("");
@@ -69,6 +122,43 @@ export default function ImportPage() {
       active = false;
     };
   }, []);
+
+  async function submitRaw(text: string) {
+    const payload = text.trim();
+    if (!payload || rawSubmitting) {
+      return;
+    }
+    setRawSubmitting(true);
+    setRawFileError(null);
+    setRawResult(null);
+    setRawFailure(null);
+    try {
+      setRawResult(await importRawText(payload));
+    } catch (cause) {
+      setRawFailure({
+        ...importFailure(cause),
+        status: cause instanceof ApiError ? cause.status : 0,
+      });
+    } finally {
+      setRawSubmitting(false);
+    }
+  }
+
+  async function handleRawFile(file: File | null) {
+    if (!file) {
+      return;
+    }
+    setRawFileError(null);
+    try {
+      const text = await file.text();
+      setRawText(text);
+      await submitRaw(text);
+    } catch {
+      setRawFileError("读取文件失败，请重新选择 .json 文件");
+    } finally {
+      resetFileRef.current?.();
+    }
+  }
 
   async function handleSubmit() {
     const text = problemText.trim();
@@ -106,6 +196,142 @@ export default function ImportPage() {
         v2.5：批改在卷子上完成（红笔 + 订正）。系统只接收"已批改错题"的转录
         草稿；草稿必须经核对页人工确认才入本、才排复习。
       </Text>
+
+      <Card withBorder>
+        <Stack gap="sm">
+          <Group justify="space-between" align="center" wrap="wrap">
+            <Text fw={600}>粘贴转录 JSON</Text>
+            <Badge variant="light">手机 / 平板可用</Badge>
+          </Group>
+          <Text size="sm" c="dimmed">
+            把外部 agent 产出的整段 JSON 直接贴进来，或选择一个本地 .json
+            文件。走与服务端监听目录相同的校验与去重；只生成草稿，不建错题、不自动转正。
+          </Text>
+          <Textarea
+            label="转录 JSON"
+            value={rawText}
+            onChange={(event) => setRawText(event.currentTarget.value)}
+            placeholder='{"channel": "agent_transcribe_v1", "items": [...]}'
+            minRows={6}
+            maxRows={14}
+            autosize
+            spellCheck={false}
+            styles={{ input: { fontFamily: "monospace", fontSize: 12 } }}
+          />
+          <Group gap="sm" wrap="wrap">
+            <FileButton
+              resetRef={resetFileRef}
+              onChange={(file) => void handleRawFile(file)}
+              accept=".json,application/json"
+            >
+              {(props) => (
+                <Button {...props} variant="light">
+                  选择 .json 文件
+                </Button>
+              )}
+            </FileButton>
+            <Button
+              onClick={() => void submitRaw(rawText)}
+              loading={rawSubmitting}
+              disabled={!rawText.trim()}
+            >
+              导入这段 JSON
+            </Button>
+          </Group>
+          {rawFileError && (
+            <Alert color="red" variant="light">
+              {rawFileError}
+            </Alert>
+          )}
+          {rawFailure && (
+            <Alert
+              color="red"
+              variant="light"
+              title={
+                rawFailure.status
+                  ? `导入失败（HTTP ${rawFailure.status}）`
+                  : "导入失败"
+              }
+            >
+              <Stack gap={4}>
+                <Text size="sm" style={{ overflowWrap: "anywhere" }}>
+                  {rawFailure.message}
+                </Text>
+                {rawFailure.errors.map((item) => (
+                  <Text
+                    key={`${item.index}-${item.field}-${item.reason}`}
+                    size="xs"
+                    c="red"
+                    style={{ overflowWrap: "anywhere" }}
+                  >
+                    第 {item.index + 1} 项（index {item.index}）· {item.field}：
+                    {item.reason}
+                  </Text>
+                ))}
+              </Stack>
+            </Alert>
+          )}
+          {rawResult && (
+            <Alert
+              color={
+                rawResult.duplicate
+                  ? "blue"
+                  : rawResult.errors.length > 0
+                    ? "yellow"
+                    : "green"
+              }
+              variant="light"
+              title={
+                rawResult.duplicate
+                  ? "重复导入已跳过"
+                  : rawResult.errors.length > 0
+                    ? "部分题目已导入，坏项已报告"
+                    : "已生成草稿，待核对确认"
+              }
+            >
+              <Stack gap={6}>
+                <Group gap="xs">
+                  <Badge variant="light">批次 #{rawResult.batch_id}</Badge>
+                  <Badge variant="light">状态 {rawResult.status}</Badge>
+                  <Badge variant="light">
+                    duplicate {String(rawResult.duplicate)}
+                  </Badge>
+                  <Badge variant="light">
+                    草稿 {rawResult.draft_count} 条
+                  </Badge>
+                  <Badge variant="light">
+                    接收 {rawResult.accepted_count} 条
+                  </Badge>
+                  <Badge variant="light">
+                    忽略未知字段 {rawResult.dropped_unknown_fields} 个
+                  </Badge>
+                </Group>
+                {rawResult.errors.map((item) => (
+                  <Text
+                    key={`${item.index}-${item.field}-${item.reason}`}
+                    size="xs"
+                    c="red"
+                    style={{ overflowWrap: "anywhere" }}
+                  >
+                    第 {item.index + 1} 项（index {item.index}）· {item.field}：
+                    {item.reason}
+                  </Text>
+                ))}
+                {rawResult.draft_count > 0 && (
+                  <Group>
+                    <Button
+                      size="compact-sm"
+                      onClick={() => navigate("/intake")}
+                    >
+                      去核对页确认
+                    </Button>
+                  </Group>
+                )}
+              </Stack>
+            </Alert>
+          )}
+        </Stack>
+      </Card>
 
       <Card withBorder>
         <Stack gap="sm">

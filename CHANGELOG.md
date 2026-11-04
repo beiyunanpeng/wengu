@@ -9,6 +9,27 @@
 
 ### Added
 
+- **P1-3e 移动端投递入口：粘贴整段转录 JSON（零迁移）**（2026-11-04）：
+  - 背景：PWA 已砍（设计文档 §17-A），手机侧真正缺的是把外部 agent 产出的整段 JSON
+    送进 `data/inbox` 等价物；`POST /api/imports` 早已就绪，导入页此前只有"手填一条"。
+  - 前端：`/import` 新增"粘贴转录 JSON"卡片——Textarea 粘贴 + `FileButton` 读取本地 `.json`
+    （`file.text()`）二选一，均进入同一个提交函数；新增 `importRawText(text)` 以**原文**
+    为 body、`Content-Type: application/json` 直发（**不复用** `requestJson`，避免二次序列化），
+    仍走同一个 `POST /api/imports` → `ingest_raw_payload` 的校验与 sha256 去重。
+    成功渲染 `batch_id / status / duplicate / draft_count / accepted_count /
+    dropped_unknown_fields`，`duplicate=true` 显示"重复导入已跳过"，并提供"去核对页确认"；
+    400/413/422 按 `detail` 渲染，422 `{message, errors[]}` **逐行**展示 `index/field/reason`。
+    不新增自动转正、文件上传/对象存储或任何绕过 `ingest_raw_payload` 的入库路径。
+  - 移动端：375px iframe 实测 `/import` `clientWidth = scrollWidth = 360`，422 错误卡
+    `scrollWidth = clientWidth = 293`，JSON 示例 `<pre>` 内部横向滚动、页面无横向溢出；
+    Textarea 长文本内部滚动（`scrollHeight 3395 > clientHeight 277`）。
+  - 测试：e2e 第 8 条走**原始文本路径**（body 即原文）投递 3 题含 1 坏项 → 2 条草稿 +
+    `{index: 2, field: problem_text, reason: 题目为空（必填）}`，四表快照导入前后逐行相等
+    （错题本零变化）→ 同段重投 `duplicate=true` 且批次号不变 → 非 JSON 400 可读无堆栈 →
+    核对页确认一条入本（1 错题 / 1 版本 / 首次排期，attempts 不增）。
+  - 验证：`pytest -q` **522 passed**（unit 344 / integration 170 / **e2e 8**，243.38s）；
+    `pytest -m e2e` **8 passed**；`ruff check --no-cache .` 全绿；`npm run build` 绿。
+    无迁移（head 仍 `0020_recitation`）、无新依赖、后端零改动。
 - **P5-1b 首次运行向导：单页 `/setup` + 顶部横幅（零迁移）**（2026-11-04）：
   - 口径：**不采集年级、不做学科勾选**（seed 全量装载初中 7–9，复习/考核不以年级为输入；
     家里一个孩子、全部学科）。向导只做三件有作用的事：展示 seed 覆盖、设置运行上限、标记完成。

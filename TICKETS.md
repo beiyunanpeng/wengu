@@ -102,6 +102,10 @@
 - 禁止：导入时调模型/自动建错题/自动转正；跳过 `standard_answer` 校验。
 
 ### P1-3e 移动端投递入口：粘贴整段转录 JSON（v2.6 审计新增，PWA 的替代票）
+- **状态：已完成（2026-11-04，分支 `feat/p1-3e-paste-import`，待评审）**——
+  `/import` 新增原文粘贴 + 本地 `.json` 读取（`file.text()`），共用 `POST /api/imports`；
+  `importRawText` 原文直发避免二次序列化；422 逐行渲染 `index/field/reason`；
+  e2e 第 8 条覆盖原文路径 → 部分坏项 → 重投去重 → 核对页确认入本；无迁移、无新依赖、后端零改动。
 - 背景：PWA 当初为"安卓手机 / iPad 拍题"而选（已砍，见设计文档 §17-A）。但 v2.5 后拍照与转录都在系统外完成，
   手机侧真正缺的是**把外部 agent 产出的整段 JSON 送进 `data/inbox` 等价物**——今天 `POST /api/imports` 端点已存在
   （`api/imports.py:144`）且前端已在用（`endpoints.ts:252`），但导入页只有"手填一条"表单，**没有粘贴 JSON 的入口**。
