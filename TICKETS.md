@@ -284,6 +284,11 @@
   `pytest -q` 全绿（当前基线 526 passed）、CI 绿、`ruff check --no-cache .` 绿、build 绿。
 - 禁止：改归并语义 / 权限 / 预览契约；顺手加"智能推荐目标"（相似度猜测，P1-13 已禁）；
   改 `Concept` 表结构（**零迁移**）。
+- **状态：已完成（2026-11-04，分支 `feat/p1-13b-no-preselect`，待评审）**：打开弹窗时源/目标
+  均为空（只有 1 个 concept 也不预选）；未选齐不发 `merge-preview`、确认按钮禁用；选择器与
+  顶部提示明示"源=将被并入消失 / 目标=最终保留"。前端抽 `src/pages/mergeSelection.ts` 纯函数，
+  新增 Node 内置 test runner 单测 5 条（`npm test`），CI web job 增加该步骤；后端/权限/预览契约
+  零改动、既有归并集成断言一字未改。零迁移、无新依赖。
 
 ---
 
