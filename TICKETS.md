@@ -138,7 +138,12 @@
   `json.loads` **拒绝** BOM 开头的文本（实测 `JSONDecodeError`）。也就是说：
   Windows 记事本/Excel 导出的"UTF-8（带 BOM）".json 现在能导入，**但这是巧合不是设计**——
   代码里没注释、没测试、DoD 也没要求。将来任何人把 `trim()` 换成别的空白处理
-  （例如只 `replace(/\s+$/,'')` 或改成 `text.slice(...)`），BOM 报文会立刻变成 400。
+  （例如只 `replace(/\s+$/,'')` 或改成 `text.slice(...)`），BOM 就会留在报文里。
+  ⚠️ **后果更正（交付实测 + 审核方复验，2026-11-04）**：本条原写"会立刻变成 400"是**错的**——
+  后端入口 `ingest_raw_payload(raw: bytes)` 收的是 bytes，CPython 会按 `utf-8-sig` 识别并吃掉 BOM
+  （实测 `json.loads(b'\xef\xbb\xbf{...}')` 成功；只有对 `str` 才抛 `Unexpected UTF-8 BOM`），
+  所以**不会 400**。真正后果是：带 BOM 与不带 BOM 的同一份报文产生**不同 sha256**，
+  让 `import_batches` 的批次去重失效（同一内容被当成两份新报文）。
 - 交付：在 `submitRaw`（或其前置）加**显式** BOM 剥离——`text.replace(/^\uFEFF+/, '')` 后再
   `trim()`，并写一行注释说明"为何必须显式处理：Python json.loads 拒绝 BOM"；
   文件读取路径（`file.text()`）与粘贴路径共用同一处理，保证两者对同一内容得到**同一 sha256**

@@ -943,7 +943,11 @@ app/core/database.py（create_sqlite_engine）+ 任意两个"建引擎不 dispos
 ECMAScript 把 U+FEFF 列为 WhiteSpace，所以 trim 会去掉它；而 Python `json.loads` 拒绝 BOM 开头
 （实测 JSONDecodeError）。也就是说 Windows 记事本/Excel 导出的"UTF-8（带 BOM）.json"今天能导入，
 **但这是巧合不是设计**：没注释、没测试、DoD 也没要求。任何人把 trim 换成别的空白处理
-（例如只 `replace(/\s+$/,'')` 或改 slice），BOM 报文立刻变 400。
+（例如只 `replace(/\s+$/,'')` 或改 slice），BOM 就会留在报文里。
+⚠️ **后果更正（交付实测，审核方复验）**：本卡原写"BOM 报文立刻变 400"是错的——后端
+`ingest_raw_payload(raw: bytes)` 收 bytes，CPython 按 `utf-8-sig` 吃掉 BOM（只有对 `str` 才抛
+`Unexpected UTF-8 BOM`），**不会 400**。真后果是带/不带 BOM 的同一报文产生**不同 sha256**，
+让 `import_batches` 批次去重失效。修法不变（投递侧显式归一），理由以此为准。
 【全局纪律】一条 ticket = 一个 PR；只动前端投递侧清洗，**后端契约不动**
 （不许让 `ingest_raw_payload` 去容忍 BOM——清洗应在投递侧）；禁止引入编码检测库；
 禁止顺手重构 ImportPage 其它逻辑。
