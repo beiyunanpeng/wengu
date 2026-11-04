@@ -51,6 +51,9 @@ docker compose up -d --build --wait
 # 外部 agent 转录 JSON 投递目录：./data/inbox（宿主侧）
 ```
 
+首次打开会看到**设置向导横幅**：家长解锁后可查看学科 seed 覆盖、设置每日复习/背诵上限，
+完成后横幅消失；孩子区不需要填任何个人信息。
+
 > 若 `8000` 被系统保留（Windows Hyper-V 常见），改用：
 > `WENGU_API_PORT=8100 docker compose up -d --build --wait`（PowerShell: `$env:WENGU_API_PORT=8100; docker compose up -d --build --wait`）。
 

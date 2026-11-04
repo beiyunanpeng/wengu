@@ -103,11 +103,13 @@ async def test_put_hot_reloads_due_limit_without_restart(
             "daily_review_limit": 10,
             "daily_recitation_limit": 5,
             "exam_day_limit_factor": 1.5,
+            "setup_completed": False,
         }
         assert body["sources"] == {
             "daily_review_limit": "default",
             "daily_recitation_limit": "default",
             "exam_day_limit_factor": "default",
+            "setup_completed": "default",
         }
         assert Path(body["write_path"]) == Path(settings.data_dir) / "app-config.json"
 
@@ -158,6 +160,10 @@ async def test_invalid_put_is_422_and_leaves_file_untouched(
             {"exam_day_limit_factor": 0.5},
             {"exam_day_limit_factor": 3.5},
             {"exam_day_limit_factor": True},
+            {"setup_completed": "yes"},
+            {"setup_completed": 1},
+            {"setup_completed": 0},
+            {"setup_completed": None},
             {"unknown_key": 1},
             {},
         ):
@@ -178,6 +184,47 @@ async def test_config_requires_parent(tmp_path, monkeypatch) -> None:
         ).status_code == 403
 
     assert not (Path(settings.data_dir) / "app-config.json").exists()
+
+
+async def test_setup_status_is_public_and_follows_completion(
+    tmp_path, monkeypatch
+) -> None:
+    settings = _settings(tmp_path)
+    factory = _migrated(settings)
+    _use(tmp_path, monkeypatch, settings)
+
+    async with _client(factory, settings, unlock=False) as client:
+        initial = await client.get("/api/setup/status")
+        assert initial.status_code == 200, initial.text
+        assert initial.json() == {"setup_completed": False}
+        assert (
+            await client.put("/api/config", json={"setup_completed": True})
+        ).status_code == 403
+
+        unlocked = await client.post("/api/session/pin/set", json={"pin": PIN})
+        assert unlocked.status_code == 200, unlocked.text
+
+        put = await client.put(
+            "/api/config",
+            json={"daily_review_limit": 3, "setup_completed": True},
+        )
+        assert put.status_code == 200, put.text
+        assert put.json()["values"]["setup_completed"] is True
+        assert put.json()["sources"]["setup_completed"] == "file"
+
+        status = await client.get("/api/setup/status")
+        assert status.status_code == 200, status.text
+        assert status.json() == {"setup_completed": True}
+
+        due = await client.get("/api/reviews/due")
+        assert due.status_code == 200, due.text
+        assert due.json()["daily_limit"] == 3
+
+    written = json.loads(
+        (Path(settings.data_dir) / "app-config.json").read_text(encoding="utf-8")
+    )
+    assert written["setup_completed"] is True
+    assert written["daily_review_limit"] == 3
 
 
 async def test_legacy_repo_config_is_read_only_and_saves_to_data(

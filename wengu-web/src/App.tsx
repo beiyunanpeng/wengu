@@ -16,32 +16,37 @@ import RecitationsPage from "./pages/RecitationsPage";
 import RecordsPage from "./pages/RecordsPage";
 import ReviewPage from "./pages/ReviewPage";
 import SchedulePage from "./pages/SchedulePage";
+import SetupPage from "./pages/SetupPage";
 import { ParentSessionProvider } from "./parent/ParentSession";
+import { SetupStatusProvider } from "./setup/SetupStatus";
 
 export default function App() {
   return (
     <ParentSessionProvider>
-      <Routes>
-        <Route path="print/mistakes" element={<PrintMistakesPage />} />
-        <Route path="print/paper" element={<PrintPaperPage />} />
-        <Route element={<AppLayout />}>
-          <Route index element={<Navigate to="/import" replace />} />
-          <Route path="dashboard" element={<DashboardPage />} />
-          <Route path="import" element={<ImportPage />} />
-          <Route path="intake" element={<IntakePage />} />
-          <Route path="mistakes" element={<MistakesPage />} />
-          <Route path="mistakes/:mistakeId" element={<MistakeDetailPage />} />
-          <Route path="practice" element={<PracticePage />} />
-          <Route path="review" element={<ReviewPage />} />
-          <Route path="recitations" element={<RecitationsPage />} />
-          <Route path="schedule" element={<SchedulePage />} />
-          <Route path="records" element={<RecordsPage />} />
-          <Route path="bank" element={<BankPage />} />
-          <Route path="local-seed" element={<LocalSeedPage />} />
-          <Route path="backup" element={<BackupPage />} />
-          <Route path="*" element={<Navigate to="/import" replace />} />
-        </Route>
-      </Routes>
+      <SetupStatusProvider>
+        <Routes>
+          <Route path="print/mistakes" element={<PrintMistakesPage />} />
+          <Route path="print/paper" element={<PrintPaperPage />} />
+          <Route element={<AppLayout />}>
+            <Route index element={<Navigate to="/import" replace />} />
+            <Route path="dashboard" element={<DashboardPage />} />
+            <Route path="import" element={<ImportPage />} />
+            <Route path="intake" element={<IntakePage />} />
+            <Route path="mistakes" element={<MistakesPage />} />
+            <Route path="mistakes/:mistakeId" element={<MistakeDetailPage />} />
+            <Route path="practice" element={<PracticePage />} />
+            <Route path="review" element={<ReviewPage />} />
+            <Route path="recitations" element={<RecitationsPage />} />
+            <Route path="schedule" element={<SchedulePage />} />
+            <Route path="records" element={<RecordsPage />} />
+            <Route path="bank" element={<BankPage />} />
+            <Route path="local-seed" element={<LocalSeedPage />} />
+            <Route path="backup" element={<BackupPage />} />
+            <Route path="setup" element={<SetupPage />} />
+            <Route path="*" element={<Navigate to="/import" replace />} />
+          </Route>
+        </Routes>
+      </SetupStatusProvider>
     </ParentSessionProvider>
   );
 }

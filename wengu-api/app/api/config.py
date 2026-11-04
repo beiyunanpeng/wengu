@@ -13,9 +13,17 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.api.session import require_parent
 from app.core.config import Settings, get_settings
-from app.core.runtime_config import ConfigError, describe_config, save_config
+from app.core.runtime_config import (
+    ConfigError,
+    describe_config,
+    save_config,
+    setup_completed,
+)
 
 router = APIRouter(tags=["config"], dependencies=[Depends(require_parent)])
+
+# 横幅需要对未解锁的孩子也可见，因此单独开一个只返回布尔的公开只读端点。
+public_router = APIRouter(tags=["config"])
 
 
 class ConfigUpdate(BaseModel):
@@ -24,6 +32,7 @@ class ConfigUpdate(BaseModel):
     daily_review_limit: int | None = Field(default=None, ge=1, le=200)
     daily_recitation_limit: int | None = Field(default=None, ge=1, le=20)
     exam_day_limit_factor: float | None = Field(default=None, ge=1, le=3)
+    setup_completed: bool | None = Field(default=None, strict=True)
 
     @field_validator(
         "daily_review_limit", "daily_recitation_limit", "exam_day_limit_factor",
@@ -37,13 +46,17 @@ class ConfigUpdate(BaseModel):
 
 
 class ConfigResponse(BaseModel):
-    values: dict[str, int | float]
+    values: dict[str, int | float | bool]
     sources: dict[str, str]
     read_path: str
     write_path: str
     file_source: str
     legacy: bool
     hint: str | None
+
+
+class SetupStatus(BaseModel):
+    setup_completed: bool
 
 
 def _view(payload: dict[str, Any]) -> ConfigResponse:
@@ -55,6 +68,13 @@ async def get_config(
     settings: Settings = Depends(get_settings),
 ) -> ConfigResponse:
     return _view(describe_config(settings))
+
+
+@public_router.get("/api/setup/status", response_model=SetupStatus)
+async def get_setup_status(
+    settings: Settings = Depends(get_settings),
+) -> SetupStatus:
+    return SetupStatus(setup_completed=setup_completed(settings))
 
 
 @router.put("/api/config", response_model=ConfigResponse)

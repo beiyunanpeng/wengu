@@ -9,6 +9,24 @@
 
 ### Added
 
+- **P5-1b 首次运行向导：单页 `/setup` + 顶部横幅（零迁移）**（2026-11-04）：
+  - 口径：**不采集年级、不做学科勾选**（seed 全量装载初中 7–9，复习/考核不以年级为输入；
+    家里一个孩子、全部学科）。向导只做三件有作用的事：展示 seed 覆盖、设置运行上限、标记完成。
+  - 后端：`setup_completed` 进入运行时配置白名单，**按字段独立校验**——布尔键只接受 JSON
+    `true` / `false`（`"yes"` / `1` / `null` → 422 且不写盘），三个数值键继续拒绝布尔；
+    新增公开只读 `GET /api/setup/status`（只返回该布尔，供未解锁横幅使用），
+    完整 `GET/PUT /api/config` 仍挂 `require_parent`。
+  - 前端：`/setup` 单页（`ParentGate` 解锁后才可写）按数学/英语/物理/语文/化学五行展示
+    `GET /api/seed/summary` 的 `topics`，**`group_by` 缺席的学科按 0 展示**并链接
+    `/local-seed`；`GET/PUT /api/config` 回填并保存上限，成功提示“已生效，无需重启”；
+    完成与跳过都写 `setup_completed=true`（不新增 `setup_skipped`）。`AppLayout` 顶部横幅
+    仅在未完成时出现，**不劫持路由**，完成后消失。
+  - 文档：AGENTS §7 采集口径修正；README 快速开始、`config/README.md` 与样例、
+    STATUS/TICKETS 同步。
+  - 验证：`pytest -q` **521 passed**（unit 344 / integration 170 / **e2e 7**；新增 e2e 第 7 条
+    “全新库 → 未完成 → 向导设 `daily_review_limit=3` 并完成 → `GET /api/reviews/due` 的
+    `daily_limit` 立即为 3”）；`ruff check --no-cache .` 全绿；`npm run build` 绿；
+    无迁移（head 仍 `0020_recitation`）、无新依赖。
 - **P3-3c 从错题抽词：候选现算视图 + 家长勾选入库（零迁移）**（2026-11-03）：
   P3-3 第三期（C），把 active 英语错题当前版本题面里的词补进背诵池，作为手填（A）与
   词表导入（B）之后的增量来源；**候选是现算视图、不是新表，无迁移、无新依赖**，

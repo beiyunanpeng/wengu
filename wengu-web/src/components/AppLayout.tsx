@@ -1,8 +1,17 @@
-import { AppShell, Button, Container, Group, Text } from "@mantine/core";
-import { Outlet, useLocation, useNavigate } from "react-router-dom";
+import {
+  Alert,
+  Anchor,
+  AppShell,
+  Button,
+  Container,
+  Group,
+  Text,
+} from "@mantine/core";
+import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 
 import ParentGate from "./ParentGate";
 import { useParentSession } from "../parent/ParentSession";
+import { useSetupStatus } from "../setup/SetupStatus";
 
 const NAV: { to: string; label: string; parentOnly?: boolean }[] = [
   { to: "/dashboard", label: "看板" },
@@ -22,6 +31,7 @@ export default function AppLayout() {
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const { unlocked } = useParentSession();
+  const { completed } = useSetupStatus();
   const navItems = NAV.filter((item) => !item.parentOnly || unlocked);
 
   return (
@@ -56,6 +66,24 @@ export default function AppLayout() {
         </Group>
       </AppShell.Header>
       <AppShell.Main>
+        {completed === false && (
+          <Alert
+            color="blue"
+            variant="light"
+            radius={0}
+            py="xs"
+            aria-label="首次运行设置提示"
+          >
+            <Group gap="xs" justify="space-between" wrap="wrap">
+              <Text size="sm">
+                首次使用：花 1 分钟看看学科 seed 覆盖、设定每日复习与背诵上限。
+              </Text>
+              <Anchor component={Link} to="/setup" size="sm" fw={600}>
+                进入设置向导
+              </Anchor>
+            </Group>
+          </Alert>
+        )}
         <Container size="lg" py="md">
           <Outlet />
         </Container>

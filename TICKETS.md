@@ -336,7 +336,7 @@
       `ruff check --no-cache` + build。
     - 禁：把密钥写进 app-config（密钥仍只 `.env`）；自动搬运/删除老路径文件；接受白名单外的键；
       为"以后可能要"预留配置项。
-  - **P5-1b 首次运行向导 UI（后做，依赖 P5-1a）**
+  - **P5-1b 首次运行向导 UI（已完成 2026-11-04，待评审）**
     - **口径修正（2026-11-04，覆盖 AGENTS §7 的旧表述）**：向导**不采集年级、不做"勾选学科"**。
       理由：v2.5 后 seed 全量装载初中 7–9 三个年级、复习与考核都不以年级为输入，采集了没有任何
       逻辑消费它 = 装饰字段 + 多余 PII；家里就一个孩子，全部学科都是他的，勾选同样无作用。
@@ -358,6 +358,16 @@
       （不重启）；`setup_completed` 拒绝非布尔值且数值键仍拒绝布尔；语文/化学零主题时向导显示 0
       并给出 `/local-seed` 链接；窄屏可用；`pytest -m e2e` 加第 7 条（全新库 → 横幅出现 →
       向导设上限并标记完成 → 横幅消失 → due 的 `daily_limit` 为新值）。
+    - **交付（2026-11-04）**：
+      - 后端：`setup_completed` 进白名单，布尔键按字段独立校验（`true/false` 之外 →
+        422 不写盘），三个数值键仍拒绝布尔；新增公开只读 `GET /api/setup/status`
+        （仅返回该布尔，供未解锁横幅）；完整 `GET/PUT /api/config` 仍 `require_parent`。
+      - 前端：`SetupPage` 单页 + `/setup` 路由 + `AppLayout` 未完成横幅；seed 五行
+        `?? 0`、零主题显示 0 与 `/local-seed` 链接；上限保存提示“已生效，无需重启”；
+        完成/跳过共用 `setup_completed=true`；`ParentGate` 解锁后才可写。
+      - 验证：`pytest -q` **521 passed**（unit 344 / integration 170 / e2e 7），
+        `pytest -m e2e` 7 条全绿（含新增第 7 条），`ruff check --no-cache .` 绿，
+        `npm run build` 绿；无迁移（head `0020_recitation`）、无新依赖、未劫持路由。
     - 禁：采集姓名/生日/年级/照片；强制路由劫持；在向导里放模型 Key 输入（v2.5 零模型，
       放了就是邀请回归）；新增 `setup_skipped` 之类第二个标记键；把单页做成多步向导机；
       为了"覆盖情况"新建端点（`GET /api/seed/summary` 已够用）。

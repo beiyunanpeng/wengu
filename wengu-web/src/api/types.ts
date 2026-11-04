@@ -800,3 +800,52 @@ export interface BackupListResponse {
   total: number;
   keep: number;
 }
+
+export interface SubjectSeedSummary {
+  topics: number;
+  unaudited: number;
+  blind_verified: number;
+}
+
+export interface SeedMappingInfo {
+  edition: string;
+  label: string;
+  status: string;
+  entry_count: number;
+}
+
+export interface SeedSummary {
+  topics_total: number;
+  edges_total: number;
+  subjects: Record<string, SubjectSeedSummary>;
+  mappings: SeedMappingInfo[];
+}
+
+export interface AppConfigValues {
+  daily_review_limit: number;
+  daily_recitation_limit: number;
+  exam_day_limit_factor: number;
+  setup_completed: boolean;
+}
+
+export interface AppConfig {
+  values: AppConfigValues;
+  sources: Record<string, "file" | "default">;
+  read_path: string;
+  write_path: string;
+  file_source: "env" | "data" | "legacy" | "default";
+  legacy: boolean;
+  hint: string | null;
+}
+
+export interface ConfigUpdate {
+  daily_review_limit?: number;
+  daily_recitation_limit?: number;
+  exam_day_limit_factor?: number;
+  setup_completed?: boolean;
+}
+
+export interface SetupStatus {
+  setup_completed: boolean;
+}
+

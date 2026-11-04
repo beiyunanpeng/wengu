@@ -1121,3 +1121,54 @@ async def test_english_candidates_batch_import_then_due_and_ladder(tmp_path) -> 
     after = await _mistake_chain_snapshot(factory)
     assert after == before
     assert before[0] and before[1]
+
+
+@pytest.mark.e2e
+async def test_setup_wizard_completes_and_limit_takes_effect(
+    tmp_path, monkeypatch
+) -> None:
+    """⑦ 全新库 → 未完成 → 向导设上限并标记完成 → 状态翻转 → due 立即生效。"""
+
+    config_path = tmp_path / "app-config.json"
+    monkeypatch.setenv("WENGU_APP_CONFIG", str(config_path))
+    assert not config_path.exists()
+    factory = _migrated(tmp_path / "setup.db")
+
+    async with _client(factory) as client:
+        status = await client.get("/api/setup/status")
+        assert status.status_code == 200, status.text
+        assert status.json() == {"setup_completed": False}
+
+        # 未完成也不劫持路由：复习队列照常可读，上限仍是默认值。
+        due = await client.get("/api/reviews/due")
+        assert due.status_code == 200, due.text
+        assert due.json()["daily_limit"] == 10
+
+        locked = await client.put("/api/config", json={"setup_completed": True})
+        assert locked.status_code == 403
+
+        await _unlock(client)
+
+        for invalid in ("yes", 1, None):
+            response = await client.put(
+                "/api/config", json={"setup_completed": invalid}
+            )
+            assert response.status_code == 422, (invalid, response.text)
+        assert not config_path.exists(), "非法值不得写盘"
+
+        put = await client.put(
+            "/api/config",
+            json={"daily_review_limit": 3, "setup_completed": True},
+        )
+        assert put.status_code == 200, put.text
+        assert put.json()["values"]["setup_completed"] is True
+
+        after = await client.get("/api/setup/status")
+        assert after.json() == {"setup_completed": True}
+        due_after = await client.get("/api/reviews/due")
+        assert due_after.status_code == 200, due_after.text
+        assert due_after.json()["daily_limit"] == 3
+
+    written = json.loads(config_path.read_text(encoding="utf-8"))
+    assert written["daily_review_limit"] == 3
+    assert written["setup_completed"] is True

@@ -37,6 +37,10 @@ v2.5 起 wengu 内核**零模型**，模型档位、供应商路由等参数已�
 | `daily_review_limit` | `10` | 每日到期复习上限：超过上限的到期项不显示、只计数，顺延到后续复习日，不丢失、不惩罚 | 1–200（整数） |
 | `exam_day_limit_factor` | `1.5` | 日历上今天有 `kind='exam'` 事件时的上限放大系数：`min(round(上限 × 系数), 200)`；缺失/非法/小于 1 回退默认；竞赛/请假/其它事件不放宽 | 1–3（浮点） |
 | `daily_recitation_limit` | `5` | 每日到期队列里"背诵铺底"最多条数：排在同类题考核之后，无到期条目则不塞；`GET /api/recitations/due` 的默认上限同上 | 1–20（整数） |
+| `setup_completed` | `false` | 首次运行向导"不再提示"标记；**完成与跳过写同一个键**（不新增 `setup_skipped`）；缺失/非法按未完成 | 仅 `true` / `false`（布尔） |
+
+> 未解锁时页面横幅读取公开只读的 `GET /api/setup/status`，只返回
+> `{"setup_completed": bool}`，不含任何其它配置值；读写完整配置仍需家长解锁。
 
 > `app-config.example.json` 是样例，复制到浏览器/编辑器里改；JSON 不支持注释，
 > 样例中的 `_note` 仅作说明，读写时会被忽略（保存时原样保留）。
