@@ -124,7 +124,11 @@ export default function ImportPage() {
   }, []);
 
   async function submitRaw(text: string) {
-    const payload = text.trim();
+    // 显式剥离 BOM：不能依赖 trim() 顺带去掉 U+FEFF（那只是 ECMAScript 空白规范的巧合，
+    // 空白处理一改就失效）。后端 ingest_raw_payload 收到的是 bytes，CPython 会按 utf-8-sig
+    // 吃掉 BOM、不会 400；真正的问题留着 BOM 会让同一份报文产生**不同 sha256**，
+    // 导致重复导入不命中（去重失效）。故在投递侧统一归一。
+    const payload = text.replace(/^\uFEFF+/, "").trim();
     if (!payload || rawSubmitting) {
       return;
     }

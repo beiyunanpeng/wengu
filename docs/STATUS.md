@@ -1,9 +1,9 @@
 # STATUS.md — 开发计划与完成情况
 
-> 快照日期：2026-11-04（**P1-3e 移动端投递入口：粘贴/读取整段转录 JSON**；`/import` 原文路径直发 `POST /api/imports`；无迁移）
-> 基线：`main` = `53b25ca`（P0-4 / PR #34 已合并，本卡已出）；本切片在 `feat/p1-3e-paste-import` 分支，合并前工作区状态
-> 全量测试：**522 passed**（2026-11-04 本机实跑，unit 344 / integration 170 / **e2e 8**）；`pytest -m e2e` 收集 **8** 条全绿；`ruff check --no-cache .` 全绿；`npm run build` 绿
-> Alembic head：`0020_recitation`；业务表 **21 张**（P1-3e 无迁移、无后端改动、无新依赖）
+> 快照日期：2026-11-04（**P1-3f 投递侧显式剥离 BOM**；`/import` 粘贴/文件共用归一后再发；无迁移）
+> 基线：`main` = `9388fd4`（P1-3e / PR #35 已合并，本卡已出）；本切片在 `feat/p1-3f-bom` 分支，合并前工作区状态
+> 全量测试：**523 passed**（2026-11-04 本机实跑，unit 344 / integration 170 / **e2e 9**）；`pytest -m e2e` 收集 **9** 条全绿；`ruff check --no-cache .` 全绿；`npm run build` 绿
+> Alembic head：`0020_recitation`；业务表 **21 张**（P1-3f 无迁移、无后端改动、无新依赖）
 
 本文件是**状态快照**，不替代以下事实源；冲突时以它们为准：
 
@@ -147,9 +147,14 @@
   accepted_count / dropped_unknown_fields`，重复投递显示「重复导入已跳过」并给核对页跳转；
   失败按 400 / 413 / 422 渲染，422 `{message, errors[]}` **逐行**显示 `index/field/reason`。
   后端零改动、无迁移、无新依赖；e2e 第 8 条走原文路径（部分坏项 → 重投去重 → 确认入本）。
+- **P1-3f 投递侧显式剥离 BOM 已交付**：`submitRaw` 改为先 `text.replace(/^\uFEFF+/, "")`
+  再 `trim()`，粘贴与文件路径共用，保证带/不带 BOM 的同一报文得到**同一 sha256**。
+  实测后端收到 bytes 时 CPython 会按 `utf-8-sig` 识别 BOM（不是必然 400），但未剥离会让
+  重复导入不命中；显式剥离消除了对 `trim()` 空白语义的隐式依赖。e2e 第 9 条覆盖
+  「双 BOM 201 → 无 BOM 同内容 `duplicate=true` 同批次」；无迁移、无新依赖、后端零改动。
 - **下一步（v2.6 决策轮定的顺序）**：① ~~P5-6 口径清理~~、~~P0-3 端到端回归~~、
   ~~P3-3a 手填背诵~~、~~P3-3b 词表导入~~、~~P3-3c 从错题抽词~~、~~P5-1a 配置持久化修复~~、
-  ~~P5-1b 首次运行向导 UI~~、~~P1-3e 移动端投递~~ 已完成 → ② 开源分发剩余项：英文 README +
+  ~~P5-1b 首次运行向导 UI~~、~~P1-3e 移动端投递~~、~~P1-3f BOM 剥离~~ 已完成 → ② 开源分发剩余项：英文 README +
   独立隐私声明 + 发布打包（P5-5）→ ③ P1-13 归并 UI → ④ P3-4 听力默写。**PWA 已砍**
   （设计文档 §17-A / §12 反清单）。
 
@@ -185,6 +190,7 @@
 | P1-11 同类题考核闭环 | 已完成 | 考核 `/quiz` 服务端判分、手动组卷、答案不下发、结果只进 attempts |
 | P1-12 零模型收口（删除票） | 已完成 | 旧链路整链退役；迁移 0013；三绿 + 端到端实跑通过 |
 | P1-3e 移动端投递入口 | 已完成（2026-11-04） | `/import` 原文粘贴 + 本地 `.json` 读取共用 `POST /api/imports`；`importRawText` 原文直发（不二次序列化）；422 逐行 `index/field/reason`；e2e 第 8 条覆盖原文路径 → 部分坏项 → 重投去重 → 确认入本；后端零改动、无迁移、无新依赖 |
+| P1-3f BOM 显式剥离 | 已完成（2026-11-04） | `submitRaw` 先剥 `^\uFEFF+` 再 trim，粘贴/文件共用；带与不带 BOM 归一到同一 sha256；e2e 第 9 条；后端零改动、无迁移、无新依赖 |
 
 ## 4. 当前系统实际能做什么
 
@@ -197,6 +203,9 @@
   以原文为 body（`Content-Type: application/json`）直发，**不经 `requestJson` 二次序列化**。
   成功展示批次号/状态/是否重复/草稿数/接收数/忽略未知字段数；重复投递提示「重复导入已跳过」
   并可跳核对页；400/413/422 按 detail 呈现，422 的 `errors[]` 逐行显示 `index/field/reason`。
+- **BOM 归一（P1-3f）**：`submitRaw` 先 `text.replace(/^\uFEFF+/, "")` 再 `trim()`，粘贴与
+  文件路径共用；带/不带 BOM 的同内容报文得到同一 sha256，重复导入命中同一批次。
+  `file.text()` 本身按 UTF-8 decode 去 BOM；后端仍只收原文 bytes、契约不变。
 - 坏项逐条报 `index/field/reason`，不静默截断；非法 JSON 稳定窗口重试后按 invalid 归档。
 - 核对页三栏回显（题目 / 错答 / 正答）+ 主考点 + 错因 + 细标签；确认后走唯一写入路径建错题、
   排首次复习；重复确认幂等（`already_promoted=true`）。
@@ -719,7 +728,7 @@
 |---|---|
 | 健康 / seed | `GET /health`、`GET /api/seed/summary`、`GET /api/seed/topics` |
 | 本地 seed（P3-8） | `GET /api/local-seed/topics?subject=`、`POST /api/local-seed/topics`、`PATCH /api/local-seed/topics/{id}`、`DELETE /api/local-seed/topics/{id}`（全部 `require_parent`；仅语文/化学，文件真源 + `knowledge_seed` 副本同步） |
-| 导入 | `POST /api/imports`（P1-3e：前端 `importRawText` 以原文为 body 直发）、`GET /api/imports/{batch_id}`、`GET /api/imports/inbox` |
+| 导入 | `POST /api/imports`（P1-3e：前端 `importRawText` 以原文为 body 直发；P1-3f：`submitRaw` 先剥 `^\uFEFF+` 再 trim，带/不带 BOM 同 sha256）、`GET /api/imports/{batch_id}`、`GET /api/imports/inbox` |
 | 核对入本 | `GET /api/imports/drafts`、`GET /api/imports/{batch_id}/drafts`、`POST /api/imports/drafts/{draft_id}/confirm` |
 | 错题 / 标签 | `GET /api/mistakes`、`GET /api/mistakes/{id}`、`GET /api/mistakes/options`、`POST /api/mistakes/{id}/labels`、`POST /api/mistakes/{id}/void`、`POST /api/mistakes/{id}/unvoid` |
 | 概念 | `GET /api/concepts`、`POST /api/concepts`、`POST /api/concepts/merge` |
@@ -966,6 +975,8 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
    不做学科勾选，seed 缺席学科按 0 + `/local-seed` 引导；`setup_completed` 布尔键按字段校验。
    ~~**P1-3e 移动端投递入口**~~ 已完成（2026-11-04）：`/import` 支持粘贴整段转录 JSON 或读取
    本地 `.json`，原文直发 `POST /api/imports`、422 逐行报错；后端零改动、无迁移。
+   ~~**P1-3f BOM 显式剥离**~~ 已完成（2026-11-04）：`submitRaw` 先剥 `^\uFEFF+` 再 trim，
+   带/不带 BOM 同一 sha256；e2e 第 9 条；无迁移、无新依赖。
    **下一步开源分发剩余项：英文 README + 独立隐私声明 + 发布打包（P5-5）**；不引入语音/ASR。
 2. **P1-7b 前置回溯诊断**：`prerequisite_edges` 已装载，固定种子 `replay` 必须可重建。
 3. **复习掌握度归因**：把已确认 concept 写入事实，让 mastery 不再恒 0.0。

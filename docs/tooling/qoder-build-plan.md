@@ -480,7 +480,7 @@ docs/deploy/backup-restore.md：包结构、导出下载、Docker 恢复、原�
 # 待投工单卡（v2.6 决策轮登记，**未开工**）
 
 > 来源：`docs/audit/pr1-24-retrospective.md` 的交付回顾审计 + 用户拍板（砍 PWA、归并补 UI、按建议顺序推进）。
-> 投单顺序 = ~~P5-6~~（PR#27）→ ~~P0-3~~（PR#28）→ ~~P3-3a~~（PR#29）→ ~~P3-3b~~（PR#30）→ ~~P3-3c~~（PR#31）→ ~~P5-1a~~（PR#32）→ ~~P5-1b~~（PR#33）→ ~~P0-4~~（PR#34）→ ~~P1-3e~~（**PR#35 已合并**）→ **P1-3f（BOM 显式剥离，小改）→ P1-13**。每张卡可整段复制给 Qoder。
+> 投单顺序 = ~~P5-6~~（PR#27）→ ~~P0-3~~（PR#28）→ ~~P3-3a~~（PR#29）→ ~~P3-3b~~（PR#30）→ ~~P3-3c~~（PR#31）→ ~~P5-1a~~（PR#32）→ ~~P5-1b~~（PR#33）→ ~~P0-4~~（PR#34）→ ~~P1-3e~~（**PR#35 已合并**）→ ~~P1-3f~~（**`feat/p1-3f-bom` 待评审**）→ **P1-13**。每张卡可整段复制给 Qoder。
 > **2026-11-03 更新**：P5-6 孤儿表切片已交付（迁移 0019 一次退役 `problem_extractions` /
 > `photo_capture_items` / `photo_captures` 三表；见 `TICKETS.md` 与 `docs/STATUS.md` §4.18），
 > 本卡留作回溯；P0-3 亦已交付（PR#28），下一张待投 = **P3-3a**。
@@ -959,3 +959,9 @@ ECMAScript 把 U+FEFF 列为 WhiteSpace，所以 trim 会去掉它；而 Python 
 【禁止】改后端 `ingest_raw_payload`/`imports.py` 去容忍 BOM；引入 jschardet 之类检测库；
 顺手重构 ImportPage；把 trim 删掉（BOM 剥离要在它之前或独立生效，两者都要保留）。
 ```
+
+> **状态：已完成（2026-11-04，分支 `feat/p1-3f-bom`，待评审）**——`submitRaw` 先显式剥离
+> `^\uFEFF+` 再 `trim()`，粘贴/文件共用；e2e 第 9 条证明带/不带 BOM 命中同一批次。
+> 实跑 523 passed（e2e 9）、`ruff check --no-cache .` 绿、`npm run build` 绿；
+> 无迁移、无新依赖、后端零改动。**已记：后端 bytes 路径 CPython 会按 utf-8-sig 识别 BOM，
+> 未剥离的后果是去重 sha256 分叉，而非工单所述必然 400。**
