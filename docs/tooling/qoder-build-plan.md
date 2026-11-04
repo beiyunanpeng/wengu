@@ -1059,3 +1059,9 @@ wengu-web/src/pages/MistakeDetailPage.tsx（已管 concepts 的标签区）与 L
 【禁止】改归并语义或权限；加"智能推荐目标/相似度建议"；改 Concept 表结构或加迁移；
 顺手重构 MistakeDetailPage 其它部分；把提交信息临时文件写进 `.git/`（写到仓库外目录）。
 ```
+
+> **状态：已完成（2026-11-04，分支 `feat/p1-13b-no-preselect`，待评审）**——归并弹窗一律
+> 不预选；未选齐不发 preview、确认禁用；文案明示归并方向。前端抽 `mergeSelection.ts` 纯函数，
+> 新增 Node 内置 test runner 单测 5 条（`npm test`）并在 CI web job 增加该步骤；后端、权限、
+> 预览契约与既有归并断言未动。实跑 526 passed、`ruff check --no-cache .` 绿、`npm test`
+> 5 passed、`npm run build` 绿；零迁移、无新依赖。

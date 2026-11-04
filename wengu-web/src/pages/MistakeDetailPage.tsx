@@ -38,6 +38,7 @@ import type {
 } from "../api/types";
 import CategoryPicker from "../components/CategoryPicker";
 import MathText from "../components/MathText";
+import { initialMergeSelection, isMergeSelectionReady } from "./mergeSelection";
 import { useParentSession } from "../parent/ParentSession";
 
 export default function MistakeDetailPage() {
@@ -186,9 +187,10 @@ export default function MistakeDetailPage() {
   useEffect(() => {
     if (
       !mergeOpen ||
-      !mergeSourceId ||
-      !mergeTargetId ||
-      mergeSourceId === mergeTargetId
+      !isMergeSelectionReady({
+        sourceId: mergeSourceId,
+        targetId: mergeTargetId,
+      })
     ) {
       setMergePreview(null);
       setMergePreviewLoading(false);
@@ -223,10 +225,9 @@ export default function MistakeDetailPage() {
   }, [mergeOpen, mergeSourceId, mergeTargetId]);
 
   function openMerge() {
-    setMergeSourceId(
-      conceptIds.length === 1 ? String(conceptIds[0]) : null,
-    );
-    setMergeTargetId(null);
+    const initial = initialMergeSelection(conceptIds);
+    setMergeSourceId(initial.sourceId);
+    setMergeTargetId(initial.targetId);
     setMergePreview(null);
     setMergeError(null);
     setMergeOpen(true);
@@ -234,10 +235,11 @@ export default function MistakeDetailPage() {
 
   async function handleMerge() {
     if (
-      !mergeSourceId ||
-      !mergeTargetId ||
-      mergeSourceId === mergeTargetId ||
-      mergeBusy
+      mergeBusy ||
+      !isMergeSelectionReady({
+        sourceId: mergeSourceId,
+        targetId: mergeTargetId,
+      })
     ) {
       return;
     }
@@ -696,20 +698,20 @@ export default function MistakeDetailPage() {
         title="归并知识点"
       >
         <Stack gap="sm">
-          <Alert color="red" variant="light" title="归并后果">
-            源概念会被标记为并入目标（不物理删除），源名称/别名并入目标；
-            历史错题的标签与事件不会被改写，读取时按名称解析指向最终概念。
+          <Alert color="red" variant="light" title="归并方向与后果">
+            方向别弄反：源概念会被并入、之后从列表消失；目标是最终保留的概念。
+            源名称/别名并入目标；历史错题的标签与事件不会被改写，读取时按名称解析指向最终概念。
           </Alert>
           <Select
-            label="源概念（将被并入）"
+            label="源概念（将被并入，之后从列表消失）"
             data={mergeData}
             value={mergeSourceId}
             onChange={setMergeSourceId}
             searchable
-            placeholder="选择要并入的细标签"
+            placeholder="选择要被并入的细标签"
           />
           <Select
-            label="目标概念（保留）"
+            label="目标概念（最终保留）"
             data={mergeData}
             value={mergeTargetId}
             onChange={setMergeTargetId}
@@ -755,9 +757,12 @@ export default function MistakeDetailPage() {
               onClick={() => void handleMerge()}
               loading={mergeBusy}
               disabled={
+                !isMergeSelectionReady({
+                  sourceId: mergeSourceId,
+                  targetId: mergeTargetId,
+                }) ||
                 !mergePreview ||
-                !mergePreview.same_category ||
-                mergeSourceId === mergeTargetId
+                !mergePreview.same_category
               }
             >
               确认归并
