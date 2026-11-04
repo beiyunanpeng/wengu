@@ -480,7 +480,7 @@ docs/deploy/backup-restore.md：包结构、导出下载、Docker 恢复、原�
 # 待投工单卡（v2.6 决策轮登记，**未开工**）
 
 > 来源：`docs/audit/pr1-24-retrospective.md` 的交付回顾审计 + 用户拍板（砍 PWA、归并补 UI、按建议顺序推进）。
-> 投单顺序 = ~~P5-6~~（PR#27）→ ~~P0-3~~（PR#28）→ ~~P3-3a~~（PR#29）→ ~~P3-3b~~（PR#30）→ ~~P3-3c~~（PR#31）→ ~~P5-1a~~（**PR#32 已合并**）→ **P5-1b → P1-3e → P1-13**。每张卡可整段复制给 Qoder。
+> 投单顺序 = ~~P5-6~~（PR#27）→ ~~P0-3~~（PR#28）→ ~~P3-3a~~（PR#29）→ ~~P3-3b~~（PR#30）→ ~~P3-3c~~（PR#31）→ ~~P5-1a~~（PR#32）→ ~~P5-1b~~（**PR#33 已合并**）→ **P0-4（测试噪音清理，可与下面并行）→ P1-3e → P1-13**。每张卡可整段复制给 Qoder。
 > **2026-11-03 更新**：P5-6 孤儿表切片已交付（迁移 0019 一次退役 `problem_extractions` /
 > `photo_capture_items` / `photo_captures` 三表；见 `TICKETS.md` 与 `docs/STATUS.md` §4.18），
 > 本卡留作回溯；P0-3 亦已交付（PR#28），下一张待投 = **P3-3a**。
@@ -849,4 +849,35 @@ v2.5 后 seed 全量装载初中 7–9、复习与考核都不以年级为输入
 （v2.5 零模型，放了就是邀请回归）；新增 setup_skipped 之类第二个标记键；
 新建"seed 覆盖"端点（GET /api/seed/summary 已够用）；把单页做成多步向导；
 为"以后按年级过滤"预留 profile 结构。
+```
+
+## P0-4 —— 测试基线噪音清理：`Event loop is closed`
+
+```
+你在 wengu 仓库工作。开工前完整读：TICKETS.md 的 P0-4 + wengu-api/tests/conftest.py +
+app/core/database.py（create_sqlite_engine）+ 任意两个"建引擎不 dispose"的测试文件
+（如 tests/integration/test_config_api.py、tests/e2e/test_closed_loop.py）。
+【现象与根因（已审计定位，别重新猜）】全量 `pytest -q` 间歇出现 1–3 条
+`PytestUnhandledThreadExceptionWarning: ... RuntimeError: Event loop is closed`，用例全通过；
+同一棵树多次跑出 3 / 2 / 1 / 0 条不等，单独跑 e2e+backup+config 三次 0 条 ——
+**GC 时序依赖**。根因：**21 个测试文件**用 `create_sqlite_engine` / `create_engine` 建引擎后
+**从不 `engine.dispose()`**，conftest 也没有兜底；aiosqlite 的连接工作线程在事件循环关闭之后
+才被回收，收尾即抛该异常。
+【全局纪律】一条 ticket = 一个 PR；**只改测试基建**：禁止改生产代码的池配置/引擎参数，
+禁止逐文件补 dispose（会漏掉以后新增的文件），禁止用 warnings 过滤器把噪音"消音"。
+【任务】在 `wengu-api/tests/conftest.py` 加**一个 autouse 异步 fixture**：
+- 包装 `app.core.database.create_sqlite_engine` 与 `sqlalchemy.create_engine`，
+  登记本次测试内创建的引擎；
+- 在 **teardown 内（此时所属事件循环还活着）** 逐个释放：异步引擎 `await engine.dispose()`，
+  同步引擎 `engine.dispose()`；异常吞掉不影响断言（但要打印，便于排查）。
+一处改动覆盖全部 21 个文件与以后新增文件，测试文件本体一行不动。
+【DoD】
+- `pytest -q -W error::pytest.PytestUnhandledThreadExceptionWarning` **连续跑 5 遍全绿**
+  （噪音一旦复现就等于失败）；把 5 遍的输出贴进 PR。
+- 全量用例数不减少（当前基线 521 passed，只允许持平或增加）；
+- `ruff check --no-cache .` 绿、`npm run build` 绿（本票不动前端，跑一遍证明无回归）；
+- 5 遍全绿后把该 filter 固化进 `pyproject.toml` 的 `filterwarnings`，**锁住不回潮**；
+  若固化后 CI 因第三方 warning 变红，回退为只保留 fixture 修复并在 PR 里说明原因与证据。
+【禁止】改 `create_sqlite_engine` 的 pool/参数来"绕过"；`warnings.filterwarnings("ignore")`
+之类的消音手法；顺手重构既有测试 fixture；新增依赖。
 ```

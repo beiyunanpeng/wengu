@@ -33,6 +33,29 @@
 - DoD：`pytest -m e2e` 收集数 > 0 且全绿；三条用例走真实 ASGI + 临时库 + 真迁移到 head，不 mock 服务层；CI 已跑（同一 job 内）。④ 必须真断 DDL 文本相等（不得退化成"表存在"），并给出**可证伪证据**：临时改坏 0019 downgrade 的一处 `server_default` 或约束名 → 用例变红 → 改回 → 变绿，两次输出贴进 PR。
 - 禁止：为凑数写 `assert True`；把单测重贴一遍改名 e2e；只断表名存在冒充结构比对；引入 Playwright/浏览器栈（前端另议）。
 
+### P0-4 测试基线噪音清理：`RuntimeError: Event loop is closed`（v2.6 审计追加）
+- **现象**：全量 `pytest -q` 间歇出现 1–3 条 `PytestUnhandledThreadExceptionWarning:
+  Exception in thread ... RuntimeError: Event loop is closed`，用例全通过。同一棵树多次跑出
+  3 / 2 / 1 / 0 条不等；单独跑 `tests/e2e` + `test_backup_api` + `test_config_api` 连跑三次 0 条
+  ——**是 GC 时序依赖，不是某个用例确定触发**，所以必须结构性修，逐文件改会漏。
+- **根因**：**21 个测试文件**用 `create_sqlite_engine` / `create_engine` 建引擎后**从不调
+  `engine.dispose()`**（`conftest.py` 也没有兜底）。aiosqlite 为每个连接起一个工作线程，
+  引擎对象在所属事件循环关闭之后才被 GC，线程收尾就抛这个异常，被 pytest 报成 warning。
+- **交付**：在 `tests/conftest.py` 加**一个 autouse 异步 fixture**：包装
+  `app.core.database.create_sqlite_engine` 与 `sqlalchemy.create_engine`，登记本次测试创建的引擎，
+  在 **teardown 内（同一事件循环还活着时）** 逐个 `await engine.dispose()`（同步引擎调 `dispose()`）。
+  一处改动覆盖全部 21 个文件与以后新增的文件，**不改任何测试文件本体、不改生产代码的池配置**。
+- DoD：
+  - `pytest -q -W error::pytest.PytestUnhandledThreadExceptionWarning` **连续跑 5 遍全绿**
+    （噪音变错误即视为未修）；
+  - 全量用例数不减少（当前基线 521 passed，只允许持平或增加）；
+  - `ruff check --no-cache .` 绿；
+  - 5 遍全绿后，把该 filter 固化进 `pyproject.toml` 的 `filterwarnings`，**锁住不回潮**；
+    若固化后 CI 因第三方 warning 变红，则回退为仅保留 fixture 修复并在 PR 里说明原因。
+- 禁止：改生产 `create_sqlite_engine` 的池/参数来"绕过"（那是拿测试问题换运行时行为变化）；
+  用 `warnings.filterwarnings("ignore")` 把噪音**消音**（我们要的是没有泄漏，不是看不见）；
+  逐文件补 dispose 却漏掉新增文件（必须走 conftest 单点）；顺手重构测试 fixture。
+
 ---
 
 ## Phase 1 —— 核心闭环（批改外置 + 确定性内核 + 同类题考核）
@@ -336,7 +359,7 @@
       `ruff check --no-cache` + build。
     - 禁：把密钥写进 app-config（密钥仍只 `.env`）；自动搬运/删除老路径文件；接受白名单外的键；
       为"以后可能要"预留配置项。
-  - **P5-1b 首次运行向导 UI（已完成 2026-11-04，待评审）**
+  - **P5-1b 首次运行向导 UI（已交付 2026-11-04，PR#33 已合并）**
     - **口径修正（2026-11-04，覆盖 AGENTS §7 的旧表述）**：向导**不采集年级、不做"勾选学科"**。
       理由：v2.5 后 seed 全量装载初中 7–9 三个年级、复习与考核都不以年级为输入，采集了没有任何
       逻辑消费它 = 装饰字段 + 多余 PII；家里就一个孩子，全部学科都是他的，勾选同样无作用。
