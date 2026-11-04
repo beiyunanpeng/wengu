@@ -284,7 +284,8 @@
   `pytest -q` 全绿（当前基线 526 passed）、CI 绿、`ruff check --no-cache .` 绿、build 绿。
 - 禁止：改归并语义 / 权限 / 预览契约；顺手加"智能推荐目标"（相似度猜测，P1-13 已禁）；
   改 `Concept` 表结构（**零迁移**）。
-- **状态：已完成（2026-11-04，分支 `feat/p1-13b-no-preselect`，待评审）**：打开弹窗时源/目标
+- **状态：已合并（2026-11-04，PR#38 squash → main `18f81b9`，随 `v0.5.0` 发布；原分支
+  `feat/p1-13b-no-preselect` 已删）**：打开弹窗时源/目标
   均为空（只有 1 个 concept 也不预选）；未选齐不发 `merge-preview`、确认按钮禁用；选择器与
   顶部提示明示"源=将被并入消失 / 目标=最终保留"。前端抽 `src/pages/mergeSelection.ts` 纯函数，
   新增 Node 内置 test runner 单测 5 条（`npm test`），CI web job 增加该步骤；后端/权限/预览契约
@@ -425,7 +426,21 @@
 ---
 
 ## Phase 4 —— 基础设施演进（孩子真在用之后）
-- **P4-1 Tailscale/CF Tunnel 稳定化**（手机外网可用）。
+- **P4-1 Tailscale 可达性 + 裸奔口子收紧**（手机/平板连回家里那台机器）。
+  - 口径修订（2026-11-04 出卡时读盘）：原写"Tailscale/CF Tunnel 稳定化"——**Cloudflare Tunnel 属公网暴露**，
+    按 AGENTS §2.4 必须先恢复真鉴权与用户隔离，本票**不做**，也不得在文档里与 Tailscale 并列成等价选项；
+    远程边界只承认 tailnet（私有网）。
+  - 已知事实（详见 `docs/tooling/qoder-build-plan.md` 的 P4-1 卡）：前端全部走相对 `/api/…` 且
+    `nginx.conf` 反代到 `api:8000` ⇒ 只需打通 web 一个入口；compose 现在把 api/web 两个端口都发布到
+    0.0.0.0；被注释的 tailscale 块引用了**不存在的** `deploy/tailscale/serve.json`，且
+    `/dev/net/tun` + `network_mode: service:` 在 Docker Desktop for Windows 上不成立；
+    原生形态 `run-trial.ps1` 后端只绑 127.0.0.1，但 `vite.config.ts` 的 `server.host = true` 让 5173 局域网可达。
+- **P4-1b 部署面命令体检**（登记，未开工）：`make backup` 是死目标——Makefile:138 调
+  `python -m scripts.local_backup`，而 `wengu-api/scripts/` 只有 `export_topics_junior.py` /
+  `import_questions.py` / `import_seed.py`，全仓无 `local_backup.py`（审核方 2026-11-04 只读实跑报
+  `No module named scripts.local_backup`）；该行注释还指向不存在的 `docs/manuals/ops/backup.md`，
+  而 P5-2 的家长区备份（`app/services/backup.py` → `POST /api/backup/export`）才是现行唯一路径。
+  本票只做"仓库里写出来的每条命令都能真跑通"这一件事：删/改死目标、补齐或改指向真实文档。
 - **P4-2 可移植部署**：Docker 镜像原样上云（搬 SQLite 文件 + 挂载卷 + `data/inbox`）；Postgres 迁移为**可选**路径。
 - **P4-3（可选）本地模型层**：若购置带 N 卡主机，Qwen-VL/PaddleOCR 经 Provider 接入做**隐私化系统内识别/转录**（替代外部 agent）。禁：为省 API 去租云 GPU。
 

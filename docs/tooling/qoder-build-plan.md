@@ -480,7 +480,7 @@ docs/deploy/backup-restore.md：包结构、导出下载、Docker 恢复、原�
 # 待投工单卡（v2.6 决策轮登记，**未开工**）
 
 > 来源：`docs/audit/pr1-24-retrospective.md` 的交付回顾审计 + 用户拍板（砍 PWA、归并补 UI、按建议顺序推进）。
-> 投单顺序 = ~~P5-6~~（PR#27）→ ~~P0-3~~（PR#28）→ ~~P3-3a~~（PR#29）→ ~~P3-3b~~（PR#30）→ ~~P3-3c~~（PR#31）→ ~~P5-1a~~（PR#32）→ ~~P5-1b~~（PR#33）→ ~~P0-4~~（PR#34）→ ~~P1-3e~~（PR#35）→ ~~P1-3f~~（PR#36）→ ~~P1-13~~（PR#37）→ **P1-13b（取消预选，一行级小改）**。每张卡可整段复制给 Qoder。
+> 投单顺序 = ~~P5-6~~（PR#27）→ ~~P0-3~~（PR#28）→ ~~P3-3a~~（PR#29）→ ~~P3-3b~~（PR#30）→ ~~P3-3c~~（PR#31）→ ~~P5-1a~~（PR#32）→ ~~P5-1b~~（PR#33）→ ~~P0-4~~（PR#34）→ ~~P1-3e~~（PR#35）→ ~~P1-3f~~（PR#36）→ ~~P1-13~~（PR#37）→ ~~P1-13b~~（PR#38，随 `v0.5.0` 发布）→ **P4-1（Tailscale 可达性 + 裸奔口子收紧，本文件末尾新卡）**。每张卡可整段复制给 Qoder。
 > **2026-11-03 更新**：P5-6 孤儿表切片已交付（迁移 0019 一次退役 `problem_extractions` /
 > `photo_capture_items` / `photo_captures` 三表；见 `TICKETS.md` 与 `docs/STATUS.md` §4.18），
 > 本卡留作回溯；P0-3 亦已交付（PR#28），下一张待投 = **P3-3a**。
@@ -1060,8 +1060,91 @@ wengu-web/src/pages/MistakeDetailPage.tsx（已管 concepts 的标签区）与 L
 顺手重构 MistakeDetailPage 其它部分；把提交信息临时文件写进 `.git/`（写到仓库外目录）。
 ```
 
-> **状态：已完成（2026-11-04，分支 `feat/p1-13b-no-preselect`，待评审）**——归并弹窗一律
+> **状态：已合并（2026-11-04，PR#38 squash → main `18f81b9`，随 `v0.5.0` 发布）**——归并弹窗一律
 > 不预选；未选齐不发 preview、确认禁用；文案明示归并方向。前端抽 `mergeSelection.ts` 纯函数，
 > 新增 Node 内置 test runner 单测 5 条（`npm test`）并在 CI web job 增加该步骤；后端、权限、
 > 预览契约与既有归并断言未动。实跑 526 passed、`ruff check --no-cache .` 绿、`npm test`
 > 5 passed、`npm run build` 绿；零迁移、无新依赖。
+
+## P4-1 —— Tailscale 可达性 + 把"局域网裸奔"的口子默认关掉
+
+```
+你在 wengu 仓库工作。开工前完整读：AGENTS.md §2.4（可信网络默认）+ §7（开源分发护栏）
++ §8（一票一 PR / DoD）+ TICKETS.md 的 P4-1 + docs/deploy/docker.md + docs/deploy/backup-restore.md
++ docs/deploy/upgrade-v0.5.0.md（第 2 节讲清了"起服务即自动迁移"，本票不要动它）。
+
+【全局纪律】一条 ticket = 一个 PR。禁止引入新依赖（Python 与 npm 都不许加）；禁止引入
+Caddy / Nginx basic auth / OAuth / Cloudflare Tunnel 等公网鉴权栈；零迁移；不改任何业务 API
+的语义与权限。孩子区全程免登录、家长 PIN 只防误入——这是 AGENTS §2.4 的有意设计，本票只改
+"哪些网络能碰到这台机器"，不改"碰到之后能干什么"。
+
+【事实（审核方 2026-11-04 读盘核实，与本卡不一致时以实际代码为准，不要硬凑）】
+1. 前端所有请求都是相对路径：wengu-web/src/api/client.ts 用 `fetch(path, …)`，endpoints.ts 里
+   全是 "/api/…"；wengu-web/nginx.conf 把 `location /api/` 反代到 `http://api:8000`、`/health`
+   单独代理。**结论：远程访问只需要打通 web 这一个入口，api 端口不需要对外发布。**
+2. docker-compose.yml 现状：api `ports: "${WENGU_API_PORT:-8000}:8000"`、
+   web `ports: "${WENGU_WEB_PORT:-5173}:80"` —— 两个都发布到所有网卡（Docker 绑 0.0.0.0），
+   同网段任何设备都能读写错题本、看板、备份列表（备份路由虽 require_parent，但孩子区免登录）。
+3. compose 第 47–64 行那段被注释的 tailscale 服务**今天起不来**：它挂载
+   `./deploy/tailscale/serve.json`，而仓库里**连 `deploy/` 目录都不存在**；且它用
+   `network_mode: service:api` + `devices: [/dev/net/tun]` + `cap_add: [NET_ADMIN]`，这套在
+   **Docker Desktop for Windows 上不成立**。所以注释里"取消注释即启用"这句话是假的，要改。
+   ⚠️ 平台结论必须由你在机器上实测得出，不许照抄本卡措辞：实测不通就改文档并在 PR 里报告。
+4. 原生形态 run-trial.ps1 后端 `--host 127.0.0.1`（只本机），但 wengu-web/vite.config.ts 的
+   `server.host = true` 让 5173 绑所有网卡，而 vite 自己又代理 `/api` 到 127.0.0.1:8000 ——
+   于是**局域网设备经 5173 就能用到整个系统含写操作**。这条要么收紧、要么写明是有意为之，
+   不要让它"偶然成立"。
+5. 家长会话 cookie（app/api/session.py 的 `_set_cookie`）：`httponly=True`、`samesite="lax"`、
+   12h，**没有 `secure`**。走 Tailscale Serve 的 HTTPS 同源访问不受影响；本票**不要**顺手加
+   `secure=True`（会把现有 http://127.0.0.1:5173 打挂）。
+6. `.env.example` 已有注释项 `# TS_AUTHKEY=`，compose 里是 `TS_AUTHKEY=${TS_AUTHKEY}`。
+   保持"只在环境里注入、仓库内任何文件都不出现真实 key（含示例值）"。
+
+【任务】
+1. compose 端口收紧：给 api/web 的 `ports:` 加可配置绑定地址，**默认只绑回环**，例如
+   `"${WENGU_BIND_ADDR:-127.0.0.1}:${WENGU_API_PORT:-8000}:8000"`（web 同理）。
+   README 与 docs/deploy/docker.md 写清：默认仅本机；要让同网段设备直连须显式
+   `WENGU_BIND_ADDR=0.0.0.0` 并自担风险；手机/平板远程用走第 2 条，不要靠开 0.0.0.0。
+2. 按第 3 条事实把 tailscale 段落修成**真能照做**的样子：
+   - 建出 `deploy/tailscale/serve.json`（路径与 compose 注释里的挂载路径一致），内容用
+     `tailscale serve` 的配置格式；格式不确定就查官方文档，**不要凭记忆编字段**；
+   - 注释块拆成两条路径并各自标平台：A) Linux / 群晖 = sidecar 容器；
+     B) **Windows / macOS 试用机 = 宿主机安装 Tailscale 客户端 + `tailscale serve` 转发本机
+     web 端口，compose 完全不参与**（试用机是 Windows 11 + Docker Desktop，默认教这条）；
+   - TS_AUTHKEY 保持从环境读，文档里写"去 Tailscale 管理后台自建，别提交进仓库"。
+3. 新增**只读**自检脚本 `scripts/remote-check.ps1`（与 restore.ps1 同目录同风格；PowerShell 5.1
+   必须 UTF-8 **带 BOM** + **LF** 行尾，否则 PS5.1 直接解析失败——这是本仓踩过的坑）。打印：
+   实际监听地址与端口、是否只绑回环、`docker compose port` 映射结果、`tailscale status` /
+   `tailscale serve status`（未安装就打印"未安装"并继续）、本机访问 `http://127.0.0.1:<web>/health`
+   的状态码。末尾给一句明确判定：仅本机可达 / 局域网可达 / tailnet 已转发。
+   **严禁**脚本改配置、重启服务、写库、打印 cookie 或 key。
+4. 第 4 条事实二选一并说明取舍：把 vite `server.host` 改为默认回环（需要 LAN 时显式 `npm run dev -- --host`），
+   或在文档里明确写"原生形态 5173 局域网可达是已知事实 + 如何收紧"。
+5. 口径统一：把"Cloudflare Tunnel 与 Tailscale 并列"的表述改掉——`TICKETS.md` 已改为只认 tailnet，
+   你还要检查 README（技术栈表与"公网暴露"注意块）、`docs/deploy/docker.md`、
+   `docs/specs/architecture/StudyDesk-设计说明文档-v2.md` §17-A 里是否还有同类并列，
+   统一成"远程访问 = Tailscale（tailnet 私有网）；CF Tunnel / 公网反代必须先做真鉴权与用户隔离，未支持"。
+6. 文档新增一节"手机/平板怎么连回家里那台机器"（三步：设备装客户端登录同一 tailnet → 家用机
+   确认默认绑定并按平台做第 2 条 → 跑 `scripts/remote-check.ps1` 自检），放 `docs/deploy/`，
+   并在 README 的远程访问处给链接。
+
+【DoD】
+- `docker compose config -q` 通过（CI 已有这一步，必须仍然绿）；`docker compose config` 的渲染
+  输出里默认 ports 绑定确实是 `127.0.0.1` —— **把输出贴进 PR**，不要口头保证。
+- `scripts/remote-check.ps1` 在本机跑通，**脱敏输出**贴进 PR（tailscale 输出里的设备名/邮箱打码）。
+- 若动了 vite `server.host`：`npm run lint` 与 `npm run build` 绿，`run-trial.ps1` 仍能起前后端
+  （贴关键日志行）。
+- `pytest -q` 全绿（当前基线 **526 passed**）、`ruff check --no-cache .` 绿、CI 绿。
+- 证伪证据：把绑定地址临时改回 `0.0.0.0` 跑一次 `remote-check.ps1` → 判定必须变成"局域网可达"
+  → 改回 → 变绿。贴两次输出。**没有这一步就说明脚本是摆设。**
+- CHANGELOG 记一条 Changed（默认只绑回环是**行为变更**，属 breaking-ish，必须写明家长怎么恢复
+  LAN 直连），写在 `## [Unreleased]` 下。
+【禁止】引入任何公网鉴权栈或新依赖；在仓库文件里出现真实 TS_AUTHKEY/示例 key；把 CF Tunnel 写成
+等价选项；动 `data/`、`backups/`、生产 `wengu.db`；顺手重构 nginx.conf 或 compose 里与本票无关的
+服务定义；把自检脚本写成"顺手修一下"的变更脚本；放宽 `require_parent` 或 PIN 逻辑来方便测试。
+
+【另开一票，本票不做】P4-1b：`make backup` 是死目标（Makefile:138 调 `python -m scripts.local_backup`，
+全仓无该模块，实跑 `No module named scripts.local_backup`），注释还指向不存在的
+`docs/manuals/ops/backup.md`；现行唯一备份路径是家长区 `POST /api/backup/export`。
+本票不要顺手改 Makefile 那一行以外的东西。
+```
