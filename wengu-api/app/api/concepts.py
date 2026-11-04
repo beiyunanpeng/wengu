@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.session import require_parent
 from app.core.database import get_session
 from app.models import Concept
 from app.services.concepts import (
@@ -22,6 +23,7 @@ from app.services.concepts import (
     get_concept_with_aliases,
     list_concepts,
     merge_concepts,
+    preview_merge,
 )
 
 router = APIRouter(tags=["concepts"])
@@ -62,6 +64,15 @@ class ConceptMergeResponse(BaseModel):
     source: ConceptInfo
     target: ConceptInfo
     aliases_moved: int
+
+
+class ConceptMergePreviewResponse(BaseModel):
+    source: ConceptInfo
+    target: ConceptInfo
+    source_aliases: list[str]
+    projected_aliases_moved: int
+    affected_mistakes: int
+    same_category: bool
 
 
 def _info(concept: Concept, aliases: list[str]) -> ConceptInfo:
@@ -120,7 +131,41 @@ async def create_concept(
         return _from_result(result)
 
 
-@router.post("/api/concepts/merge", response_model=ConceptMergeResponse)
+@router.get(
+    "/api/concepts/merge-preview",
+    response_model=ConceptMergePreviewResponse,
+    dependencies=[Depends(require_parent)],
+)
+async def merge_preview_endpoint(
+    source_id: int = Query(),
+    target_id: int = Query(),
+    session: AsyncSession = Depends(get_session),
+) -> ConceptMergePreviewResponse:
+    """归并前只读预览：确认框里的别名数与受影响错题数都由后端实扫。"""
+
+    async with session.begin():
+        try:
+            preview = await preview_merge(
+                session, source_id=source_id, target_id=target_id
+            )
+        except ConceptNotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from None
+        response = ConceptMergePreviewResponse(
+            source=_info(preview.source, list(preview.source_aliases)),
+            target=_info(preview.target, list(preview.target_aliases)),
+            source_aliases=list(preview.source_aliases),
+            projected_aliases_moved=preview.projected_aliases_moved,
+            affected_mistakes=preview.affected_mistakes,
+            same_category=preview.same_category,
+        )
+    return response
+
+
+@router.post(
+    "/api/concepts/merge",
+    response_model=ConceptMergeResponse,
+    dependencies=[Depends(require_parent)],
+)
 async def merge_concepts_endpoint(
     payload: ConceptMergeRequest,
     session: AsyncSession = Depends(get_session),

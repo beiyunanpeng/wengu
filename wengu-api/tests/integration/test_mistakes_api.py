@@ -30,6 +30,7 @@ from app.models import (
     ProblemBankItem,
     ReviewSchedule,
 )
+from app.services.concepts import concept_family_ids, resolve_concepts
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -50,7 +51,9 @@ def _migrated(tmp_path: Path) -> async_sessionmaker:
 
 
 @asynccontextmanager
-async def _client(factory: async_sessionmaker) -> AsyncIterator[AsyncClient]:
+async def _client(
+    factory: async_sessionmaker, *, unlock: bool = True
+) -> AsyncIterator[AsyncClient]:
     app = create_app()
 
     async def override_session():
@@ -61,13 +64,18 @@ async def _client(factory: async_sessionmaker) -> AsyncIterator[AsyncClient]:
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test"
     ) as client:
-        # 作废/撤销属家长区：统一先设 PIN 或解锁（孩子区端点不受影响）
-        status = await client.get("/api/session/status")
-        if status.json()["pin_set"]:
-            response = await client.post("/api/session/unlock", json={"pin": "2468"})
-        else:
-            response = await client.post("/api/session/pin/set", json={"pin": "2468"})
-        assert response.status_code == 200, response.text
+        # 作废/撤销/归并属家长区：默认先设 PIN 或解锁（孩子区端点不受影响）
+        if unlock:
+            status = await client.get("/api/session/status")
+            if status.json()["pin_set"]:
+                response = await client.post(
+                    "/api/session/unlock", json={"pin": "2468"}
+                )
+            else:
+                response = await client.post(
+                    "/api/session/pin/set", json={"pin": "2468"}
+                )
+            assert response.status_code == 200, response.text
         yield client
 
 
@@ -695,3 +703,250 @@ async def test_seed_topics_query_and_mistake_options(tmp_path) -> None:
     assert causes["prerequisite_gap"] == "前置知识缺失"
     assert causes["calculation"] == "计算失误"
     assert "other" in causes
+
+
+async def _mistake_version_snapshot(factory: async_sessionmaker) -> list[dict]:
+    async with factory() as session:
+        rows = (
+            await session.scalars(select(MistakeVersion).order_by(MistakeVersion.id))
+        ).all()
+    return [
+        {
+            column.name: getattr(row, column.name)
+            for column in MistakeVersion.__table__.columns
+        }
+        for row in rows
+    ]
+
+
+@pytest.mark.integration
+async def test_merge_preview_and_merge_keep_history_and_resolve_family(tmp_path) -> None:
+    """P1-13：预览实扫 active 错题；归并只改 merged_into_id/别名，历史版本逐行不变。"""
+
+    factory = _migrated(tmp_path)
+    await _seed_topic(factory)
+    source_id = await _seed_concept(
+        factory,
+        name="移项",
+        category_id="cnm_test_equation",
+        aliases=("移项法则",),
+    )
+    target_id = await _seed_concept(
+        factory, name="等式性质", category_id="cnm_test_equation"
+    )
+
+    async with _client(factory) as client:
+        first = await _create_mistake(
+            client, problem_text="题一：解方程 2x=4", concept_ids=(source_id,)
+        )
+        await _create_mistake(
+            client, problem_text="题二：解方程 3x=9", concept_ids=(source_id,)
+        )
+        voided = await _create_mistake(
+            client, problem_text="题三：解方程 4x=8", concept_ids=(source_id,)
+        )
+        voided_response = await client.post(
+            f"/api/mistakes/{voided['mistake_id']}/void",
+            json={"actor": "parent", "reason": "测试作废"},
+        )
+        assert voided_response.status_code == 200, voided_response.text
+
+        versions_before = await _mistake_version_snapshot(factory)
+
+        preview = await client.get(
+            "/api/concepts/merge-preview",
+            params={"source_id": source_id, "target_id": target_id},
+        )
+        merged = await client.post(
+            "/api/concepts/merge",
+            json={"source_id": source_id, "target_id": target_id, "actor": "parent"},
+        )
+        listed = await client.get("/api/concepts?category_id=cnm_test_equation")
+        detail = await client.get(f"/api/mistakes/{first['mistake_id']}")
+
+    assert preview.status_code == 200, preview.text
+    preview_body = preview.json()
+    assert preview_body["source"]["id"] == source_id
+    assert preview_body["target"]["id"] == target_id
+    assert preview_body["source_aliases"] == ["移项法则"]
+    assert preview_body["projected_aliases_moved"] == 2  # 源名称 + 源别名
+    assert preview_body["affected_mistakes"] == 2  # 2 道 active，voided 不计
+    assert preview_body["same_category"] is True
+
+    assert merged.status_code == 200, merged.text
+    merged_body = merged.json()
+    assert merged_body["source"]["merged_into_id"] == target_id
+    assert merged_body["aliases_moved"] == 2  # 源名称 + 源别名
+    # 确认框显示的数字必须与归并响应一致（不把源名称漏报）
+    assert preview_body["projected_aliases_moved"] == merged_body["aliases_moved"]
+    assert "移项" in merged_body["target"]["aliases"]
+    assert "移项法则" in merged_body["target"]["aliases"]
+
+    assert await _mistake_version_snapshot(factory) == versions_before
+
+    listed_ids = {item["id"] for item in listed.json()["items"]}
+    assert source_id not in listed_ids
+    assert target_id in listed_ids
+    assert [c["id"] for c in detail.json()["labels"]["concepts"]] == [target_id]
+
+    async with factory() as session:
+        resolved = await resolve_concepts(session, [source_id])
+        family = await concept_family_ids(session, target_id)
+        source_row = await session.get(Concept, source_id)
+    assert [concept.id for concept in resolved] == [target_id]
+    assert source_id in family
+    assert source_row is not None
+    assert source_row.merged_into_id == target_id
+
+
+@pytest.mark.integration
+async def test_merge_requires_parent_but_child_concept_area_stays_open(tmp_path) -> None:
+    """P1-13：仅归并端点挂 PIN；未解锁时列表与建点/复用仍可用。"""
+
+    factory = _migrated(tmp_path)
+    await _seed_topic(factory)
+    source_id = await _seed_concept(
+        factory, name="移项", category_id="cnm_test_equation"
+    )
+    target_id = await _seed_concept(
+        factory, name="等式性质", category_id="cnm_test_equation"
+    )
+
+    async with _client(factory, unlock=False) as client:
+        created = await client.post(
+            "/api/concepts",
+            json={"name": "孩子新建点", "category_id": "cnm_test_equation"},
+        )
+        listed = await client.get("/api/concepts?category_id=cnm_test_equation")
+        preview = await client.get(
+            "/api/concepts/merge-preview",
+            params={"source_id": source_id, "target_id": target_id},
+        )
+        merged = await client.post(
+            "/api/concepts/merge",
+            json={"source_id": source_id, "target_id": target_id, "actor": "parent"},
+        )
+
+    assert listed.status_code == 200, listed.text
+    assert created.status_code == 200, created.text
+    assert created.json()["reused"] is False
+    assert "孩子新建点" in {item["name"] for item in listed.json()["items"]}
+
+    assert preview.status_code == 403
+    assert merged.status_code == 403
+
+    async with factory() as session:
+        source_row = await session.get(Concept, source_id)
+    assert source_row is not None
+    assert source_row.merged_into_id is None
+
+
+@pytest.mark.integration
+async def test_merge_error_branches_return_stable_codes(tmp_path) -> None:
+    """P1-13：自归并/跨 category/第三方别名/已归并 → 409；不存在 → 404。"""
+
+    factory = _migrated(tmp_path)
+    await _seed_topic(factory)
+    await _seed_topic(
+        factory, topic_id="cnm_test_geometry", name="几何", subject="数学"
+    )
+    equation_source = await _seed_concept(
+        factory, name="方程源", category_id="cnm_test_equation"
+    )
+    equation_target = await _seed_concept(
+        factory, name="方程目标", category_id="cnm_test_equation"
+    )
+    geometry_concept = await _seed_concept(
+        factory, name="几何点", category_id="cnm_test_geometry"
+    )
+    alias_source = await _seed_concept(
+        factory,
+        name="别名源",
+        category_id="cnm_test_equation",
+        aliases=("冲突别名",),
+    )
+    await _seed_concept(factory, name="冲突别名", category_id="cnm_test_equation")
+    already_merged_source = await _seed_concept(
+        factory, name="已归并源", category_id="cnm_test_equation"
+    )
+    middle = await _seed_concept(factory, name="中间点", category_id="cnm_test_equation")
+    final = await _seed_concept(factory, name="最终点", category_id="cnm_test_equation")
+
+    async with _client(factory) as client:
+        self_merge = await client.post(
+            "/api/concepts/merge",
+            json={
+                "source_id": equation_source,
+                "target_id": equation_source,
+                "actor": "parent",
+            },
+        )
+        cross_preview = await client.get(
+            "/api/concepts/merge-preview",
+            params={"source_id": equation_source, "target_id": geometry_concept},
+        )
+        cross_merge = await client.post(
+            "/api/concepts/merge",
+            json={
+                "source_id": equation_source,
+                "target_id": geometry_concept,
+                "actor": "parent",
+            },
+        )
+        alias_conflict = await client.post(
+            "/api/concepts/merge",
+            json={
+                "source_id": alias_source,
+                "target_id": equation_target,
+                "actor": "parent",
+            },
+        )
+        first_merge = await client.post(
+            "/api/concepts/merge",
+            json={
+                "source_id": already_merged_source,
+                "target_id": middle,
+                "actor": "parent",
+            },
+        )
+        again_source = await client.post(
+            "/api/concepts/merge",
+            json={
+                "source_id": already_merged_source,
+                "target_id": middle,
+                "actor": "parent",
+            },
+        )
+        merge_middle = await client.post(
+            "/api/concepts/merge",
+            json={"source_id": middle, "target_id": final, "actor": "parent"},
+        )
+        to_merged_target = await client.post(
+            "/api/concepts/merge",
+            json={
+                "source_id": equation_target,
+                "target_id": middle,
+                "actor": "parent",
+            },
+        )
+        missing_preview = await client.get(
+            "/api/concepts/merge-preview",
+            params={"source_id": 999999, "target_id": equation_target},
+        )
+        missing_merge = await client.post(
+            "/api/concepts/merge",
+            json={"source_id": 999999, "target_id": equation_target, "actor": "parent"},
+        )
+
+    assert self_merge.status_code == 409, self_merge.text
+    assert cross_preview.status_code == 200, cross_preview.text
+    assert cross_preview.json()["same_category"] is False
+    assert cross_merge.status_code == 409, cross_merge.text
+    assert alias_conflict.status_code == 409, alias_conflict.text
+    assert "请先归并那个概念" in alias_conflict.json()["detail"]
+    assert first_merge.status_code == 200, first_merge.text
+    assert again_source.status_code == 409, again_source.text
+    assert merge_middle.status_code == 200, merge_middle.text
+    assert to_merged_target.status_code == 409, to_merged_target.text
+    assert missing_preview.status_code == 404, missing_preview.text
+    assert missing_merge.status_code == 404, missing_merge.text

@@ -22,6 +22,8 @@ import {
   getMistake,
   getMistakeOptions,
   listConcepts,
+  mergeConcepts,
+  previewConceptMerge,
   startPractice,
   unvoidMistake,
   updateMistakeLabels,
@@ -29,6 +31,7 @@ import {
 } from "../api/endpoints";
 import type {
   Concept,
+  ConceptMergePreview,
   ErrorCauseOption,
   MistakeDetail,
   PracticeStartResponse,
@@ -62,6 +65,15 @@ export default function MistakeDetailPage() {
   const [practice, setPractice] = useState<PracticeStartResponse | null>(null);
   const [practiceChecking, setPracticeChecking] = useState(true);
   const [practiceError, setPracticeError] = useState<string | null>(null);
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [mergeSourceId, setMergeSourceId] = useState<string | null>(null);
+  const [mergeTargetId, setMergeTargetId] = useState<string | null>(null);
+  const [mergePreview, setMergePreview] = useState<ConceptMergePreview | null>(
+    null,
+  );
+  const [mergePreviewLoading, setMergePreviewLoading] = useState(false);
+  const [mergeError, setMergeError] = useState<string | null>(null);
+  const [mergeBusy, setMergeBusy] = useState(false);
 
   function applyDetail(next: MistakeDetail) {
     setDetail(next);
@@ -170,6 +182,94 @@ export default function MistakeDetailPage() {
       active = false;
     };
   }, [mistakeId]);
+
+  useEffect(() => {
+    if (
+      !mergeOpen ||
+      !mergeSourceId ||
+      !mergeTargetId ||
+      mergeSourceId === mergeTargetId
+    ) {
+      setMergePreview(null);
+      setMergePreviewLoading(false);
+      return;
+    }
+    let active = true;
+    setMergePreviewLoading(true);
+    setMergeError(null);
+    previewConceptMerge({
+      source_id: Number(mergeSourceId),
+      target_id: Number(mergeTargetId),
+    })
+      .then((response) => {
+        if (active) {
+          setMergePreview(response);
+        }
+      })
+      .catch((cause: unknown) => {
+        if (active) {
+          setMergePreview(null);
+          setMergeError(errorMessage(cause));
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setMergePreviewLoading(false);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [mergeOpen, mergeSourceId, mergeTargetId]);
+
+  function openMerge() {
+    setMergeSourceId(
+      conceptIds.length === 1 ? String(conceptIds[0]) : null,
+    );
+    setMergeTargetId(null);
+    setMergePreview(null);
+    setMergeError(null);
+    setMergeOpen(true);
+  }
+
+  async function handleMerge() {
+    if (
+      !mergeSourceId ||
+      !mergeTargetId ||
+      mergeSourceId === mergeTargetId ||
+      mergeBusy
+    ) {
+      return;
+    }
+    setMergeBusy(true);
+    setMergeError(null);
+    try {
+      await mergeConcepts({
+        source_id: Number(mergeSourceId),
+        target_id: Number(mergeTargetId),
+        actor: "parent",
+      });
+    } catch (cause) {
+      setMergeError(errorMessage(cause));
+      setMergeBusy(false);
+      return;
+    }
+    setMergeOpen(false);
+    setMergeSourceId(null);
+    setMergeTargetId(null);
+    setMergePreview(null);
+    setMergeBusy(false);
+    setMessage("历史错题标签与事件未改动，仅名称解析指向最终概念");
+    try {
+      if (categoryId) {
+        const response = await listConcepts({ categoryId });
+        setConcepts(response.items);
+      }
+      await load(false);
+    } catch (cause) {
+      setActionError(`归并成功，但刷新失败：${errorMessage(cause)}`);
+    }
+  }
 
   async function handleCreateConcept() {
     const name = newConceptName.trim();
@@ -317,6 +417,9 @@ export default function MistakeDetailPage() {
       conceptData.push({ value: String(id), label: `#${id}` });
     }
   }
+  const mergeData = concepts
+    .filter((concept) => concept.category_id === categoryId)
+    .map((concept) => ({ value: String(concept.id), label: concept.name }));
 
   return (
     <Stack gap="md">
@@ -468,6 +571,20 @@ export default function MistakeDetailPage() {
               新建 / 复用
             </Button>
           </Group>
+          {parentUnlocked && (
+            <Group align="center" gap="xs" wrap="wrap">
+              <Button
+                variant="light"
+                onClick={openMerge}
+                disabled={!categoryId || mergeData.length < 2}
+              >
+                归并知识点
+              </Button>
+              <Text size="xs" c="dimmed">
+                把重复建出的细标签并入同一粗粒度知识点；仅家长可见。
+              </Text>
+            </Group>
+          )}
           <Select
             label="错因"
             data={errorCauses.map((item) => ({
@@ -568,6 +685,82 @@ export default function MistakeDetailPage() {
               loading={statusBusy}
             >
               确认作废
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
+
+      <Modal
+        opened={mergeOpen}
+        onClose={() => setMergeOpen(false)}
+        title="归并知识点"
+      >
+        <Stack gap="sm">
+          <Alert color="red" variant="light" title="归并后果">
+            源概念会被标记为并入目标（不物理删除），源名称/别名并入目标；
+            历史错题的标签与事件不会被改写，读取时按名称解析指向最终概念。
+          </Alert>
+          <Select
+            label="源概念（将被并入）"
+            data={mergeData}
+            value={mergeSourceId}
+            onChange={setMergeSourceId}
+            searchable
+            placeholder="选择要并入的细标签"
+          />
+          <Select
+            label="目标概念（保留）"
+            data={mergeData}
+            value={mergeTargetId}
+            onChange={setMergeTargetId}
+            searchable
+            placeholder="选择最终保留的细标签"
+          />
+          {mergeSourceId && mergeSourceId === mergeTargetId && (
+            <Alert color="orange" variant="light">
+              源与目标必须是两个不同的概念。
+            </Alert>
+          )}
+          {mergePreviewLoading && (
+            <Text size="xs" c="dimmed">
+              正在读取影响范围…
+            </Text>
+          )}
+          {mergePreview && (
+            <Text size="sm">
+              {mergePreview.source.name} → {mergePreview.target.name} · 将并入{" "}
+              {mergePreview.projected_aliases_moved} 个别名 · 影响{" "}
+              {mergePreview.affected_mistakes} 道错题
+            </Text>
+          )}
+          {mergePreview && !mergePreview.same_category && (
+            <Alert color="orange" variant="light">
+              只能在同一知识点下归并。
+            </Alert>
+          )}
+          {mergeError && (
+            <Alert color="red" variant="light" title="归并失败">
+              {mergeError}
+            </Alert>
+          )}
+          <Group justify="flex-end">
+            <Button
+              variant="default"
+              onClick={() => setMergeOpen(false)}
+              disabled={mergeBusy}
+            >
+              取消
+            </Button>
+            <Button
+              onClick={() => void handleMerge()}
+              loading={mergeBusy}
+              disabled={
+                !mergePreview ||
+                !mergePreview.same_category ||
+                mergeSourceId === mergeTargetId
+              }
+            >
+              确认归并
             </Button>
           </Group>
         </Stack>

@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import unicodedata
 from collections.abc import Iterable, Sequence
@@ -17,7 +18,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.judge.normalize import PLACEHOLDER
-from app.models import Concept, ConceptAlias, KnowledgeSeed
+from app.models import Concept, ConceptAlias, KnowledgeSeed, Mistake, MistakeVersion
+from app.models.mistakes import MISTAKE_ACTIVE
 
 MAX_NAME_LENGTH = 50
 MAX_ALIASES = 10
@@ -117,6 +119,29 @@ def _key_map(
             if key:
                 mapping.setdefault(key, set()).add(concept.id)
     return mapping
+
+
+def _project_aliases_to_add(
+    source: Concept,
+    source_aliases: Sequence[str],
+    target: Concept,
+    target_aliases: Sequence[str],
+    key_map: dict[str, set[int]],
+) -> tuple[list[str], str | None]:
+    """源名称 + 源别名里实际会并入目标的那些；冲突时返回冲突别名。"""
+
+    target_keys = {_match_key(alias) for alias in target_aliases}
+    target_keys.add(_match_key(target.name))
+    aliases_to_add: list[str] = []
+    for alias in (source.name, *source_aliases):
+        key = _match_key(alias)
+        if not key or key in target_keys:
+            continue
+        if key_map.get(key, set()) - {target.id}:
+            return aliases_to_add, alias
+        aliases_to_add.append(alias)
+        target_keys.add(key)
+    return aliases_to_add, None
 
 
 async def _require_category(session: AsyncSession, category_id: str) -> KnowledgeSeed:
@@ -268,6 +293,91 @@ async def get_concept_with_aliases(
     return concept, aliases.get(concept_id, [])
 
 
+def _concept_ids_from_json(raw: str | None) -> tuple[int, ...]:
+    if not raw:
+        return ()
+    try:
+        values = json.loads(raw)
+    except (TypeError, json.JSONDecodeError):
+        return ()
+    if not isinstance(values, list):
+        return ()
+    return tuple(
+        value for value in values if isinstance(value, int) and not isinstance(value, bool)
+    )
+
+
+async def count_active_mistakes_with_concept(
+    session: AsyncSession, concept_id: int
+) -> int:
+    """当前版本确认标签含该 concept 的 active 错题数（只读扫描，不改写历史）。"""
+
+    rows = (
+        (
+            await session.execute(
+                select(MistakeVersion.confirmed_concept_ids_json)
+                .join(Mistake, Mistake.id == MistakeVersion.mistake_id)
+                .where(
+                    Mistake.status == MISTAKE_ACTIVE,
+                    MistakeVersion.version == Mistake.current_version,
+                    MistakeVersion.confirmed_by.is_not(None),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return sum(1 for raw in rows if concept_id in _concept_ids_from_json(raw))
+
+
+@dataclass(frozen=True)
+class MergePreview:
+    source: Concept
+    target: Concept
+    source_aliases: tuple[str, ...]
+    target_aliases: tuple[str, ...]
+    projected_aliases_moved: int
+    affected_mistakes: int
+    same_category: bool
+
+
+async def preview_merge(
+    session: AsyncSession, *, source_id: int, target_id: int
+) -> MergePreview:
+    """归并前只读预览：别名、受影响 active 错题数、是否同 category。"""
+
+    source = await session.get(Concept, source_id)
+    target = await session.get(Concept, target_id)
+    if source is None or target is None:
+        raise ConceptNotFound("概念不存在")
+    aliases = await _aliases_for(session, [source.id, target.id])
+    same_category = source.category_id == target.category_id
+    projected_aliases_moved = 0
+    if same_category:
+        concepts, existing_aliases = await _category_concepts(session, target.category_id)
+        key_map = _key_map(
+            [concept for concept in concepts if concept.id != source.id],
+            existing_aliases,
+        )
+        aliases_to_add, _conflict = _project_aliases_to_add(
+            source,
+            existing_aliases.get(source.id, []),
+            target,
+            existing_aliases.get(target.id, []),
+            key_map,
+        )
+        projected_aliases_moved = len(aliases_to_add)
+    return MergePreview(
+        source=source,
+        target=target,
+        source_aliases=tuple(aliases.get(source.id, [])),
+        target_aliases=tuple(aliases.get(target.id, [])),
+        projected_aliases_moved=projected_aliases_moved,
+        affected_mistakes=await count_active_mistakes_with_concept(session, source.id),
+        same_category=same_category,
+    )
+
+
 async def merge_concepts(
     session: AsyncSession,
     *,
@@ -296,21 +406,15 @@ async def merge_concepts(
     key_map = _key_map(
         [concept for concept in concepts if concept.id != source.id], existing_aliases
     )
-    source_aliases = existing_aliases.get(source.id, [])
-    target_aliases = existing_aliases.get(target.id, [])
-    target_keys = {_match_key(alias) for alias in target_aliases}
-    target_keys.add(_match_key(target.name))
-
-    aliases_to_add: list[str] = []
-    for alias in (source.name, *source_aliases):
-        key = _match_key(alias)
-        if not key or key in target_keys:
-            continue
-        owners = key_map.get(key, set())
-        if owners - {target.id}:
-            raise ConceptConflict(f"别名「{alias}」与其他概念冲突，请先归并那个概念")
-        aliases_to_add.append(alias)
-        target_keys.add(key)
+    aliases_to_add, conflict = _project_aliases_to_add(
+        source,
+        existing_aliases.get(source.id, []),
+        target,
+        existing_aliases.get(target.id, []),
+        key_map,
+    )
+    if conflict is not None:
+        raise ConceptConflict(f"别名「{conflict}」与其他概念冲突，请先归并那个概念")
 
     source.merged_into_id = target.id
     for alias in aliases_to_add:
