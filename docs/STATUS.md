@@ -1,9 +1,9 @@
 # STATUS.md — 开发计划与完成情况
 
-> 快照日期：2026-11-04（**P5-1b 首次运行向导：单页 `/setup` + 顶部横幅**；`setup_completed` 配置键 + 公开只读状态端点；无迁移）
-> 基线：`main` = `f2514c0`（P5-1a / PR #32 已合并，P5-1b 卡已出）；本切片在 `feat/p5-1b-setup` 分支，合并前工作区状态
-> 全量测试：**521 passed**（2026-11-04 本机实跑，unit 344 / integration 170 / **e2e 7**）；`pytest -m e2e` 收集 **7** 条全绿；`ruff check --no-cache .` 全绿；`npm run build` 绿
-> Alembic head：`0020_recitation`；业务表 **21 张**（P5-1b 无迁移、未改表结构）
+> 快照日期：2026-11-04（**P1-3e 移动端投递入口：粘贴/读取整段转录 JSON**；`/import` 原文路径直发 `POST /api/imports`；无迁移）
+> 基线：`main` = `53b25ca`（P0-4 / PR #34 已合并，本卡已出）；本切片在 `feat/p1-3e-paste-import` 分支，合并前工作区状态
+> 全量测试：**522 passed**（2026-11-04 本机实跑，unit 344 / integration 170 / **e2e 8**）；`pytest -m e2e` 收集 **8** 条全绿；`ruff check --no-cache .` 全绿；`npm run build` 绿
+> Alembic head：`0020_recitation`；业务表 **21 张**（P1-3e 无迁移、无后端改动、无新依赖）
 
 本文件是**状态快照**，不替代以下事实源；冲突时以它们为准：
 
@@ -91,9 +91,10 @@
 - **P2-4 两角色 + 本地家长 PIN 已交付**：孩子区免 PIN；作废/撤销错题、题库导入/审核、
   手动组卷需在导航"家长区"解锁（scrypt 哈希 + HMAC 签名 cookie，12h，连续 5 次错误锁 60s）。
   PIN **只防误入、不是安全边界**，不做登录/账号/多租户；公网暴露仍须鉴权隔离或 Tailscale。
-- **Phase 1 剩余**：P1-7b 前置回溯诊断（未开始）；P1-6 遗留的**知识点归并无 UI**（新票 P1-13）；
-  P1-3e 移动端投递入口（新票）。~~P1-7c 自动排复习~~ **已于 v2.5 作废**（入本一律经核对页人工确认，
-  "未确认自动入库"场景消失）——本行此前写"仍受 Phase 0 闸门阻塞"与 `TICKETS.md` 作废清单不一致，2026-11-02 修正。
+- **Phase 1 剩余**：P1-7b 前置回溯诊断（未开始）；P1-6 遗留的**知识点归并无 UI**（新票 P1-13）。
+  ~~P1-3e 移动端投递入口~~ **已完成（2026-11-04）**。~~P1-7c 自动排复习~~ **已于 v2.5 作废**
+  （入本一律经核对页人工确认，"未确认自动入库"场景消失）——本行此前写"仍受 Phase 0 闸门
+  阻塞"与 `TICKETS.md` 作废清单不一致，2026-11-02 修正。
 - **P0-3 端到端回归已交付**：v2.6 审计发现 `e2e` marker 声明了却 0 条用例，端到端只在批次⑧
   手工验过一次。本票新增 `wengu-api/tests/e2e/test_closed_loop.py` 三条：①投递 2 题
   `agent_transcribe_v1` JSON → 草稿 → 核对页确认 → 到期队列出 `quiz` → 服务端判分写
@@ -139,10 +140,17 @@
   横幅仅在未完成时出现、**不劫持路由**，完成后消失。`setup_completed` 按字段独立校验：布尔键只认
   真布尔，数值键继续拒绝布尔；新增公开只读 `GET /api/setup/status`（只返回该布尔，供未解锁横幅）。
   无迁移、无新依赖。
+- **P1-3e 移动端投递入口已交付**：`/import` 新增「粘贴转录 JSON」卡——Textarea 粘贴与
+  本地 `.json` 文件读取（`file.text()`，UTF-8）二选一，共用同一提交函数与
+  `POST /api/imports`；新增 `importRawText(text)` 以**原文**为 body 直发（不复用
+  `requestJson`，避免二次序列化）。成功渲染 `batch_id / status / duplicate / draft_count /
+  accepted_count / dropped_unknown_fields`，重复投递显示「重复导入已跳过」并给核对页跳转；
+  失败按 400 / 413 / 422 渲染，422 `{message, errors[]}` **逐行**显示 `index/field/reason`。
+  后端零改动、无迁移、无新依赖；e2e 第 8 条走原文路径（部分坏项 → 重投去重 → 确认入本）。
 - **下一步（v2.6 决策轮定的顺序）**：① ~~P5-6 口径清理~~、~~P0-3 端到端回归~~、
   ~~P3-3a 手填背诵~~、~~P3-3b 词表导入~~、~~P3-3c 从错题抽词~~、~~P5-1a 配置持久化修复~~、
-  ~~P5-1b 首次运行向导 UI~~ 已完成 → ② 开源分发剩余项：英文 README + 独立隐私声明 + 发布打包
-  （P5-5）→ ③ P1-3e 移动端投递 → ④ P1-13 归并 UI → ⑤ P3-4 听力默写。**PWA 已砍**
+  ~~P5-1b 首次运行向导 UI~~、~~P1-3e 移动端投递~~ 已完成 → ② 开源分发剩余项：英文 README +
+  独立隐私声明 + 发布打包（P5-5）→ ③ P1-13 归并 UI → ④ P3-4 听力默写。**PWA 已砍**
   （设计文档 §17-A / §12 反清单）。
 
 ## 2. 总体路线图状态
@@ -150,7 +158,7 @@
 | 阶段 | 目标 | 状态 | 说明 |
 |---|---|---|---|
 | Phase 0 | 摸底 + 回归基线 | 部分完成 | 首轮实测结论已在 `docs/methodology/phase0.md`；v2.5 后"识别瓶颈"由批改外移绕过，边界表不再是入本前置；**P0-3 端到端回归已交付**（e2e 3 条 + 迁移 DDL 文对比），P0-1/P0-2 待按新口径重定义 |
-| Phase 1 | 核心闭环 | 进行中 | P1-0～P1-12 完成（模型在环旧链路已退役）；仅剩 P1-7b，P1-7c 阻塞 |
+| Phase 1 | 核心闭环 | 进行中 | P1-0～P1-12 + **P1-3e 移动端投递入口** 完成（模型在环旧链路已退役）；仅剩 P1-7b（及 P1-13 归并 UI），P1-7c 阻塞 |
 | Phase 2 | 每日任务 + 家长看板 | 进行中 | P2-5 家长看板、P2-4 两角色 + 本地 PIN、P2-6 极简打卡、P2-1 日队列（本轮仅到期复习/考核）、P2-3 课表/日历约束层、P2-2 番茄钟执行、P2-7 打印导出已完成；背诵铺底已随 P3-3a 以独立到期端点 + 复习页入口交付；作业 deadline 与硬事件抬权重未开始 |
 | Phase 3 | 内容与扩展 | 进行中 | P3-1 家长录题（真题入库审核流水线）+ P3-1b 家长题接入检索池 + P3-1c 题库修订/软作废 + P3-2 主动加练变式 + **P3-3a 家长手填英语背诵** + **P3-3b 词表批量导入** + **P3-3c 从错题抽词**已完成；P3-5 前置（语文/化学家长自建章级 seed）已交付；听力默写、语文客观题、信奥、长期计划未开始 |
 | Phase 4 | 基础设施演进 | 未开始 | Tailscale、可移植部署、可选本地 GPU |
@@ -176,6 +184,7 @@
 | P1-10 题库检索引擎 | 已完成 | 2803 题内存索引、mulberry32 固定种子、`verify` 沙箱、SVG 净化 |
 | P1-11 同类题考核闭环 | 已完成 | 考核 `/quiz` 服务端判分、手动组卷、答案不下发、结果只进 attempts |
 | P1-12 零模型收口（删除票） | 已完成 | 旧链路整链退役；迁移 0013；三绿 + 端到端实跑通过 |
+| P1-3e 移动端投递入口 | 已完成（2026-11-04） | `/import` 原文粘贴 + 本地 `.json` 读取共用 `POST /api/imports`；`importRawText` 原文直发（不二次序列化）；422 逐行 `index/field/reason`；e2e 第 8 条覆盖原文路径 → 部分坏项 → 重投去重 → 确认入本；后端零改动、无迁移、无新依赖 |
 
 ## 4. 当前系统实际能做什么
 
@@ -183,6 +192,11 @@
 
 - 外部 agent 转录 JSON（`channel=agent_transcribe_v1`）经 `POST /api/imports` 或
   `data/inbox/` 监听目录进入，生成 `ingestion_drafts`；同内容按批次 sha256 去重。
+- **移动端投递（P1-3e）**：`/import` 页「粘贴转录 JSON」卡支持直接粘贴整段报文，或读取
+  本地 `.json` 文件（`file.text()`，UTF-8），两者共用同一提交函数；前端 `importRawText`
+  以原文为 body（`Content-Type: application/json`）直发，**不经 `requestJson` 二次序列化**。
+  成功展示批次号/状态/是否重复/草稿数/接收数/忽略未知字段数；重复投递提示「重复导入已跳过」
+  并可跳核对页；400/413/422 按 detail 呈现，422 的 `errors[]` 逐行显示 `index/field/reason`。
 - 坏项逐条报 `index/field/reason`，不静默截断；非法 JSON 稳定窗口重试后按 invalid 归档。
 - 核对页三栏回显（题目 / 错答 / 正答）+ 主考点 + 错因 + 细标签；确认后走唯一写入路径建错题、
   排首次复习；重复确认幂等（`already_promoted=true`）。
@@ -259,7 +273,7 @@
 
 ### 4.7 前端（十一页导航 + 错题详情，家长解锁另有题库审核、学科 seed、备份）
 
-- `/dashboard` 看板；`/import` 导入说明 + 家长手填最小表单；`/intake` 核对入本；
+- `/dashboard` 看板；`/import` 导入说明 + **粘贴/读取整段转录 JSON（P1-3e）** + 家长手填最小表单；`/intake` 核对入本；
   `/mistakes` + `/:id` 错题本；`/review` 到期三态 + 今日进度/顺延提示 + 手工组卷 +
   今日背诵入口；`/recitations` 英语背诵（孩子自评，家长解锁可增改退役、批量导入 CSV/TSV、
   从错题抽词）；
@@ -705,7 +719,7 @@
 |---|---|
 | 健康 / seed | `GET /health`、`GET /api/seed/summary`、`GET /api/seed/topics` |
 | 本地 seed（P3-8） | `GET /api/local-seed/topics?subject=`、`POST /api/local-seed/topics`、`PATCH /api/local-seed/topics/{id}`、`DELETE /api/local-seed/topics/{id}`（全部 `require_parent`；仅语文/化学，文件真源 + `knowledge_seed` 副本同步） |
-| 导入 | `POST /api/imports`、`GET /api/imports/{batch_id}`、`GET /api/imports/inbox` |
+| 导入 | `POST /api/imports`（P1-3e：前端 `importRawText` 以原文为 body 直发）、`GET /api/imports/{batch_id}`、`GET /api/imports/inbox` |
 | 核对入本 | `GET /api/imports/drafts`、`GET /api/imports/{batch_id}/drafts`、`POST /api/imports/drafts/{draft_id}/confirm` |
 | 错题 / 标签 | `GET /api/mistakes`、`GET /api/mistakes/{id}`、`GET /api/mistakes/options`、`POST /api/mistakes/{id}/labels`、`POST /api/mistakes/{id}/void`、`POST /api/mistakes/{id}/unvoid` |
 | 概念 | `GET /api/concepts`、`POST /api/concepts`、`POST /api/concepts/merge` |
@@ -950,6 +964,8 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
    配置真源迁 `<data_dir>/app-config.json`、legacy 只读回退、`GET/PUT /api/config` + 备份纳入。
    ~~**P5-1b 首次运行向导 UI**~~ 已完成（2026-11-04）：单页 `/setup` + 未完成横幅，不采集年级、
    不做学科勾选，seed 缺席学科按 0 + `/local-seed` 引导；`setup_completed` 布尔键按字段校验。
+   ~~**P1-3e 移动端投递入口**~~ 已完成（2026-11-04）：`/import` 支持粘贴整段转录 JSON 或读取
+   本地 `.json`，原文直发 `POST /api/imports`、422 逐行报错；后端零改动、无迁移。
    **下一步开源分发剩余项：英文 README + 独立隐私声明 + 发布打包（P5-5）**；不引入语音/ASR。
 2. **P1-7b 前置回溯诊断**：`prerequisite_edges` 已装载，固定种子 `replay` 必须可重建。
 3. **复习掌握度归因**：把已确认 concept 写入事实，让 mastery 不再恒 0.0。

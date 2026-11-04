@@ -1172,3 +1172,106 @@ async def test_setup_wizard_completes_and_limit_takes_effect(
     written = json.loads(config_path.read_text(encoding="utf-8"))
     assert written["daily_review_limit"] == 3
     assert written["setup_completed"] is True
+
+
+@pytest.mark.e2e
+async def test_paste_raw_json_partial_duplicate_and_confirm(tmp_path) -> None:
+    """⑧ 原文路径投递：部分坏项逐条报告 → 重投去重 → 核对页确认一条入本。"""
+
+    factory = _migrated(tmp_path / "paste-import-loop.db")
+    topic_id, concept_id = await _seed_topic_and_concept(factory)
+
+    items = [
+        *_items(),
+        {
+            "subject": SUBJECT,
+            "problem_text": "",
+            "student_answer": "1",
+            "standard_answer": "2",
+            "source_ref": "e2e 坏项",
+            "captured_at": "2026-11-01",
+        },
+    ]
+    raw = json.dumps(
+        {"channel": CHANNEL, "items": items}, ensure_ascii=False
+    ).encode("utf-8")
+
+    async with _client(factory) as client:
+        before = await _mistake_chain_snapshot(factory)
+
+        # 与前端 importRawText 同一条路径：body 就是原文，不先构建对象再序列化。
+        response = await client.post(
+            "/api/imports",
+            content=raw,
+            headers={"Content-Type": "application/json"},
+        )
+        assert response.status_code == 201, response.text
+        body = response.json()
+        assert body["duplicate"] is False
+        assert body["status"] == "partial"
+        assert body["accepted_count"] == 2
+        assert body["draft_count"] == 2
+        assert body["dropped_unknown_fields"] == 0
+        assert body["errors"] == [
+            {
+                "index": 2,
+                "field": "problem_text",
+                "reason": "题目为空（必填）",
+            }
+        ]
+
+        assert await _mistake_chain_snapshot(factory) == before, "导入不建错题"
+
+        drafts = await client.get(f"/api/imports/{body['batch_id']}/drafts")
+        assert drafts.status_code == 200, drafts.text
+        draft_rows = drafts.json()["drafts"]
+        assert [row["normalized"]["problem_text"] for row in draft_rows] == [
+            "计算 -3 + 5",
+            "计算 7 - 12",
+        ]
+
+        # 同一段原文再投一次：sha256 命中，返回旧批次，不重复建批。
+        duplicate = await client.post(
+            "/api/imports",
+            content=raw,
+            headers={"Content-Type": "application/json"},
+        )
+        assert duplicate.status_code == 201, duplicate.text
+        duplicate_body = duplicate.json()
+        assert duplicate_body["duplicate"] is True
+        assert duplicate_body["batch_id"] == body["batch_id"]
+        assert duplicate_body["draft_count"] == 2
+        again = await client.get(f"/api/imports/{body['batch_id']}/drafts")
+        assert again.json()["total"] == 2
+
+        # 非 JSON：400 + 可读消息，不吐内部堆栈。
+        invalid = await client.post(
+            "/api/imports",
+            content="这不是 JSON".encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        assert invalid.status_code == 400, invalid.text
+        assert "JSON 解析失败" in invalid.json()["detail"]
+        assert "Traceback" not in invalid.text
+
+        # 核对页确认一条 → 唯一写入路径建错题 + 首次排期。
+        confirmed = await client.post(
+            f"/api/imports/drafts/{draft_rows[0]['id']}/confirm",
+            json={
+                "primary_topic_id": topic_id,
+                "concept_ids": [concept_id],
+                "error_cause": "calculation",
+                "actor": "parent",
+            },
+        )
+        assert confirmed.status_code == 200, confirmed.text
+        confirm_body = confirmed.json()
+        assert confirm_body["already_promoted"] is False
+        assert confirm_body["primary_topic_id"] == topic_id
+
+        after = await _mistake_chain_snapshot(factory)
+        assert len(after[0]) == 1
+        assert after[0][0][1] == "active"
+        assert len(after[1]) == 1
+        assert after[2] == before[2], "确认入本不写 attempts"
+        assert after[3] == before[3] + 1, "确认入本只排首次复习"
