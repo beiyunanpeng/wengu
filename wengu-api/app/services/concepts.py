@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import unicodedata
 from collections.abc import Iterable, Sequence
@@ -17,7 +18,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.judge.normalize import PLACEHOLDER
-from app.models import Concept, ConceptAlias, KnowledgeSeed
+from app.models import Concept, ConceptAlias, KnowledgeSeed, Mistake, MistakeVersion
+from app.models.mistakes import MISTAKE_ACTIVE
 
 MAX_NAME_LENGTH = 50
 MAX_ALIASES = 10
@@ -266,6 +268,73 @@ async def get_concept_with_aliases(
         raise ConceptNotFound("概念不存在")
     aliases = await _aliases_for(session, [concept_id])
     return concept, aliases.get(concept_id, [])
+
+
+def _concept_ids_from_json(raw: str | None) -> tuple[int, ...]:
+    if not raw:
+        return ()
+    try:
+        values = json.loads(raw)
+    except (TypeError, json.JSONDecodeError):
+        return ()
+    if not isinstance(values, list):
+        return ()
+    return tuple(
+        value for value in values if isinstance(value, int) and not isinstance(value, bool)
+    )
+
+
+async def count_active_mistakes_with_concept(
+    session: AsyncSession, concept_id: int
+) -> int:
+    """当前版本确认标签含该 concept 的 active 错题数（只读扫描，不改写历史）。"""
+
+    rows = (
+        (
+            await session.execute(
+                select(MistakeVersion.confirmed_concept_ids_json)
+                .join(Mistake, Mistake.id == MistakeVersion.mistake_id)
+                .where(
+                    Mistake.status == MISTAKE_ACTIVE,
+                    MistakeVersion.version == Mistake.current_version,
+                    MistakeVersion.confirmed_by.is_not(None),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return sum(1 for raw in rows if concept_id in _concept_ids_from_json(raw))
+
+
+@dataclass(frozen=True)
+class MergePreview:
+    source: Concept
+    target: Concept
+    source_aliases: tuple[str, ...]
+    target_aliases: tuple[str, ...]
+    affected_mistakes: int
+    same_category: bool
+
+
+async def preview_merge(
+    session: AsyncSession, *, source_id: int, target_id: int
+) -> MergePreview:
+    """归并前只读预览：别名、受影响 active 错题数、是否同 category。"""
+
+    source = await session.get(Concept, source_id)
+    target = await session.get(Concept, target_id)
+    if source is None or target is None:
+        raise ConceptNotFound("概念不存在")
+    aliases = await _aliases_for(session, [source.id, target.id])
+    return MergePreview(
+        source=source,
+        target=target,
+        source_aliases=tuple(aliases.get(source.id, [])),
+        target_aliases=tuple(aliases.get(target.id, [])),
+        affected_mistakes=await count_active_mistakes_with_concept(session, source.id),
+        same_category=source.category_id == target.category_id,
+    )
 
 
 async def merge_concepts(

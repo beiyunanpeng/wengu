@@ -480,7 +480,7 @@ docs/deploy/backup-restore.md：包结构、导出下载、Docker 恢复、原�
 # 待投工单卡（v2.6 决策轮登记，**未开工**）
 
 > 来源：`docs/audit/pr1-24-retrospective.md` 的交付回顾审计 + 用户拍板（砍 PWA、归并补 UI、按建议顺序推进）。
-> 投单顺序 = ~~P5-6~~（PR#27）→ ~~P0-3~~（PR#28）→ ~~P3-3a~~（PR#29）→ ~~P3-3b~~（PR#30）→ ~~P3-3c~~（PR#31）→ ~~P5-1a~~（PR#32）→ ~~P5-1b~~（PR#33）→ ~~P0-4~~（PR#34）→ ~~P1-3e~~（PR#35）→ ~~P1-3f~~（PR#36）→ **P1-13（最后一张待投）**。每张卡可整段复制给 Qoder。
+> 投单顺序 = ~~P5-6~~（PR#27）→ ~~P0-3~~（PR#28）→ ~~P3-3a~~（PR#29）→ ~~P3-3b~~（PR#30）→ ~~P3-3c~~（PR#31）→ ~~P5-1a~~（PR#32）→ ~~P5-1b~~（PR#33）→ ~~P0-4~~（PR#34）→ ~~P1-3e~~（PR#35）→ ~~P1-3f~~（PR#36）→ ~~P1-13~~（本批最后一张，待评审）。每张卡可整段复制给 Qoder。
 > **2026-11-03 更新**：P5-6 孤儿表切片已交付（迁移 0019 一次退役 `problem_extractions` /
 > `photo_capture_items` / `photo_captures` 三表；见 `TICKETS.md` 与 `docs/STATUS.md` §4.18），
 > 本卡留作回溯；P0-3 亦已交付（PR#28），下一张待投 = **P3-3a**。
@@ -1024,3 +1024,11 @@ wengu-web/src/pages/MistakeDetailPage.tsx（已管 concepts 的标签区）与 L
 做"相似度自动建议合并"（归并必须是人工动作）；新建归并历史表或改 Concept 表结构；
 顺手改 recompute / 排期逻辑；引入新依赖。
 ```
+
+> **状态：已完成（2026-11-04，分支 `feat/p1-13-merge-ui`，待评审）**——merge 与只读
+> `merge-preview` 挂 `require_parent`，建点/列表仍留孩子区；预览实扫 active 错题数、跨
+> category 只返回 `same_category=false`；错题详情家长可见归并入口（同 category、预览
+> "源 → 目标 · N 个别名 · M 道错题"）；`mistake_versions` 全表快照逐行不变。实跑
+> 526 passed（unit 344 / integration 173 / e2e 9）、`ruff check --no-cache .` 绿、
+> `npm run build` 绿；临时库浏览器实测归并与未解锁 403、375px 无溢出。无迁移、无新依赖。
+> **与卡偏差：预览在两个选择器都选好后请求（非打开即调）；"N 个别名"不含源名称本身。**

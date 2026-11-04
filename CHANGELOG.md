@@ -9,6 +9,38 @@
 
 ### Added
 
+- **P1-13 知识点归并 UI（零迁移）**（2026-11-04）：
+  - 背景：AGENTS §6"细粒度受控生长（优先复用·不覆盖确认值·归并需人工确认）"此前只有后端
+    `POST /api/concepts/merge`，前端零调用，家长没有入口把重复建出的细粒度点并掉。
+  - 后端：`POST /api/concepts/merge` 挂 `require_parent`；新增只读
+    `GET /api/concepts/merge-preview?source_id=&target_id=`（同样 `require_parent`），返回
+    `{source, target, source_aliases, affected_mistakes, same_category}`。
+    `affected_mistakes` 只统计"当前版本 `confirmed_concept_ids_json` 含源点"的 **active**
+    错题（只读扫描，不建表、不加索引）；跨 category 返回 `same_category=false` 而不报错；
+    概念不存在 404。`GET /api/concepts` 与 `POST /api/concepts` **保持孩子区可用**。
+  - 服务层：新增 `preview_merge` / `count_active_mistakes_with_concept`；`merge_concepts`
+    未改动，仍只写 `source.merged_into_id` + 把源名称/别名并入目标，不碰历史。
+  - 前端：`MistakeDetailPage` 标签卡新增"归并知识点"入口（仅家长解锁可见）；两个选择器
+    限定当前 category；确认框显示"源名称 → 目标名称 · 将并入 N 个别名 · 影响 M 道错题"，
+    提交 `actor="parent"`；成功后刷新 concepts 与详情，并提示"历史错题标签与事件未改动，
+    仅名称解析指向最终概念"。
+  - 测试：3 条集成测试——归并前后 `mistake_versions` **全表逐列快照相等**、`resolve_concepts`
+    把源 id 解析到目标、`concept_family_ids(target)` 含源、列表只出目标、2 道 active + 1 道
+    voided 只计 2；未解锁 merge/preview **403** 而 create/list **200**；错误分支（自归并 409、
+    跨 category 409、别名与第三方冲突 409 且消息含"请先归并那个概念"、源/目标已归并 **409**
+    非幂等、不存在 404）。
+  - 运行态：临时数据目录（8001）+ Vite（5175）实测预览文案
+    "P1-13源点 → P1-13目标点 · 将并入 1 个别名 · 影响 1 道错题"，确认归并后弹窗关闭、
+    成功提示出现、`GET /api/concepts` 只剩目标点、错题详情解析到目标 id；锁定后入口隐藏、
+    preview/merge 403 而建点/列表仍 200；375px iframe
+    `documentElement.scrollWidth = clientWidth = 360`，归并按钮行右边界 327 无横向溢出。
+  - 验证：`pytest -q` **526 passed**（unit 344 / integration 173 / e2e 9，274.49s）；
+    `pytest -m e2e` **9 passed**；`ruff check --no-cache .` 全绿；`npm run build` 绿。
+    无迁移（head 仍 `0020_recitation`）、无新依赖。
+  - 与施工卡的偏差（以实际代码为准）：预览在**两个选择器都选好后**才请求，不是"打开弹窗
+    即调"；确认框"N 个别名"取 `source_aliases.length`，服务端 `aliases_moved` 另含源名称本身；
+    测试 helper 为复用锁定态新增 `unlock` 参数。
+
 - **P1-3f 投递侧显式剥离 BOM（零迁移）**（2026-11-04）：
   - 背景：`ImportPage.submitRaw` 之前只靠 `text.trim()` 顺带去掉 BOM——ECMAScript 把
     `U+FEFF` 当空白，属语言规范巧合；将来换掉 trim 的空白处理方式，BOM 就会漏进投递体。

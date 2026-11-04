@@ -129,6 +129,20 @@ export interface ConceptCreateResponse extends Concept {
   reused: boolean;
 }
 
+export interface ConceptMergePreview {
+  source: Concept;
+  target: Concept;
+  source_aliases: string[];
+  affected_mistakes: number;
+  same_category: boolean;
+}
+
+export interface ConceptMergeResponse {
+  source: Concept;
+  target: Concept;
+  aliases_moved: number;
+}
+
 export interface DueReviewItem {
   schedule_id: number;
   mistake_id: number;

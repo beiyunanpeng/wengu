@@ -19,6 +19,8 @@ import type {
   CompleteReviewResponse,
   Concept,
   ConceptCreateResponse,
+  ConceptMergePreview,
+  ConceptMergeResponse,
   ConfigUpdate,
   DashboardResponse,
   DraftConfirmPayload,
@@ -181,6 +183,30 @@ export function createConcept(payload: {
   return requestJson<ConceptCreateResponse>("/api/concepts", "POST", {
     aliases: [],
     actor: "student",
+    ...payload,
+  });
+}
+
+export function previewConceptMerge(payload: {
+  source_id: number;
+  target_id: number;
+}): Promise<ConceptMergePreview> {
+  const params = new URLSearchParams({
+    source_id: String(payload.source_id),
+    target_id: String(payload.target_id),
+  });
+  return apiRequest<ConceptMergePreview>(
+    `/api/concepts/merge-preview?${params.toString()}`,
+  );
+}
+
+export function mergeConcepts(payload: {
+  source_id: number;
+  target_id: number;
+  actor?: "student" | "parent";
+}): Promise<ConceptMergeResponse> {
+  return requestJson<ConceptMergeResponse>("/api/concepts/merge", "POST", {
+    actor: "parent",
     ...payload,
   });
 }

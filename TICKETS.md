@@ -218,6 +218,11 @@
 - **状态注（2026-11-02 审计）**：上面"保留 `providers/mock.py`"一条已被 AGENTS v2.5 横幅取代——实际交付把 `providers/` **整目录删除**（含 mock），因为零模型后无任何 importer。以 AGENTS 横幅为准，勿再照本行恢复 mock。
 
 ### P1-13 知识点归并 UI（补受控生长的另一半；v2.6 审计新增，2026-11-04 按盘上代码核实）
+- **状态：已完成（2026-11-04，分支 `feat/p1-13-merge-ui`，待评审）**。与卡差异（以实际代码为准）：
+  预览在**两个选择器都选好后**请求，不是"打开弹窗即调"；确认框"N 个别名"= `source_aliases.length`，
+  服务端 `aliases_moved` 另含源名称本身；测试 helper 为复用锁定态新增 `unlock` 参数。
+  实跑 `pytest -q` 526 passed（unit 344 / integration 173 / e2e 9）、`ruff check --no-cache .` 绿、
+  `npm run build` 绿；临时库浏览器实测预览文案/归并/未解锁 403/375px 无溢出。无迁移、无新依赖。
 - 背景：AGENTS §6"细粒度受控生长（优先复用·不覆盖确认值·**归并需人工确认**）"只交付了半条腿——
   `POST /api/concepts/merge` 后端早在 P1-6 就有了（CHANGELOG:1037），但前端**零调用**
   （`endpoints.ts` 只有 `listConcepts`(:172) 与 `createConcept`(:181)，**没有 merge 封装**），
