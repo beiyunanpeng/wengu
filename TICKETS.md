@@ -217,17 +217,50 @@
 - DoD：删后服务能起、`/health` 200、全测试绿、闭环实跑不回归；单张票可整体回滚。禁止：在新入口未跑通前删；顺手删 `providers/mock.py`（保留供测试）。
 - **状态注（2026-11-02 审计）**：上面"保留 `providers/mock.py`"一条已被 AGENTS v2.5 横幅取代——实际交付把 `providers/` **整目录删除**（含 mock），因为零模型后无任何 importer。以 AGENTS 横幅为准，勿再照本行恢复 mock。
 
-### P1-13 知识点归并 UI（补受控生长的另一半；v2.6 审计新增）
+### P1-13 知识点归并 UI（补受控生长的另一半；v2.6 审计新增，2026-11-04 按盘上代码核实）
 - 背景：AGENTS §6"细粒度受控生长（优先复用·不覆盖确认值·**归并需人工确认**）"只交付了半条腿——
-  `POST /api/concepts/merge` 后端早在 P1-6 就有了（CHANGELOG:1037），但前端**零调用**（`endpoints.ts` 只调
-  `GET /api/concepts` 与 `POST /api/concepts`），家长没有任何入口把重复建出来的细粒度点并掉。
-- 交付：`/mistakes` 或错题详情的"知识点"区新增**归并入口（仅家长解锁可见）**：选源 concept + 目标 concept →
-  预览影响面（受影响错题数、别名数）→ 二次确认 → 调 `POST /api/concepts/merge`。
-  后端把该端点从"未挂 PIN"改为**挂 `require_parent`**（归并 = 家长动作；建点/复用仍留孩子区）。
-- DoD：归并后 `merged_into_id` 与别名生效、列表只出目标点、历史 `mistake_versions` 标签快照**一字不改**
-  （append-only 纪律）、名称解析走合并家族；未解锁调用返回 403；重复归并幂等（已归并的源再并不产生新行）。
-- 禁止：物理删除 concept 行；改写 append-only 历史标签；把归并开放给孩子区；引入"自动检测重复点并合并"的
-  模型/相似度猜测（归并必须是人工确认动作）。
+  `POST /api/concepts/merge` 后端早在 P1-6 就有了（CHANGELOG:1037），但前端**零调用**
+  （`endpoints.ts` 只有 `listConcepts`(:172) 与 `createConcept`(:181)，**没有 merge 封装**），
+  家长没有任何入口把重复建出来的细粒度点并掉。
+- **盘上现状（审核方逐行核过，写卡以此为准）**：
+  - 请求体 `ConceptMergeRequest = {source_id: int≥1, target_id: int≥1, actor: "student"|"parent"}`，
+    **默认 `actor="student"`**；响应 `ConceptMergeResponse = {source, target, aliases_moved}`。
+  - 三个端点（`GET /api/concepts`、`POST /api/concepts`、`POST /api/concepts/merge`）
+    **当前都没有 `require_parent`**（`api/concepts.py` 全文无该依赖）。
+  - 服务层 `merge_concepts` 的实际约束：只写 `source.merged_into_id` + 把源名称/别名并入目标
+    （`ConceptAlias`），**不重写 `mistake_versions`**；错误分支——
+    自归并 / 跨 category / 别名与第三方概念冲突 → `ConceptConflict`；
+    源或目标已归并 → `ConceptMerged`；概念不存在 → `ConceptNotFound`。
+  - 异常继承已核实：`ConceptMerged ⊂ ConceptConflict ⊂ ConceptError(ValueError)`，
+    API 层 `except ConceptConflict → 409`、`except ConceptNotFound → 404`，**不会漏成 500**。
+  - 现成可复用：`resolve_concept_map` / `resolve_concepts`（历史 id 沿 `merged_into_id` 解析到最终概念）、
+    `concept_family_ids`（最终概念 + 所有已归并源，供检索展开）、
+    `list_concepts` 已过滤 `merged_into_id.is_(None)`（归并后源点自然消失）。
+- 交付：
+  - 后端：`POST /api/concepts/merge` 加 `require_parent`（归并 = 家长动作）；
+    **`GET /api/concepts` 与 `POST /api/concepts` 保持孩子区不动**（别一并锁，会断掉
+    孩子边做边长标签的路径）；请求侧要求 UI 传 `actor="parent"`。
+  - 新增**只读预览**能力：`GET /api/concepts/merge-preview?source_id=&target_id=`
+    返回 `{source, target, source_aliases: string[], affected_mistakes: int, same_category: bool}`；
+    `affected_mistakes` = 当前版本题面 `confirmed_concept_ids_json` 含源点 id 的 **active** 错题数
+    （扫描方式参照 `dashboard.py:228` 的现成写法，不新建表）。
+  - 前端：错题详情的知识点区（`MistakeDetailPage` 已管理 `concepts`/`listConcepts`/`createConcept`）
+    新增"归并知识点"入口，**仅家长解锁可见**；两个选择器**限定同一 category**（跨 category 后端会 409）；
+    确认框显示"源名称 → 目标名称、将并入 N 个别名、影响 M 道错题"，
+    范式照抄 `LocalSeedPage` 的删除确认（:496 "将解绑错题 N 道…"）；成功后刷新列表。
+- DoD：
+  - 归并后 `merged_into_id` 与别名生效、`GET /api/concepts` 列表只出目标点、
+    历史 `mistake_versions` 的 `confirmed_concept_ids_json` **逐行一字不改**（全表快照断言）；
+  - 名称解析走合并家族（`resolve_concepts` 把源 id 解析到目标；`concept_family_ids` 含源）；
+  - **未解锁调用 merge/preview 返回 403**；建点与列表在未解锁时仍可用（防"一并锁死"回归）；
+  - 错误分支各有断言：自归并 409、跨 category 409、别名与第三方冲突 409（消息含"请先归并那个概念"）、
+    源或目标已归并 **409**（⚠️ **不是幂等成功**——本票原写"重复归并幂等"是审核方误判，
+    实际 `ConceptMerged` → 409，且不产生新行）、不存在 404；
+  - `affected_mistakes` 与实扫结果一致（测试里造 2 道挂源点的 active 错题 + 1 道 voided，断言只计 active）；
+  - 窄屏可用；`pytest -q` 全绿（当前基线 523 passed）、CI 绿、`ruff check --no-cache .` 绿、build 绿。
+- 禁止：物理删除 concept 行；改写 append-only 历史标签；把归并开放给孩子区；
+  **顺手把 `POST /api/concepts`（建点）也锁上 PIN**；引入"自动检测重复点并合并"的模型/相似度猜测；
+  新建归并历史表或改 `Concept` 表结构（本票**零迁移**）。
 
 ---
 

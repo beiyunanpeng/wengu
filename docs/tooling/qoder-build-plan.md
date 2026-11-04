@@ -480,7 +480,7 @@ docs/deploy/backup-restore.md：包结构、导出下载、Docker 恢复、原�
 # 待投工单卡（v2.6 决策轮登记，**未开工**）
 
 > 来源：`docs/audit/pr1-24-retrospective.md` 的交付回顾审计 + 用户拍板（砍 PWA、归并补 UI、按建议顺序推进）。
-> 投单顺序 = ~~P5-6~~（PR#27）→ ~~P0-3~~（PR#28）→ ~~P3-3a~~（PR#29）→ ~~P3-3b~~（PR#30）→ ~~P3-3c~~（PR#31）→ ~~P5-1a~~（PR#32）→ ~~P5-1b~~（PR#33）→ ~~P0-4~~（PR#34）→ ~~P1-3e~~（**PR#35 已合并**）→ ~~P1-3f~~（**`feat/p1-3f-bom` 待评审**）→ **P1-13**。每张卡可整段复制给 Qoder。
+> 投单顺序 = ~~P5-6~~（PR#27）→ ~~P0-3~~（PR#28）→ ~~P3-3a~~（PR#29）→ ~~P3-3b~~（PR#30）→ ~~P3-3c~~（PR#31）→ ~~P5-1a~~（PR#32）→ ~~P5-1b~~（PR#33）→ ~~P0-4~~（PR#34）→ ~~P1-3e~~（PR#35）→ ~~P1-3f~~（PR#36）→ **P1-13（最后一张待投）**。每张卡可整段复制给 Qoder。
 > **2026-11-03 更新**：P5-6 孤儿表切片已交付（迁移 0019 一次退役 `problem_extractions` /
 > `photo_capture_items` / `photo_captures` 三表；见 `TICKETS.md` 与 `docs/STATUS.md` §4.18），
 > 本卡留作回溯；P0-3 亦已交付（PR#28），下一张待投 = **P3-3a**。
@@ -969,3 +969,58 @@ ECMAScript 把 U+FEFF 列为 WhiteSpace，所以 trim 会去掉它；而 Python 
 > 实跑 523 passed（e2e 9）、`ruff check --no-cache .` 绿、`npm run build` 绿；
 > 无迁移、无新依赖、后端零改动。**已记：后端 bytes 路径 CPython 会按 utf-8-sig 识别 BOM，
 > 未剥离的后果是去重 sha256 分叉，而非工单所述必然 400。**
+
+## P1-13 —— 知识点归并 UI（补受控生长的另一半，零迁移）
+
+```
+你在 wengu 仓库工作。开工前完整读：AGENTS.md §6（知识点两级 + 受控生长：优先复用·不覆盖确认值·
+归并需人工确认）+ §5（AI 建议值与用户确认值分离；append-only）+ TICKETS.md 的 P1-13
+（含"盘上现状"一节，已逐行核实）+ wengu-api/app/api/concepts.py +
+app/services/concepts.py（merge_concepts / resolve_concepts / concept_family_ids / list_concepts）+
+wengu-web/src/pages/MistakeDetailPage.tsx（已管 concepts 的标签区）与 LocalSeedPage.tsx
+（:496 的"确认框带受影响计数"范式，照抄它）。
+【总则】现有代码与本卡描述不一致时**以实际代码为准**：先读再改，发现不一致写进交付描述，
+不要硬凑成卡里写的样子。（本合集里审核方的卡已被交付实测纠正过 5 次，这条是硬要求。）
+【全局纪律】一条 ticket = 一个 PR；**零迁移**（不改 Concept 表结构、不新建归并历史表）；
+禁止引入新依赖；禁止物理删除 concept 行；禁止改写 mistake_versions 的 append-only 历史标签。
+【盘上事实（已核实，直接依赖）】
+- 三个 concepts 端点当前**都没有 require_parent**；
+- `POST /api/concepts/merge` 请求体 `{source_id:int≥1, target_id:int≥1, actor:"student"|"parent"}`，
+  默认 actor="student"；响应 `{source, target, aliases_moved}`；
+- 异常继承 `ConceptMerged ⊂ ConceptConflict ⊂ ValueError`，API 已 catch：
+  ConceptNotFound→404、ConceptConflict→409（**已归并的源再调是 409，不是幂等成功**）；
+- `merge_concepts` 只写 `source.merged_into_id` + 把源名称/别名并入目标 `ConceptAlias`，
+  并校验：自归并 / 跨 category / 别名与第三方概念冲突 都抛 409；
+- `list_concepts` 已过滤 `merged_into_id.is_(None)` → 归并后源点自动从列表消失，无需额外改动；
+- 前端 `endpoints.ts` 只有 listConcepts / createConcept，**没有 merge**。
+【任务】
+1) 后端：给 `POST /api/concepts/merge` 挂 `require_parent`。
+   ⚠️ **只挂这一个**：`GET /api/concepts` 与 `POST /api/concepts`（建点/复用）必须保持孩子区可用，
+   锁了会断掉"孩子边做边长标签"的主路径。
+2) 后端：新增只读 `GET /api/concepts/merge-preview?source_id=&target_id=`
+   → `{source, target, source_aliases: string[], affected_mistakes: int, same_category: bool}`。
+   `affected_mistakes` = 当前版本 `mistake_versions.confirmed_concept_ids_json` 含源点 id 的
+   **active** 错题数（扫描写法参照 `services/dashboard.py:228`，不新建表、不加索引）；
+   也挂 `require_parent`。非法 id / 概念不存在 → 404；跨 category → 返回 same_category=false
+   （不报错，让 UI 提示"只能在同一知识点下归并"）。
+3) 前端：`MistakeDetailPage` 的知识点区新增"归并知识点"入口，**仅家长解锁可见**；
+   源与目标两个选择器都限定在**同一 category**内（后端跨 category 会 409）；
+   打开时调 merge-preview，确认框显示"源名称 → 目标名称 · 将并入 N 个别名 · 影响 M 道错题"，
+   文案与交互照抄 LocalSeedPage 删除确认（:496）；提交时 `actor:"parent"`；
+   成功后刷新 concepts 列表并提示"历史错题标签与事件未改动，仅名称解析指向最终概念"。
+4) 文档：CHANGELOG [Unreleased] 记 Added、STATUS、TICKETS P1-13 打勾、施工卡状态同步。
+【DoD】
+- 归并后：`merged_into_id` 与别名生效、`GET /api/concepts` 只出目标点、
+  **`mistake_versions` 全表快照逐行一字不改**（这条是 append-only 的硬证据，必须真断）；
+- 名称解析走合并家族：`resolve_concepts([源id])` 返回目标；`concept_family_ids(目标id)` 含源 id；
+- 权限：未解锁调 merge / merge-preview → 403；**未解锁调 GET /api/concepts 与 POST /api/concepts
+  仍 2xx**（防"一并锁死"的回归断言，必须有）；
+- 错误分支各有断言：自归并 409、跨 category 409、别名与第三方冲突 409（消息含"请先归并那个概念"）、
+  源/目标已归并 **409**（不是幂等）、概念不存在 404；
+- `affected_mistakes` 与实扫一致：测试造 2 道挂源点的 active 错题 + 1 道 voided 错题 → 断言 = 2；
+- 窄屏可用（375px 不溢出）；
+- `pytest -q` 全绿（当前基线 523 passed）、CI 绿、`ruff check --no-cache .` 绿、`npm run build` 绿。
+【禁止】物理删除 concept 行；改写历史标签/事件；把建点入口也锁上 PIN；
+做"相似度自动建议合并"（归并必须是人工动作）；新建归并历史表或改 Concept 表结构；
+顺手改 recompute / 排期逻辑；引入新依赖。
+```
