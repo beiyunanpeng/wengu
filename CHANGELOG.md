@@ -241,9 +241,9 @@
 
 下一批待投工单（可复制的施工卡在 `docs/tooling/qoder-build-plan.md` 末段）：
 ~~**P5-1a** 配置持久化修复~~（PR#32）→ ~~**P5-1b** 首次运行向导~~（PR#33）
-→ **P0-4** 测试基线噪音清理（`Event loop is closed`：21 个测试文件建引擎不 dispose，
-conftest 单点兜底，禁止用 warnings 过滤器消音）
-→ **P1-3e** 移动端粘贴转录 JSON 入口 → **P1-13** 知识点归并 UI。
+→ ~~**P0-4** 测试基线噪音清理~~（PR#34，`PytestUnhandledThreadExceptionWarning` 已固化为 error）
+→ **P1-3e** 移动端粘贴转录 JSON 入口（PWA 替代票；⚠️ 粘贴原文直发、禁二次序列化）
+→ **P1-13** 知识点归并 UI。
 （P3-3 三期 B/A/C 已全部交付：手填 PR#29、词表导入 PR#30、错题抽词 PR#31。）
 
 历史口径提醒（避免照旧文案施工）：~~P1-7c 自动排复习~~ 已于 v2.5 **作废**——入本一律经核对页

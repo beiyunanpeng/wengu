@@ -480,7 +480,7 @@ docs/deploy/backup-restore.md：包结构、导出下载、Docker 恢复、原�
 # 待投工单卡（v2.6 决策轮登记，**未开工**）
 
 > 来源：`docs/audit/pr1-24-retrospective.md` 的交付回顾审计 + 用户拍板（砍 PWA、归并补 UI、按建议顺序推进）。
-> 投单顺序 = ~~P5-6~~（PR#27）→ ~~P0-3~~（PR#28）→ ~~P3-3a~~（PR#29）→ ~~P3-3b~~（PR#30）→ ~~P3-3c~~（PR#31）→ ~~P5-1a~~（PR#32）→ ~~P5-1b~~（**PR#33 已合并**）→ **P0-4（测试噪音清理，可与下面并行）→ P1-3e → P1-13**。每张卡可整段复制给 Qoder。
+> 投单顺序 = ~~P5-6~~（PR#27）→ ~~P0-3~~（PR#28）→ ~~P3-3a~~（PR#29）→ ~~P3-3b~~（PR#30）→ ~~P3-3c~~（PR#31）→ ~~P5-1a~~（PR#32）→ ~~P5-1b~~（PR#33）→ ~~P0-4~~（**PR#34 已合并**）→ **P1-3e → P1-13**。每张卡可整段复制给 Qoder。
 > **2026-11-03 更新**：P5-6 孤儿表切片已交付（迁移 0019 一次退役 `problem_extractions` /
 > `photo_capture_items` / `photo_captures` 三表；见 `TICKETS.md` 与 `docs/STATUS.md` §4.18），
 > 本卡留作回溯；P0-3 亦已交付（PR#28），下一张待投 = **P3-3a**。
@@ -880,4 +880,45 @@ app/core/database.py（create_sqlite_engine）+ 任意两个"建引擎不 dispos
   若固化后 CI 因第三方 warning 变红，回退为只保留 fixture 修复并在 PR 里说明原因与证据。
 【禁止】改 `create_sqlite_engine` 的 pool/参数来"绕过"；`warnings.filterwarnings("ignore")`
 之类的消音手法；顺手重构既有测试 fixture；新增依赖。
+```
+
+## P1-3e —— 移动端投递入口：粘贴整段转录 JSON（PWA 的替代票）
+
+```
+你在 wengu 仓库工作。开工前完整读：AGENTS.md §5（导入即不可信输入）+ §17-A（为何砍 PWA、
+本票补的是什么）+ TICKETS.md 的 P1-3e + wengu-api/app/api/imports.py（POST /api/imports 的
+错误映射）+ wengu-web/src/api/{client,endpoints,types}.ts 与 pages/ImportPage.tsx 现状。
+【全局纪律】一条 ticket = 一个 PR；禁止引入新依赖；禁止新写绕过 services/inbox.py
+`ingest_raw_payload` 的入库路径；禁止给这个入口加自动转正；禁止引入文件上传/对象存储；
+禁止重新引入 manifest/service worker（已进 §12 反清单）。
+【背景】`POST /api/imports` 端点已存在且前端已在用（手填表单构建单条 items 后 POST），
+但导入页**没有**"贴一段整份转录 JSON"的入口——外部 agent 在手机/平板上产出的整份 JSON
+今天只能先进 inbox 文件。本票就是把这条路搬到页面上。
+【任务】
+1) 后端：**零改动预期**。POST /api/imports 接收原始字节、错误映射已齐全
+   （400 JSON 错 / 413 超限 / 422 信封错 / 422 {message, errors[]} 无有效项）。
+   若实现中发现缺口，停下来报告，不要顺手改语义。
+2) 前端 /import 页新增"粘贴转录 JSON"区：
+   - Textarea 粘贴 + 本地 .json 文件读取（file.text()，按 UTF-8）二选一，进同一个提交函数；
+   - ⚠️ 新增 `importRawText(text)`：以**原文**为 body、Content-Type: application/json 直发。
+     **绝不能**复用 `requestJson`（它会 JSON.stringify(body)，把原文二次序列化成
+     "字符串套字符串"，后端 400）；走 client.ts 的底层 fetch/ApiError 通道即可；
+   - 成功：渲染 batch_id / status / duplicate / draft_count / accepted_count /
+     dropped_unknown_fields，duplicate=true 时显示"重复导入已跳过"（P1-9b 口径），
+     并给"跳核对页"链接；
+   - 失败：400/413/422 各按 detail 渲染；422 {message, errors[]} 时**逐行渲染**
+     errors 的 index/field/reason（复用 P1-9b 的呈现，不得只吐 message）。
+3) 移动端可用：375px 宽无横向溢出（含错误清单与 JSON 示例块）、按钮可点、Textarea 可滚动。
+4) 文档：CHANGELOG [Unreleased] 记 Added、STATUS 续写、TICKETS P1-3e 打勾、施工卡状态同步。
+【DoD】
+- 贴一段含 3 题（含 1 坏项）的模板 JSON → 2 条成草稿、坏项逐条 {index, field, reason} 报错、
+  **错题本行数零变化**（全表快照断言沿用既有集成测试的写法）；
+- 同一段再贴一次 → duplicate=true、不重复建批；
+- 非 JSON 文本 → 400 且错误信息可读（不含原始堆栈）；
+- 375px 宽无横向溢出（截图或组件测试）；
+- `pytest -q` 全绿（当前基线 521 passed）、CI 绿、`ruff check --no-cache .` 绿、`npm run build` 绿；
+- `pytest -m e2e` 第 8 条：走**原始文本路径**（不是构建 items 的对象路径）投递含坏项的 JSON →
+  草稿与错误报告正确 → duplicate 重投 → 核对页确认一条入本。
+【禁止】让模型或前端"修好"坏行再提交（坏行就该报错给家长）；自动转正；二次序列化；
+引入文件上传/对象存储/manifest；把内部异常栈原样吐给用户；动 0020 与错题链路。
 ```

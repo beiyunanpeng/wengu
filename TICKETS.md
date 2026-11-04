@@ -105,12 +105,22 @@
 - 背景：PWA 当初为"安卓手机 / iPad 拍题"而选（已砍，见设计文档 §17-A）。但 v2.5 后拍照与转录都在系统外完成，
   手机侧真正缺的是**把外部 agent 产出的整段 JSON 送进 `data/inbox` 等价物**——今天 `POST /api/imports` 端点已存在
   （`api/imports.py:144`）且前端已在用（`endpoints.ts:252`），但导入页只有"手填一条"表单，**没有粘贴 JSON 的入口**。
-- 交付：`/import` 页新增"粘贴转录 JSON"区（Textarea + 文件选择二选一）→ 走**同一个** `POST /api/imports` →
-  复用 `ingest_raw_payload` 全套校验与 sha256 去重 → 回显 `accepted_count / errors[]`（逐条 index/field/reason）→
-  提供"跳核对页"链接。移动端可用：窄屏不破版、按钮可点、错误清单可读。
-- DoD：手机浏览器（经 Tailscale 或局域网）贴一段含 3 题的模板 JSON → 落 3 条草稿、其中坏项逐条报错不静默丢弃；
-  同一段再贴一次 → 命中去重 `duplicate=true` 不重复建批；**绝不产生错题本行**（仍只能经核对页转正）。
+- 交付（2026-11-04 出卡，补实现级细节）：
+  `/import` 页新增"粘贴转录 JSON"区（Textarea 粘贴 + 本地 `.json` 文件读取，二选一进同一个提交函数）。
+  ⚠️ **两个技术约束**：
+  ① 走**同一个** `POST /api/imports`，但 `requestJson` 会 `JSON.stringify(body)`（client.ts:130）——
+     粘贴的原文**绝不能**再走它（会被二次序列化成字符串套字符串），必须新增
+     `importRawText(text)`：以原文为 body、`Content-Type: application/json` 直发（不二次编码）；
+  ② 错误渲染复用 client.ts 已有的 `detail` 提取，但 422-no-valid-items 的
+     `{message, errors:[{index,field,reason}]}` 要**逐行渲染**，不得只吐 message。
+  其余复用：`ingest_raw_payload` 全套校验与 sha256 去重、单批上限展示（InboxInfo）、
+  成功后给"跳核对页"链接。移动端可用：窄屏不破版、按钮可点、错误清单可横向滚动。
+- DoD：手机浏览器（经 Tailscale 或局域网）贴一段含 3 题（含 1 坏项）的模板 JSON → 落 2 条草稿、
+  坏项逐条 `{index, field, reason}` 报错不静默丢弃；同一段再贴一次 → 命中去重 `duplicate=true`
+  不重复建批；**绝不产生错题本行**（仍只能经核对页转正）；375px 无横向溢出；
+  `pytest -m e2e` 第 8 条走同一提交函数的原始文本路径；全量绿 + `ruff check --no-cache` + build。
 - 禁止：新写一条绕过 `ingest_raw_payload` 的入库路径；给这个入口加自动转正；引入文件上传/对象存储；
+  二次序列化（double-encode）；把内部异常栈原样吐给用户（P1-9b 纪律照旧）；
   为"看起来像 App"重新引入 manifest/service worker（已进 §12 反清单）。
 
 ### P1-4b 版本化外部提取模板 `docs/templates/doubao_transcribe_v1.md`（v2.5 新增）
