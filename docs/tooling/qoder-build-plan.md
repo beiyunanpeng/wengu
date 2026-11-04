@@ -1148,3 +1148,8 @@ Caddy / Nginx basic auth / OAuth / Cloudflare Tunnel 等公网鉴权栈；零迁
 `docs/manuals/ops/backup.md`；现行唯一备份路径是家长区 `POST /api/backup/export`。
 本票不要顺手改 Makefile 那一行以外的东西。
 ```
+
+> **状态：已交付（2026-11-04，分支 `feat/p4-1-tailscale-reachability`，待评审）**。实际改动：
+> compose 端口默认 `127.0.0.1`、vite 默认回环、`deploy/tailscale/serve.json`、
+> 分平台注释块、只读 `scripts/remote-check.ps1`、`docs/deploy/mobile-access.md`；
+> 与卡片的偏差以交付说明为准。

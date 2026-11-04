@@ -49,11 +49,13 @@ git archive --format=zip -o D:\MyProducts\wengu.zip HEAD
 docker compose up -d --build --wait
 ```
 - `--build` 首次或代码更新后构建镜像；`--wait` 等健康检查通过。
-- **端口**：默认 API `8000`、Web `5173`。若被占用（或想沿用你之前的 8100/5000）：
+- **端口**：默认 API `8000`、Web `5173`，且**只发布到回环 `127.0.0.1`**（只有部署机自己能访问）。
+  若端口被占用（或想沿用你之前的 8100/5000）：
 ```bash
 WENGU_API_PORT=8100 WENGU_WEB_PORT=5000 docker compose up -d --build --wait
 ```
 （PowerShell 写法：`$env:WENGU_API_PORT=8100; $env:WENGU_WEB_PORT=5000; docker compose up -d --build --wait`）
+- **要让同网段设备直连**（不推荐）：显式设置绑定地址 `WENGU_BIND_ADDR=0.0.0.0`，见 §7。手机/平板远程请走 Tailscale，不要靠这一步。
 
 ## 4. 访问地址
 | 用途 | 地址（默认端口） | 地址（8100/5000 时） |
@@ -61,6 +63,8 @@ WENGU_API_PORT=8100 WENGU_WEB_PORT=5000 docker compose up -d --build --wait
 | Web 应用（孩子/家长用） | http://localhost:5173 | http://localhost:5000 |
 | API 文档 `/docs` | http://localhost:8000/docs | http://localhost:8100/docs |
 | 健康检查 | http://localhost:8000/health | http://localhost:8100/health |
+
+> 以上地址默认只在**部署机本机**可用（端口绑 `127.0.0.1`）。手机/平板访问见 §7。
 
 ## 5. 转录 JSON 放哪（外部 agent → 系统）
 把豆包/千问办公按 `docs/templates/doubao_transcribe_v1.md` 产出的 JSON 丢进：
@@ -81,11 +85,31 @@ docker compose down               # 停止（数据在 ./data，不丢）
 **开机自启**：compose 里 `restart: unless-stopped`，Docker Desktop 开机启动后 wengu 会自动拉起。
 
 ## 7. 跨设备访问 & 公网安全（重要）
-- **局域网内其他设备**（孩子平板/另一台电脑）访问：容器已绑 `0.0.0.0`，用部署机的局域网 IP 打开 `http://<部署机IP>:5173`（或你映射的端口）即可；注意 Windows 防火墙放行该端口。
-- **公网/远程**：**默认按"本机/可信内网"设计，免登录 + 本地 PIN 不是安全边界**。要出公网**必须**先加鉴权与隔离——推荐 **Tailscale**（`docker-compose.yml` 里有可选 `tailscale` 服务块，取消注释 + 填 `TS_AUTHKEY` 即用），或反代加认证。**切勿把 5173/8000 直接暴露公网。**
+- **默认只绑回环**（`WENGU_BIND_ADDR=127.0.0.1`）：`docker compose up` 后只有部署机能打开
+  `http://localhost:5173`；同网段设备默认访问不到。
+- **手机 / 平板 / 远程 = Tailscale（tailnet 私有网）**，完整三步见
+  [`mobile-access.md`](./mobile-access.md)：
+  - **Windows / macOS 试用机（默认情况）**：Docker Desktop 不支持 `/dev/net/tun`，
+    在宿主机装 Tailscale 客户端并登录，然后 `tailscale serve --bg http://127.0.0.1:5173`，
+    手机打开 `https://<主机名>.<tailnet>.ts.net`；**compose 不参与**。
+  - **Linux / 群晖**：用 `docker-compose.yml` 注释块 A 的 sidecar（取消注释 + 宿主环境变量
+    `TS_AUTHKEY`）；`deploy/tailscale/serve.json` 已按 `tailscale serve` 官方格式写好
+    （`AllowFunnel=false`，只走 tailnet 不走公网 Funnel）。
+  - `TS_AUTHKEY` 去 Tailscale 管理后台自建，**只放环境变量，绝不提交进仓库**。
+- **确实要同网段设备直连**（不推荐）：显式 `WENGU_BIND_ADDR=0.0.0.0`，同网段任何设备都能读写
+  孩子区（免登录）与家长区入口（PIN 只防误入，不是安全边界）；用完请恢复默认。
+- **公网**：远程访问只认 tailnet。Cloudflare Tunnel / 公网反向代理属于公网暴露，
+  **必须先做真鉴权与用户隔离，wengu 未支持**——不要把它与 Tailscale 当等价选项，
+  **切勿把 5173/8000 直接暴露公网**。
+- **自检**：`.\scripts\remote-check.ps1` 只读打印监听地址、`docker compose port`、
+  `tailscale status` / `serve status` 与 `/health` 状态码，并给出
+  「仅本机可达 / 局域网可达 / tailnet 已转发」判定。端口非默认时加
+  `-WebPort` / `-ApiPort`。
 
 ## 8. 常见坑
 - **端口被占**：Windows 有时保留 8000 段 → 用 `WENGU_API_PORT=8100` 覆盖。
+- **同网段设备打不开**：默认只绑 `127.0.0.1`，这是预期行为；远程请走 Tailscale
+  （[`mobile-access.md`](./mobile-access.md)），确需 LAN 直连才设 `WENGU_BIND_ADDR=0.0.0.0`。
 - **数据看不到**：Docker 读写的是 `<仓库>/data/`，不是 `wengu-api/data/`；迁移/备份认准前者。
 - **venv/node_modules 拷过去了**：Docker 不需要它们，且跨机不可用——用 §1 的 `git clone`/`git archive` 就不会带上。
 - **改了代码没生效**：忘了 `--build`；更新镜像要 `docker compose up -d --build`。

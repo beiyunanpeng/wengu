@@ -18,7 +18,9 @@ services:
       - ./data:/app/data                # SQLite + inbox（外部 agent 转录 JSON）
       - ./seeds:/app/seeds:ro           # seed 包（data/ 随仓库分发；local/ 与 mappings/ 家长自建）
     ports:
-      - "${WENGU_API_PORT:-8000}:8000"  # 8000 被系统保留时：WENGU_API_PORT=8100 docker compose up
+      # 默认只绑回环：只有本机能访问；要让同网段设备直连须显式 WENGU_BIND_ADDR=0.0.0.0（自担风险）
+      # 8000 被系统保留时：WENGU_API_PORT=8100 docker compose up
+      - "${WENGU_BIND_ADDR:-127.0.0.1}:${WENGU_API_PORT:-8000}:8000"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
@@ -35,7 +37,8 @@ services:
       api:
         condition: service_healthy
     ports:
-      - "${WENGU_WEB_PORT:-5173}:80"    # nginx 静态托管，映射到 5173 免与本地 vite 冲突
+      # nginx 静态托管；默认只绑回环，远程请走 Tailscale（docs/deploy/mobile-access.md）
+      - "${WENGU_BIND_ADDR:-127.0.0.1}:${WENGU_WEB_PORT:-5173}:80"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
@@ -44,7 +47,16 @@ services:
       retries: 3
       start_period: 10s
 
-  # 可选：远程访问用 Tailscale（AGENTS §3 推荐）。取消注释即启用。
+  # ==========================================================================
+  # 远程访问 = Tailscale（tailnet 私有网）。按部署机平台二选一，不要两条都开。
+  #
+  # A) Linux / 群晖（Docker 支持 /dev/net/tun + NET_ADMIN）——sidecar 容器
+  #    取消下面整段注释；TS_AUTHKEY 只在宿主环境变量里提供（去 Tailscale 管理后台
+  #    自建 auth key，绝不写进仓库）。sidecar 与 web 共享网络命名空间，serve.json
+  #    把 https://<主机名>.<tailnet>.ts.net 反代到 web 容器内的 nginx:80。
+  #    访问地址形如 https://wengu-at-home.<你的 tailnet>.ts.net
+  #    确认：docker compose logs wengu-tailscale / tailscale serve status（宿主机装了客户端时）
+  #
   # tailscale:
   #   image: tailscale/tailscale:latest
   #   container_name: wengu-tailscale
@@ -54,17 +66,29 @@ services:
   #     - TS_STATE_DIR=/var/lib/tailscale
   #     - TS_SERVE_CONFIG=/config/serve.json
   #   volumes:
-  #     - ./tailscale-state:/var/lib/tailscale
-  #     - ./deploy/tailscale/serve.json:/config/serve.json:ro
+  #     - ./tailscale-state:/var/lib/tailscale   # 节点状态（含凭据），不进仓库
+  #     - ./deploy/tailscale:/config:ro          # 目录挂载（单文件挂载会读不到配置更新）
   #   devices:
   #     - /dev/net/tun
   #   cap_add:
   #     - NET_ADMIN
-  #   network_mode: service:api
+  #   network_mode: service:web                  # 与 web 共享 netns，故 serve.json 代理 127.0.0.1:80
+  #   depends_on:
+  #     web:
+  #       condition: service_healthy
   #   restart: unless-stopped
+  #
+  # B) Windows / macOS 试用机（Docker Desktop 不支持 /dev/net/tun）——宿主机 Tailscale
+  #    compose 完全不参与；在部署机安装 Tailscale 客户端并登录同一 tailnet，然后：
+  #      tailscale serve --bg http://127.0.0.1:5173     # 端口按 WENGU_WEB_PORT 调整
+  #      tailscale serve status                         # 应看到 https://<主机名>.<tailnet>.ts.net
+  #    手机/平板访问该 https 地址；关闭转发：tailscale serve reset
+  #    完整步骤见 docs/deploy/mobile-access.md
+  # ==========================================================================
 
 # 注：
-# 1) 公网暴露前必须自行加反向代理鉴权（Tailscale / Caddy basic auth / Nginx + OAuth）；
-#    wengu 默认按"本机 / 可信内网"设计，见 AGENTS.md §2.4。
+# 1) 默认只绑回环（WENGU_BIND_ADDR=127.0.0.1）。远程访问只认 Tailscale（tailnet 私有网）；
+#    Cloudflare Tunnel / 公网反向代理属于公网暴露，必须先做真鉴权与用户隔离，wengu 未支持。
+#    见 AGENTS.md §2.4 与 docs/deploy/mobile-access.md。
 # 2) 数据全部在 ./data 目录下，备份/迁移 = 拷这一坨（含 wengu.db + inbox/）。
 # 3) v2.5 零模型：无需模型 Key；外部 agent 把转录 JSON 写进 ./data/inbox 即进入核对队列。

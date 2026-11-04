@@ -34,6 +34,7 @@ config/app-config.json
 # ---- 运行时数据（本地）----
 data/
 backups/
+tailscale-state/
 wengu-api/data/
 wengu-api/uploads/
 wengu-api/*.db
