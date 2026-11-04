@@ -9,6 +9,24 @@
 
 ### Added
 
+- **P1-3f 投递侧显式剥离 BOM（零迁移）**（2026-11-04）：
+  - 背景：`ImportPage.submitRaw` 之前只靠 `text.trim()` 顺带去掉 BOM——ECMAScript 把
+    `U+FEFF` 当空白，属语言规范巧合；将来换掉 trim 的空白处理方式，BOM 就会漏进投递体。
+    后端收到的是 bytes，CPython 的 `json.loads` 会按 `utf-8-sig` 识别 BOM，因此实测**不是
+    必然 400**，但带/不带 BOM 的同一报文会产生**不同 sha256**、重复导入不命中。
+  - 前端：`submitRaw` 改为 `text.replace(/^\uFEFF+/, "").trim()`，先显式剥离再 trim，
+    并注释说明「Python `json.loads` 拒绝以 U+FEFF 开头的 str」。粘贴与文件读取
+    （`file.text()`）共用该函数；`file.text()` 按规范本就以 UTF-8 decode 去 BOM。
+  - 测试：e2e 第 9 条按同一归一逻辑先投双 BOM 报文（201 / 2 条草稿 / 无错误），
+    再投无 BOM 同内容 → `duplicate=true` 且批次号不变，证明归一到同一 sha256。
+  - 运行态：浏览器粘贴含 BOM 报文 → 批次 #1 `IMPORTED`、2 条草稿、`duplicate=false`；
+    同内容去 BOM 再投 → 「重复导入已跳过」、同批次；BOM 文件经 `FileButton` 读取 →
+    同样命中重复；非 JSON 400 可读；空文本/全 BOM 按钮禁用不发请求。临时库
+    `import_batches=1 / ingestion_drafts=2 / mistakes=0`。
+  - 验证：`pytest -q` **523 passed**（unit 344 / integration 170 / **e2e 9**，269.06s）；
+    `pytest -m e2e` **9 passed**；`ruff check --no-cache .` 全绿；`npm run build` 绿。
+    无迁移、无新依赖、后端零改动。
+
 - **P1-3e 移动端投递入口：粘贴整段转录 JSON（零迁移）**（2026-11-04）：
   - 背景：PWA 已砍（设计文档 §17-A），手机侧真正缺的是把外部 agent 产出的整段 JSON
     送进 `data/inbox` 等价物；`POST /api/imports` 早已就绪，导入页此前只有"手填一条"。

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import sqlite3
 import zipfile
 from collections.abc import AsyncIterator
@@ -1275,3 +1276,39 @@ async def test_paste_raw_json_partial_duplicate_and_confirm(tmp_path) -> None:
         assert len(after[1]) == 1
         assert after[2] == before[2], "确认入本不写 attempts"
         assert after[3] == before[3] + 1, "确认入本只排首次复习"
+
+
+@pytest.mark.e2e
+async def test_bom_prefixed_payload_dedupes_with_plain(tmp_path) -> None:
+    """⑨ 投递侧显式剥离 BOM：带/不带 BOM 的同内容报文命中同一 sha256。"""
+
+    factory = _migrated(tmp_path / "bom-import.db")
+    plain = json.dumps({"channel": CHANNEL, "items": _items()}, ensure_ascii=False)
+
+    def frontend_body(text: str) -> bytes:
+        # 与 ImportPage.submitRaw 一致：先显式剥离 U+FEFF，再 trim。
+        return re.sub(r"^\ufeff+", "", text).strip().encode()
+
+    async with _client(factory) as client:
+        first = await client.post(
+            "/api/imports",
+            content=frontend_body("\ufeff\ufeff" + plain),
+            headers={"Content-Type": "application/json"},
+        )
+        assert first.status_code == 201, first.text
+        first_body = first.json()
+        assert first_body["duplicate"] is False
+        assert first_body["draft_count"] == 2
+        assert first_body["accepted_count"] == 2
+        assert first_body["errors"] == []
+
+        second = await client.post(
+            "/api/imports",
+            content=frontend_body(plain),
+            headers={"Content-Type": "application/json"},
+        )
+        assert second.status_code == 201, second.text
+        second_body = second.json()
+        assert second_body["duplicate"] is True
+        assert second_body["batch_id"] == first_body["batch_id"]
+        assert second_body["draft_count"] == 2

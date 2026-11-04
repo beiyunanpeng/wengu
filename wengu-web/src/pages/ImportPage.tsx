@@ -124,7 +124,9 @@ export default function ImportPage() {
   }, []);
 
   async function submitRaw(text: string) {
-    const payload = text.trim();
+    // 显式剥离 BOM：trim() 去掉 U+FEFF 只是 ECMAScript 空白规范巧合，不能依赖；
+    // Python json.loads 拒绝 BOM 开头的 str，且留着 BOM 会让同一报文的 sha256 分叉。
+    const payload = text.replace(/^\uFEFF+/, "").trim();
     if (!payload || rawSubmitting) {
       return;
     }

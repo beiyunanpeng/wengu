@@ -128,6 +128,11 @@
   为"看起来像 App"重新引入 manifest/service worker（已进 §12 反清单）。
 
 ### P1-3f 粘贴/文件导入显式剥离 BOM（P1-3e 审计登记的后续小改）
+- **状态：已完成（2026-11-04，分支 `feat/p1-3f-bom`，待评审）**——
+  `submitRaw` 改为先 `text.replace(/^\uFEFF+/, "")` 再 `trim()`，粘贴与文件路径共用；
+  带/不带 BOM 的同内容报文归一为同一 sha256（e2e 第 9 条：双 BOM 201 → 无 BOM
+  `duplicate=true` 同批次）；实测后端 bytes 路径 CPython 会按 `utf-8-sig` 识别 BOM，
+  未剥离的主要后果是去重哈希分叉而非必然 400；无迁移、无新依赖、后端零改动。
 - **背景（审核方实测）**：`ImportPage.submitRaw` 现在靠 `text.trim()` **顺带**去掉了 BOM——
   ECMAScript 规范把 `U+FEFF` 列为 WhiteSpace，所以 `trim()` 会去掉它；而 Python
   `json.loads` **拒绝** BOM 开头的文本（实测 `JSONDecodeError`）。也就是说：
