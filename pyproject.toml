@@ -51,6 +51,10 @@ testpaths = ["wengu-api/tests"]
 pythonpath = ["wengu-api"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+filterwarnings = [
+    # aiosqlite 引擎一旦泄漏到事件循环关闭之后收尾，必须立刻变红而不是降级成 warning。
+    "error::pytest.PytestUnhandledThreadExceptionWarning",
+]
 markers = [
     "unit: 单元测试（掌握度/间隔/judgeAnswer/Schema/幂等）",
     "integration: 集成测试（迁移/导入/任务领取重试/水位）",
