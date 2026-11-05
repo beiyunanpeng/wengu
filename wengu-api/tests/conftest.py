@@ -11,8 +11,13 @@
 
 from __future__ import annotations
 
+import getpass
 import os
+import sys
+import tempfile
+import time
 from collections.abc import AsyncIterator
+from pathlib import Path
 from typing import Any
 
 import app.core.database as database
@@ -55,6 +60,41 @@ def _tracking_create_engine(*args: Any, **kwargs: Any) -> Any:
 # / `from sqlalchemy import create_engine` 的直接绑定（conftest 先于收集加载）。
 database.create_sqlite_engine = _tracking_create_sqlite_engine
 sqlalchemy.create_engine = _tracking_create_engine
+
+
+def _pytest_temp_root() -> Path:
+    # 与 `_pytest.tmpdir.getbasetemp()` 的默认根同算法（含 PYTEST_DEBUG_TEMPROOT 覆盖）
+    temproot = Path(os.environ.get("PYTEST_DEBUG_TEMPROOT") or tempfile.gettempdir())
+    return temproot.resolve() / f"pytest-of-{getpass.getuser()}"
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_configure(config: pytest.Config) -> None:
+    """Windows 上先清掉死掉的 pytest-current 链接。
+
+    `cleanup_dead_symlinks()` 在 atexit 里对每个符号链接调 `resolve().exists()`
+    且不捕获异常；链接被 ACL 锁死或目标不可达时 WinError 5 会直接冒出，之后每次
+    运行都刷一次 Traceback，编号目录也永远清不下去。这里在 pytest 自己的清理之前
+    把死链接移除（目录符号链接必须用 `os.rmdir`）；连链接都删不掉时整根移开保留现场。
+    """
+    if sys.platform != "win32" or config.option.basetemp:
+        return
+    root = _pytest_temp_root()
+    link = root / "pytest-current"
+    if not link.is_symlink():
+        return
+    try:
+        healthy = link.resolve().exists()
+    except OSError:
+        healthy = False  # 解析失败与 atexit 崩溃同源，走下面的修复
+    if healthy:
+        return
+    try:
+        os.rmdir(link)
+    except OSError:
+        stale = root.with_name(f"{root.name}.stale-{time.strftime('%Y%m%d-%H%M%S')}-{os.getpid()}")
+        os.rename(root, stale)
+        print(f"[p0-5] cannot remove {link}; moved temp root to {stale} for this run", file=sys.stderr)
 
 
 @pytest.fixture(autouse=True)
