@@ -140,22 +140,19 @@ docker compose start api
 
 # 2) 部署机：装 Tailscale 客户端（Microsoft Store 搜 Tailscale，或 https://tailscale.com/download 下载 MSI），登录你的 tailnet
 
-# 3) 关键一步：先问 CLI 自己接受什么写法，别照抄文档
-tailscale serve --help
+# 3) 配转发（裸端口形式，已按 tailscale serve --help 核实）
+tailscale serve --bg 5173
+tailscale serve status
 ```
 
-> ⚠️ **这一步是本清单里唯一没被真机验证过的地方。** `mobile-access.md` 第 33 行写的是
-> `tailscale serve --bg http://127.0.0.1:5173`，但官方 serve 文档只给出裸端口形式
-> （`tailscale serve 3000`）并注明"CLI 命令在 1.52 版变更过"，审核方与交付方**都没有真机证据**。
-> 所以：以 `tailscale serve --help` 打印的语法为准。两种可能的写法：
+> **语法核实记录（2026-11-05，Windows 11 真机 `tailscale serve --help`）**：`<target>` 接受裸端口
+> （`3000`）、部分 URL（`localhost:3000`）或完整 URL（`http://localhost:3000/foo`），官方示例就是
+> `tailscale serve --bg 3000`；子命令 `status` / `reset` / `clear` / `get-config` / `set-config` 都在。
+> **`--bg` 不能省**——help 里 `--bg` 默认 false，不带它 serve 会在前台占住终端窗口。
+> 跑通后 `serve status` 应显示 `https://<主机名>.<你的 tailnet>.ts.net` 转发到本机端口；
+> 关闭用 `tailscale serve reset`。
 >
-> ```powershell
-> tailscale serve --bg 5173                          # 裸端口形式
-> tailscale serve --bg http://127.0.0.1:5173         # URL 形式
-> ```
->
-> 跑通后执行 `tailscale serve status`，应看到
-> `https://<主机名>.<你的 tailnet>.ts.net` 转发到本机端口；关闭用 `tailscale serve reset`。
+> 仍未验证的只剩一件事：**手机/平板真机打开那个 https 地址**。这一步只能你自己在设备上做。
 
 ```powershell
 # 4) 再跑一次自检，确认 tailnet 那一路被识别

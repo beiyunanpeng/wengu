@@ -30,13 +30,19 @@ Docker Desktop **不支持** `/dev/net/tun`，所以不要在 compose 里启用 
 改为在**宿主机**安装 Tailscale 客户端并登录同一 tailnet，然后：
 
 ```powershell
-tailscale serve --bg http://127.0.0.1:5173
+tailscale serve --bg 5173
 tailscale serve status
 ```
 
 `serve status` 会显示 `https://<主机名>.<你的 tailnet>.ts.net` 已转发到
 `http://127.0.0.1:5173`。手机浏览器打开这个 https 地址即可；端口不是 5173 时换成你的
 `WENGU_WEB_PORT`。关闭转发：`tailscale serve reset`。
+
+> **语法已按 `tailscale serve --help` 核实**（2026-11-05，Windows 11 真机）：`<target>` 接受
+> 裸端口（`3000`）、部分 URL（`localhost:3000`）或完整 URL（`http://localhost:3000/foo`），
+> 官方示例就是 `tailscale serve --bg 3000`，所以这里用裸端口形式。
+> **`--bg` 不能省**——help 里 `--bg` 默认 false，不带它 serve 会在前台占住你的终端窗口。
+> 子命令 `status` / `reset` 同样在 help 里列出，写法正确。
 
 原生 `run-trial.ps1` 形态同理（后端 `127.0.0.1:8000`、前端 `127.0.0.1:5173`），
 仍然只需转发 5173。
