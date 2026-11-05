@@ -480,8 +480,10 @@ docs/deploy/backup-restore.md：包结构、导出下载、Docker 恢复、原�
 # 待投工单卡（v2.6 决策轮登记，**未开工**）
 
 > 来源：`docs/audit/pr1-24-retrospective.md` 的交付回顾审计 + 用户拍板（砍 PWA、归并补 UI、按建议顺序推进）。
-> 投单顺序 = ~~P5-6~~（PR#27）→ ~~P0-3~~（PR#28）→ ~~P3-3a~~（PR#29）→ ~~P3-3b~~（PR#30）→ ~~P3-3c~~（PR#31）→ ~~P5-1a~~（PR#32）→ ~~P5-1b~~（PR#33）→ ~~P0-4~~（PR#34）→ ~~P1-3e~~（PR#35）→ ~~P1-3f~~（PR#36）→ ~~P1-13~~（PR#37）→ ~~P1-13b~~（PR#38，随 `v0.5.0` 发布）→ ~~P4-1~~（PR#39，端口默认回环 + Tailscale 可达性）→ ~~P4-1b~~（PR#40，部署面命令体检）→ ~~P4-1c~~（PR#41，命令行备份入口，四问按定案执行）→ **P0-5（两处 Windows 本地噪音，本文件末尾新卡）**。
-其余候选：P4-2 可移植部署 / P5-5 英文 README + 独立隐私声明 / P3-4 听力默写。每张卡可整段复制给 Qoder。
+> 投单顺序 = ~~P5-6~~（PR#27）→ ~~P0-3~~（PR#28）→ ~~P3-3a~~（PR#29）→ ~~P3-3b~~（PR#30）→ ~~P3-3c~~（PR#31）→ ~~P5-1a~~（PR#32）→ ~~P5-1b~~（PR#33）→ ~~P0-4~~（PR#34）→ ~~P1-3e~~（PR#35）→ ~~P1-3f~~（PR#36）→ ~~P1-13~~（PR#37）→ ~~P1-13b~~（PR#38，随 `v0.5.0` 发布）→ ~~P4-1~~（PR#39，端口默认回环 + Tailscale 可达性）→ ~~P4-1b~~（PR#40，部署面命令体检）→ ~~P4-1c~~（PR#41，命令行备份入口，四问按定案执行）→ ~~P0-5~~（PR#42，两处 Windows 本地噪音）。
+**当前无待投卡**；下一张候选：P4-2 可移植部署 / P5-5 英文 README + 独立隐私声明 / P3-4 听力默写，
+以及**试用机上仍未验证的 P4-1 两条尾巴**（`tailscale serve` 的真实 CLI 形式、sidecar 路径 A 运行时）。
+每张卡可整段复制给 Qoder。
 > **2026-11-03 更新**：P5-6 孤儿表切片已交付（迁移 0019 一次退役 `problem_extractions` /
 > `photo_capture_items` / `photo_captures` 三表；见 `TICKETS.md` 与 `docs/STATUS.md` §4.18），
 > 本卡留作回溯；P0-3 亦已交付（PR#28），下一张待投 = **P3-3a**。
@@ -1490,3 +1492,44 @@ Windows 计划任务怎么调、失败怎么告警。想清楚再开工，不要
 （并发跑会互踩、且 pytest 会在启动时清空它）；升级 pytest 或新增任何依赖；把中文 help 改英文；
 改业务代码或测试断言来"配合"；顺手重构 Makefile 里与本票无关的目标。
 ```
+
+> **状态：已合并（2026-11-05，PR#42 squash → main `629d6d7`；原分支 `feat/p0-5-windows-noise` 已删）**
+>
+> 【返工记录】首版交付把两处噪音都"治好了"，但审核方实测发现**主动修复分支运行时零覆盖**：
+> 本机 `pytest-current` 根本不存在（非管理员 + 未开开发者模式时 `os.symlink` 报 WinError 1314，
+> pytest 自己也建不出这个链接；那个死链接是历史上提权跑 pytest 留下的），所以钩子每次都走到
+> `if not link.is_symlink(): return` 提前返回——噪音消失的直接原因是**坏根被一次性移开**，
+> 不是钩子在持续救场。返工要求补 5 条全打桩单测（`tests/unit/test_conftest_temp_root.py`）：
+> 死链接+rmdir 成功 / 死链接+rmdir 失败改名整根 / 三条守卫（给了 basetemp、非 win32、链接健康）
+> 用**计数桩**断言 `os.rmdir` 与 `os.rename` 未被调用。不真建链接、不读写真实 `%TEMP%`，
+> 因此 ubuntu CI 同构通过（这是"打桩不依赖 Windows 语义"的证明，无需 skipif）。
+>
+> 【审核方实跑证据】`pytest -q`（不带 `--basetemp`）**535 passed** / 295.55s，退出 0，
+> **stderr 0 字节、0 Traceback**；`%TEMP%\pytest-of-roc` 只剩健康根、内容 `pytest-2/3/4` =
+> **3 个编号目录**（收敛到保留数）；`make help` 1797 字节、**`?` 计数 0**、`decode('utf-8')` 通过、
+> 三条中文行尾探针全在；`make -n upgrade` / `make -n backup` 各 0 个 `?`；
+> `ruff check . --no-cache` 绿；CI run `42001461379` success（api 2m5s / web 18s）；
+> 合并后 main `629d6d7` 的树与审过的 `0eb7ea6` 逐字节一致。
+> 审核方另做三组变异（比返工单要求的更细）：钩子守卫改 `if True:` → **2 failed, 3 passed**；
+> 隔离根命名 `stale-`→`stale_` → **1 failed**（命名正则真在把关）；提示从 stderr 改 stdout →
+> **1 failed**（输出通道真在把关）。三次均即时还原、`git status` 空。
+> Unix 分支用 `make -n OS=1 help` 在 Windows 上即可切入：36 行、含 `echo`、行尾探针全在、0 个 `?`
+> ——顺带证明 `$(call SAY,…)` 里的**全角逗号不会被 make 当参数分隔符**，文本一行未丢。
+>
+> 【审核方两处前提错误（本卡正文不删改，此处更正）】
+> ① 卡里"事实②"写 `install-api` / `dev-api` / **`upgrade` / `backup`** 等每条 `===>` 中文——
+> `upgrade` 与 `backup` **原本没有任何 echo**。交付方未照抄，而是按 DoD 点名要断言这两条、
+> 补了提示行并单独报告此不符；审核方批准保留（`升级前请先 make backup` 有实际价值），
+> CHANGELOG 已标为输出行为变更。
+> ② 卡里"现有 **6** 个编号目录"不准：准确是 **5 个编号目录 + 1 个死链接**（交付方写的 5 才对）。
+>
+> 【已知耦合（审核方判定可接受，后人勿误改）】新用例用 `import conftest` 取钩子，依赖
+> "pytest 以模块名 `conftest` 预加载 `tests/conftest.py`"（仓库无 `__init__.py`）。若该名字解析不到，
+> 测试模块在**收集期直接报错**（响亮失败，不会假绿）。**不要**为消除这个隐式依赖而改用
+> `importlib` 按路径重载 conftest——那会二次执行模块级副作用、把 `create_sqlite_engine` 再包一层，
+> 反而悄悄破坏 P0-4 的引擎回收。
+>
+> 【残留】主动修复分支（`os.rmdir` 真死链接）仍无真机验证，本机造不出该场景；钩子被 pytest 真实
+> 调用过是有物证的（兜底分支当时打了 `[p0-5] cannot remove …; moved temp root to …`，隔离根曾在盘上）。
+> 兜底分支有意**保留现场不删除**（`.stale-*` 需人工清理，本机那份已由审核方用可恢复删除处理）。
+> `make help` 末尾的 `@cd .` 是为避免 make 报 "Nothing to be done for 'help'" 的空操作行，非笔误。
