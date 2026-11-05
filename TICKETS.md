@@ -56,6 +56,23 @@
   用 `warnings.filterwarnings("ignore")` 把噪音**消音**（我们要的是没有泄漏，不是看不见）；
   逐文件补 dispose 却漏掉新增文件（必须走 conftest 单点）；顺手重构测试 fixture。
 
+### P0-5 两处 Windows 本地噪音：pytest 临时目录清理报错 + make 中文输出被 cmd 代码页吃掉（2026-11-05 登记，已出卡）
+- **为什么值得做**：都不影响结果（退出码 0、用例全过、CI 是 ubuntu 不受影响），但噪音攒多了就会让人
+  忽略真报错——与 P0-4 同一条理由。P4-1b 与 P4-1c 连续两票都把它写进"残留"，说明它一直在。
+- **事实①（审核方本机实跑）**：不带 `--basetemp` 跑 pytest，每次都在 `2 passed` 之后打
+  `PermissionError: [WinError 5] 拒绝访问: …\pytest-of-roc\pytest-current`，调用链
+  `_pytest/pathlib.py: cleanup_numbered_dir → cleanup_dead_symlinks → left_dir.resolve().exists()`；
+  `%TEMP%\pytest-of-roc` 现有 **6** 个编号目录（默认只保留 3）——清理从未完成过。
+  `--override-ini tmp_path_retain_count=1` 已验证**无效**（报错早于保留数逻辑）。
+- **事实②（字节级取证，与终端无关）**：捕获 `make help` 原始字节后 `decode('utf-8')` 抛
+  `invalid continuation byte`（position 34-35），输出含 **25 个 `?`**；`"创建"` 在而
+  `"创建 venv 并安装"` 不在——"装"的第三个字节被吃掉。根因方向是 Windows 分支 `SHELL := cmd.exe`
+  经 936 代码页转码；**所有含中文的 `@echo` 都受影响**，不只 help。
+- DoD 要点（详见卡）：pytest 侧连续 3 次零 Traceback **且**编号目录数收敛 ≤3（判据是"清理完成"，
+  不是"看不见报错"）；make 侧用 `decode('utf-8')` 不抛异常 + 中文子串完整作验收；两组证伪必做。
+- 禁止：吞异常 / `2>NUL` / `--disable-warnings` 等消音；把 `--basetemp` 设成固定共享目录；
+  升级 pytest 或加依赖；把中文 help 改英文。
+
 ---
 
 ## Phase 1 —— 核心闭环（批改外置 + 确定性内核 + 同类题考核）

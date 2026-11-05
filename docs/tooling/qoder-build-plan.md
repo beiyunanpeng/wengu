@@ -480,10 +480,8 @@ docs/deploy/backup-restore.md：包结构、导出下载、Docker 恢复、原�
 # 待投工单卡（v2.6 决策轮登记，**未开工**）
 
 > 来源：`docs/audit/pr1-24-retrospective.md` 的交付回顾审计 + 用户拍板（砍 PWA、归并补 UI、按建议顺序推进）。
-> 投单顺序 = ~~P5-6~~（PR#27）→ ~~P0-3~~（PR#28）→ ~~P3-3a~~（PR#29）→ ~~P3-3b~~（PR#30）→ ~~P3-3c~~（PR#31）→ ~~P5-1a~~（PR#32）→ ~~P5-1b~~（PR#33）→ ~~P0-4~~（PR#34）→ ~~P1-3e~~（PR#35）→ ~~P1-3f~~（PR#36）→ ~~P1-13~~（PR#37）→ ~~P1-13b~~（PR#38，随 `v0.5.0` 发布）→ ~~P4-1~~（PR#39，端口默认回环 + Tailscale 可达性）→ ~~P4-1b~~（PR#40，部署面命令体检）→ ~~P4-1c~~（PR#41，命令行备份入口，四问按定案执行）。**当前无待投卡**；下一张候选：
-P4-2 可移植部署 / P5-5 英文 README + 独立隐私声明 / P3-4 听力默写，以及待登记的
-P0-5（`pytest` 收尾 `atexit PermissionError [WinError 5]` 与 `make help` 中文标点乱码这类噪音）。
-每张卡可整段复制给 Qoder。
+> 投单顺序 = ~~P5-6~~（PR#27）→ ~~P0-3~~（PR#28）→ ~~P3-3a~~（PR#29）→ ~~P3-3b~~（PR#30）→ ~~P3-3c~~（PR#31）→ ~~P5-1a~~（PR#32）→ ~~P5-1b~~（PR#33）→ ~~P0-4~~（PR#34）→ ~~P1-3e~~（PR#35）→ ~~P1-3f~~（PR#36）→ ~~P1-13~~（PR#37）→ ~~P1-13b~~（PR#38，随 `v0.5.0` 发布）→ ~~P4-1~~（PR#39，端口默认回环 + Tailscale 可达性）→ ~~P4-1b~~（PR#40，部署面命令体检）→ ~~P4-1c~~（PR#41，命令行备份入口，四问按定案执行）→ **P0-5（两处 Windows 本地噪音，本文件末尾新卡）**。
+其余候选：P4-2 可移植部署 / P5-5 英文 README + 独立隐私声明 / P3-4 听力默写。每张卡可整段复制给 Qoder。
 > **2026-11-03 更新**：P5-6 孤儿表切片已交付（迁移 0019 一次退役 `problem_extractions` /
 > `photo_capture_items` / `photo_captures` 三表；见 `TICKETS.md` 与 `docs/STATUS.md` §4.18），
 > 本卡留作回溯；P0-3 亦已交付（PR#28），下一张待投 = **P3-3a**。
@@ -1420,4 +1418,75 @@ Windows 计划任务怎么调、失败怎么告警。想清楚再开工，不要
 > 均已 gitignore，审核方建议**保留**（删备份不算收口）；临时计划任务已确认清除（`schtasks /Query`
 > 报找不到、任务清单 grep `wengu` 零命中、`%TEMP%\wengu-backup.log` 不存在）。
 > `pytest` 收尾 `atexit PermissionError [WinError 5]` 连续两票出现，与 `make help` 在 Git Bash 下的
-> 中文标点乱码，均属存量噪音，待另开 P0-5 处理。
+> 中文标点乱码，均属存量噪音，已登记为 **P0-5** 并出卡（见本文件末尾）。
+
+## P0-5 —— 两处 Windows 本地噪音：pytest 临时目录清理报错 + make help 中文被 cmd 代码页吃掉
+
+```
+你在 wengu 仓库工作。开工前完整读：AGENTS.md §8（DoD / 一票一 PR）+ TICKETS.md 的 P0-4（同类先例，
+修法风格照它：单点、结构性、不逐文件糊）+ wengu-api/tests/conftest.py + 根 pyproject.toml
+（[tool.pytest.ini_options]）+ Makefile 全文（注意 Windows 分支 SHELL := cmd.exe）。
+
+【全局纪律】一条 ticket = 一个 PR。禁止引入新依赖；禁止改 requirements.txt 里的 pytest 版本线
+（现为 `pytest>=8,<9`，实装 8.4.2）；零迁移；不改任何业务代码与测试断言。
+本票是**噪音清理**，价值在于"让真报错重新变得可见"——所以**任何把错误消音的做法都算失败**，
+判定标准与 P0-4 一样：我们要的是没有问题，不是看不见问题。
+
+【事实（审核方 2026-11-05 在本机 Windows 11 实跑取证，全部可复现）】
+
+—— 其一：pytest 每次跑完打一段 Traceback（退出码仍是 0）——
+1. 复现：`cd wengu-api && venv\Scripts\python -m pytest -q tests/unit/test_backup_cli.py`
+   （**不带** `--basetemp`）→ 先输出 `2 passed`，随后打印：
+   `PermissionError: [WinError 5] 拒绝访问。: 'C:\Users\roc\AppData\Local\Temp\pytest-of-roc\pytest-current'`
+   调用链是 `_pytest\pathlib.py: cleanup_numbered_dir → cleanup_dead_symlinks → left_dir.resolve().exists()`。
+   进程退出码 **0**，用例结果不受影响；CI 是 ubuntu，不会触发，所以这问题只在本地存在。
+2. **每次跑都出现**（审核方连跑两次，两次都有），不是偶发 GC 时序（与 P0-4 那次不同性质）。
+3. 清理从未完成过：`%TEMP%\pytest-of-roc` 下现有 **6** 个编号目录（pytest-343 / 365 / 366 / 367 / 368
+   + pytest-current），而 pytest 默认只保留 3 个 —— 目录堆积本身就是"cleanup 中途抛异常"的证据。
+4. 已排除的杠杆：`--override-ini tmp_path_retain_count=1` **无效**（报错发生在
+   `cleanup_dead_symlinks` 阶段，早于保留数逻辑）。所以不要试图调这个参数交差。
+
+—— 其二：make 的中文输出被 cmd.exe 代码页吃掉——
+5. 取证方式（与终端无关，别用"我这边看着正常"来反驳）：用 Python 捕获 `make help` 的**原始字节**，
+   `bytes.decode("utf-8")` 直接抛 `UnicodeDecodeError: 'utf-8' codec can't decode bytes in
+   position 34-35: invalid continuation byte`，输出里含 **25 个 `?`**；
+   子串 `"创建"` 在、`"创建 venv 并安装"` **不在**——因为"装"(`\xe8\xa3\x85`) 的第三个字节被换成了 `?`，
+   同理全角逗号 `，`(`\xef\xbc\x8c`) 变成 `\xef\xbc?`。
+6. 根因方向：Makefile 在 Windows 分支是 `SHELL := cmd.exe` + `.SHELLFLAGS := /C`，`@echo "…中文…"`
+   的 UTF-8 字节经过 cmd 的 OEM 代码页（本机 936）转一遍就被吃掉尾字节。**受影响的是所有含中文的
+   `@echo`**（`help` 整段 + `install-api` / `dev-api` / `upgrade` / `backup` 等每条 `===> 中文`），
+   不只是 help。Makefile 源文件本身是 UTF-8 无 BOM（审核方核过），所以问题在执行环节不在源文件。
+
+【任务】
+1. 先定根因，再谈修法。pytest 那一处：用**最小复现**（一个空的测试文件 + 不带 `--basetemp`）确认
+   是否与"编号目录/`pytest-current` 符号链接的残留状态"相关；允许联网查 pytest 上游 issue，
+   但**不许**为此升级 pytest 大版本或新增依赖——若唯一出路是改 pytest 版本，停下来报告，不要擅自改。
+2. 给 pytest 那一处选一个**本仓库可控、且不掩盖错误**的修法。可选方向（自行评估，也可提出更好的）：
+   在 `pyproject.toml` 的 `addopts` 里给测试一个每次运行独立的 basetemp；或在 Makefile 的 `test` /
+   `migration-test` recipe 里传独立临时目录；或在 `conftest.py` 加一个 session 级钩子把失效的
+   `pytest-current` 链接处理掉。**必须说明为什么它不是消音**：判据是"清理真的完成了"
+   （编号目录数收敛到 ≤3），而不是"报错看不见了"。
+3. 给 make 那一处选一个 Windows 分支专属的修法（任何 `chcp` 之类的动作必须包在
+   `ifeq ($(OS),Windows_NT)` 里，**不得影响 Linux/macOS 的 `/bin/sh` 分支**）。候选：每条 recipe
+   前置 `chcp 65001 >nul &&`；或把 help 文案抽到一个 UTF-8 文件用 `type` 输出；或两者组合。
+   **不许**把中文 help 改成纯英文来"解决"（受众是中文家长）——除非实测证明别无出路，那要在 PR 里
+   给出全部尝试与失败证据。
+4. 顺带把 Makefile 里**所有**含中文的 `@echo` 纳入验收，不要只修 `help` 一个目标就交。
+
+【DoD】
+- **pytest**：连续 **3 次**不带 `--basetemp` 跑 `make test`（或等价命令），stderr 必须**零 Traceback**；
+  跑完 `%TEMP%\pytest-of-roc` 下的编号目录数必须 **≤3**（当前 6 个，这是清理完成的唯一硬证据）。
+  全量 `pytest -q` 仍 **530 passed**（只允许持平或增加）；`ruff check --no-cache .` 绿；CI（ubuntu）绿。
+- **make**：验收判据是**字节级**的，不接受"我看着还行"。用 Python 捕获输出并断言：
+  `subprocess.run(['make','help'],capture_output=True).stdout.decode('utf-8')` **不抛异常**，
+  且解码后的文本包含完整中文（例如 `"创建 venv 并安装"`、`"每次升级/迁移前必须先备份"`）；
+  对 `upgrade`、`backup` 两条 recipe 的 `===> 中文` 各做一次同样断言。贴三次实际输出。
+- **证伪两组**（缺一不可）：① 把 pytest 的修法去掉 → Traceback 必须复现；② 把 make 的修法去掉 →
+  `decode('utf-8')` 必须重新抛 `UnicodeDecodeError`。贴两组前后对比，证明改动真的在起作用，
+  而不是环境偶然干净了。
+- 交付说明里给「审核方需复核的点」，并明确写出你在哪个终端/哪台机器上验的、`chcp` 当前活动代码页是多少。
+【禁止】用 `try/except` 吞掉清理异常；`2>NUL` / `--disable-warnings` / `warnings.filterwarnings("ignore")`
+之类**消音**手段；`-p no:cacheprovider`（与本案无关，别拿来凑数）；把 `--basetemp` 设成**固定共享目录**
+（并发跑会互踩、且 pytest 会在启动时清空它）；升级 pytest 或新增任何依赖；把中文 help 改英文；
+改业务代码或测试断言来"配合"；顺手重构 Makefile 里与本票无关的目标。
+```
