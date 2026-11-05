@@ -480,7 +480,7 @@ docs/deploy/backup-restore.md：包结构、导出下载、Docker 恢复、原�
 # 待投工单卡（v2.6 决策轮登记，**未开工**）
 
 > 来源：`docs/audit/pr1-24-retrospective.md` 的交付回顾审计 + 用户拍板（砍 PWA、归并补 UI、按建议顺序推进）。
-> 投单顺序 = ~~P5-6~~（PR#27）→ ~~P0-3~~（PR#28）→ ~~P3-3a~~（PR#29）→ ~~P3-3b~~（PR#30）→ ~~P3-3c~~（PR#31）→ ~~P5-1a~~（PR#32）→ ~~P5-1b~~（PR#33）→ ~~P0-4~~（PR#34）→ ~~P1-3e~~（PR#35）→ ~~P1-3f~~（PR#36）→ ~~P1-13~~（PR#37）→ ~~P1-13b~~（PR#38，随 `v0.5.0` 发布）→ ~~P4-1~~（PR#39，端口默认回环 + Tailscale 可达性）→ **P4-1b（部署面命令体检，本文件末尾新卡）**。每张卡可整段复制给 Qoder。
+> 投单顺序 = ~~P5-6~~（PR#27）→ ~~P0-3~~（PR#28）→ ~~P3-3a~~（PR#29）→ ~~P3-3b~~（PR#30）→ ~~P3-3c~~（PR#31）→ ~~P5-1a~~（PR#32）→ ~~P5-1b~~（PR#33）→ ~~P0-4~~（PR#34）→ ~~P1-3e~~（PR#35）→ ~~P1-3f~~（PR#36）→ ~~P1-13~~（PR#37）→ ~~P1-13b~~（PR#38，随 `v0.5.0` 发布）→ ~~P4-1~~（PR#39，端口默认回环 + Tailscale 可达性）→ ~~P4-1b~~（PR#40，部署面命令体检）→ **P4-1c（命令行备份入口，四问已定案，本文件末尾新卡）**。每张卡可整段复制给 Qoder。
 > **2026-11-03 更新**：P5-6 孤儿表切片已交付（迁移 0019 一次退役 `problem_extractions` /
 > `photo_capture_items` / `photo_captures` 三表；见 `TICKETS.md` 与 `docs/STATUS.md` §4.18），
 > 本卡留作回溯；P0-3 亦已交付（PR#28），下一张待投 = **P3-3a**。
@@ -503,6 +503,11 @@ docs/deploy/backup-restore.md：包结构、导出下载、Docker 恢复、原�
    lint 证据必须是 `ruff check --no-cache .`（不带 --no-cache 会因 .ruff_cache 给出假绿）。
 5. 交付描述里给"你自己实跑"的数字（passed 数、关键断言结果、表数等），并单列一段
    「审核方需复核的点」；不要把计划说成已完成，也不要拿旧提交的绿凑数。
+6. **指标类 DoD 只作用于用户面产物**（README*、Makefile、docs/** 里给家长照做的步骤、目录结构.md）。
+   `docs/tooling/qoder-build-plan.md`（工单存档）与 `CHANGELOG.md`（历史）**不在指标范围内**：
+   卡片正文与历史条目里出现的旧文件名、死路径、报错原文都是"当初哪里坏了"的证据，
+   **不得为了让 grep/统计类指标归零而删改卡片正文或历史条目**。若某条指标确实无法在不碰存档的前提下
+   满足，那是指标写错了——停下来在交付说明里指出，由审核方修订口径（P4-1b 就这么发生过一次）。
 ```
 
 ## P5-6 —— 交付口径与盘上一致性清理（含孤儿表退役）
@@ -1243,7 +1248,8 @@ Caddy / Nginx basic auth / OAuth / Cloudflare Tunnel 等公网鉴权栈；零迁
 Windows 计划任务怎么调、失败怎么告警。想清楚再开工，不要为了补 make 目标顺手造一半。
 ```
 
-> **状态：已交付（2026-11-05，分支 `feat/p4-1b-deploy-command-audit`，commit `a82f0c0`，待评审）**——交付内容与偏差见下。
+> **状态：已合并（2026-11-05，PR#40 squash → main `6f6c4cf`；原分支
+> `feat/p4-1b-deploy-command-audit` 已删）**——交付内容与偏差见下。
 >
 > 【交付】
 > 1. 删死目标：`backup:` 规则（调一个全仓不存在的备份模块）与 `.PHONY` 里没有规则的 `restore`
@@ -1287,3 +1293,89 @@ Windows 计划任务怎么调、失败怎么告警。想清楚再开工，不要
 >   "已清理该空骨架"的描述性表述（README 进度条目、`docs/STATUS.md`、`目录结构.md`），无一条是
 >   让人去访问它。
 > - P4-1c 的挂起说明见 `TICKETS.md` Phase 4 段与本卡末尾，四问未定前不开工。
+>
+> 【审核方实跑证据（合并前）】`pytest -q` **526 passed** / 261.50s、`ruff check . --no-cache` 绿、
+> `npm run lint` 与 `npm run build` 绿、`make -n dev-api` 渲染 `--host 127.0.0.1`、
+> `make -n lint` 渲染 `ruff check --no-cache .`、`make backup` 与 `make restore` 均报无规则、
+> `目录结构.md` 新声明的 13 条路径逐条存在（13/13），`docs/manuals` 已不在磁盘上；
+> CI run `41964774325` success（api 2m26s / web 22s）。合并后 main `6f6c4cf` 的树与审过的
+> `cd06c96` 逐字节一致。
+
+## P4-1c —— 命令行备份入口（四问已由审核方定死，不要再讨论）
+
+```
+你在 wengu 仓库工作。开工前完整读：AGENTS.md §7（一键备份/恢复）+ §5（事实源与幂等）+ §9（数据与隐私）
++ TICKETS.md 的 P4-1c + app/services/backup.py 全文 + app/api/backup.py + app/core/config.py
++ scripts/restore.ps1 + docs/deploy/backup-restore.md + wengu-api/scripts/import_seed.py（CLI 形态样板）。
+
+【四问的定案（2026-11-05 审核方拍板，本票按此执行，不要重新论证）】
+① 产物位置与轮转：**与 UI 完全同一套**——同落 `<data_dir>/backups/`、同一命名规则
+   `wengu-backup-<UTC时间戳>.zip`、共用 `KEEP_BACKUPS=10` 轮转。理由：两套轮转互相看不见对方，
+   一定会出现"留了 20 份还以为只留了 10 份"。
+② 权限模型：**不加 PIN、不加鉴权**。任何能在部署机上执行命令的人本来就有本机物理访问权，
+   套一层 PIN 是自欺。代价必须写进文档与 `--help`：能跑这条命令 = 能导出全部错题、订正答案与原图。
+③ 计划任务：**要给 Windows 示例**（本票的真实动机就是"升级前服务没起也能备份"）。
+④ 失败告警：**只做退出码 + 日志**，不做推送/锁屏/通知（AGENTS §2.3 反清单）。
+
+【事实（审核方 2026-11-05 读盘核实；与本卡不一致时以实际代码为准，不要硬凑）】
+1. `app/services/backup.py::create_backup(settings)` 是**同步函数**（sqlite3 + zipfile + hashlib，
+   全程无 await），HTTP 侧只是用 `asyncio.to_thread` 包了一层（`app/api/backup.py` 的 export 端点）。
+   ⇒ CLI 可以直接调用它，**不需要事件循环、不需要起服务**。
+2. `rotate_backups(settings)` 已在 `create_backup` 内部末尾调用 ⇒ CLI 天然继承轮转，
+   **禁止**在 CLI 里再写一份轮转/清理逻辑。
+3. `create_backup` 在 `settings.db_path` 不存在时抛 `BackupError("业务库不存在，无法备份")`；
+   API 侧映射 500 且细节只进日志。⇒ CLI 必须先把"将要备份哪个 db_path、产物会落在哪"打印出来。
+4. **本机存在两份平行数据目录**（审核方当天实测）：Docker 形态是 `<仓库>/data/`（compose 里
+   `WENGU_DATA_DIR=/app/data` 映射而来），原生 `run-trial.ps1` 形态是 `<仓库>/wengu-api/data/`
+   （= `Settings.data_dir` 的默认值）。两份库的 alembic 版本与错题数都不同。
+   ⇒ CLI 必须支持显式指定数据目录，并且**默认打印它用的是哪一份**；否则最容易发生的事故是
+   "备份了错的那份库，升级时以为有底"。
+5. 既有 CLI 形态样板：`wengu-api/scripts/import_seed.py` / `import_questions.py` /
+   `export_topics_junior.py` 都是 `argparse` + `def main(argv: list[str] | None = None) -> int`
+   + `if __name__ == "__main__"`。⇒ 新 CLI 沿用同形态，`main(argv)` 的签名让单测能直接调用，
+   **不要**用 subprocess 测。
+6. `Settings` 从 `wengu-api/.env` 读取，`get_settings()` 带 `lru_cache`。
+7. 备份包内容（`create_backup`）：`wengu.db` 快照 + `uploads/` + `seeds_local/` + 未处理 `inbox/`
+   + `app-config.json` + `manifest.json`（每文件 sha256、alembic 版本、表计数）。
+   日志与 stdout 只允许出现文件名/大小/sha256/计数级别的信息。
+8. 恢复侧 `scripts/restore.ps1` 是停机整库替换，认的就是上面这个 zip 结构 ⇒ CLI 产物与 UI 产物同格式，
+   恢复流程不需要分叉，**不要**改 restore 的语义。
+
+【任务】
+1. 新增 `wengu-api/scripts/backup_cli.py`。**不要**复用已删除的 `local_backup` 这个名字
+   （CHANGELOG 里那是一条死目标的记录，复活同名会让后人误判历史）。
+2. 参数：`--data-dir PATH`（覆盖 `Settings.data_dir`，用于 Docker 形态指 `<仓库>/data`）、
+   `--dry-run`（只打印"将备份哪个库 / 产物落哪 / 现有备份份数与最旧一份文件名 / 当前 alembic 版本"，
+   **不写任何文件**）。默认无参 = 直接备份当前配置指向的库。
+3. 实现只允许"调用"：`create_backup(get_settings())` 或 `create_backup(Settings(data_dir=...))`。
+   **禁止**在 CLI 里另写 VACUUM INTO、zip 打包、manifest 生成或轮转。
+4. 输出：成功打印 filename / size_bytes / sha256 / alembic_version / counts 摘要，退出码 0；
+   失败打印一行原因（来自 `BackupError`），退出码非 0。**不得**打印题目、答案、文件 URL 或 PII。
+5. Makefile 把 `backup` 目标加回来，指向这个 CLI（`cd wengu-api && $(VENV_PY) -m scripts.backup_cli`），
+   支持 `DATA_DIR=` 变量覆盖；`help` 的备份段同时保留"家长区「备份」页"这条入口，
+   并保留"每次升级/迁移前必须先备份"的提醒。
+6. 文档：`docs/deploy/backup-restore.md` 新增一节"命令行 / 计划任务备份"，写清 ②的权限含义、
+   ④的两份数据目录怎么选、以及 **Windows 计划任务示例**（`schtasks` 或图形界面步骤 + 为什么要在
+   升级前跑）。示例必须实测；实测不通就在文档里标"未验证"并在交付说明里报告，**不许照抄本卡措辞**。
+7. 测试：unit 覆盖 `main(argv)` 的 `--dry-run` 输出与"库不存在 → 非 0 退出"；integration 覆盖
+   "CLI 产物能被 `list_backups` / `resolve_backup` 认出且 sha256 一致"，以及"连跑 11 次只留 10 份"
+   （证明与 UI 共用同一套轮转）。参照 tests/ 现有 fixture 风格，用临时 data_dir，不碰任何真实库。
+
+【DoD】
+- `pytest -q` 全绿（当前基线 **526 passed**，新增用例数在 PR 里逐条说明新增了什么、为什么）；
+  `ruff check --no-cache .` 绿；`npm run lint` / `npm run build` 绿（本票不该动前端，动了要解释）；
+  CI 绿。零迁移、零新依赖。
+- **不改** `app/services/backup.py` 的快照/打包/manifest/轮转语义——只调用它。若你发现必须改动才能
+  被 CLI 复用，**停下来报告**，不要顺手重构。
+- 证伪两组，贴两次输出：① 把数据目录指到没有 `wengu.db` 的位置 → CLI 必须非 0 退出并打印
+  "业务库不存在"；② 用 `--data-dir` 指另一份库 → `--dry-run` 打印的 db_path 与错题计数必须随之变
+  （证明它真的按参数选库，不是永远备份默认那份）。
+- Windows 实测一次真实导出：贴脱敏输出（filename/size/sha256/counts）+ 解开 zip 跑
+  `PRAGMA integrity_check` = ok。若同时能跑一次计划任务触发，更好。
+- 备份产物绝不进仓库：PR 里确认 `git status --porcelain` 干净（`data/`、`backups/` 已 gitignore）。
+- CHANGELOG 在 `## [Unreleased]` 下记 Added（命令行备份入口），并写明它与家长区导出共用实现与轮转。
+【禁止】在 CLI 里新写快照/打包/manifest/轮转实现；加 `--encrypt` / `--upload` / `--incremental` /
+`--keep` 之类"更完整"的选项；给 CLI 套 PIN 或任何伪鉴权；改 `scripts/restore.ps1` 的替换语义；
+在 stdout 或日志打印题目、答案、文件 URL、PII 或密钥；复活 `local_backup` 这个名字；
+顺手改 `app/api/backup.py` 的端点行为；把 CLI 变成第二个写入路径（它只读业务库、只写 backups/）。
+```

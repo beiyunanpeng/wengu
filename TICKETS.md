@@ -444,7 +444,7 @@
     `docker compose config -q` 静默通过且渲染出 `host_ip: 127.0.0.1`（api 8000 / web 5173 两组）、
     CI run `41954176088` success。**两项待试用机实测**：`tailscale serve --bg http://127.0.0.1:5173`
     的 CLI 形式（以 `tailscale serve --help` 为准）、sidecar 路径 A 在 Linux/群晖的运行时验证。
-- **P4-1b 部署面命令体检**（已交付，待评审）：本票只做一件事——
+- **P4-1b 部署面命令体检**（**已合并**：PR#40 squash → main `6f6c4cf`，2026-11-05）：本票只做一件事——
   **仓库里写给家长/开发者敲的每条命令都必须真能跑**。审核方 2026-11-05 读盘 + 只读实跑核实九条事实，
   其中六处缺陷与处置（原文保留，便于日后回看"当初到底哪里坏了"）：
   ① `make backup`（Makefile:135-138）调全仓不存在的 `scripts.local_backup`（实跑
@@ -462,10 +462,16 @@
   现行唯一备份路径是家长区 `POST /api/backup/export`（P5-2），恢复走停机整库替换 `scripts/restore.ps1`。
   出卡正文（九条事实 + 禁止项 + 我那条写坏的 grep DoD 及其修订口径）完整保留在
   `docs/tooling/qoder-build-plan.md` 的 P4-1b 卡，**不得为指标归零而删改**。
-- **P4-1c（候选，未开工）不停服务的命令行备份入口**：技术上可行（`VACUUM INTO` 对运行中的 WAL 库是
-  安全一致性快照，P5-2 已这么实现），但要先定四件事再开工：产物是否同落 `<data_dir>/backups/` 并共用
-  `KEEP_BACKUPS` 轮转、CLI 侧权限模型（绕过家长 PIN 意味着什么）、Windows 计划任务怎么调、失败怎么告警。
-  登记理由：升级前（`0019` 这类破坏性迁移）必须在**服务未起**时也能备份，现在只有 UI 一条路。
+- **P4-1c（已出卡，见 `docs/tooling/qoder-build-plan.md` 末尾）不停服务的命令行备份入口**：动机是真实缺口——
+  `0019` 这类破坏性迁移要求"服务没起的时候也能先备份"，而现在只有家长区 UI 一条路。技术上无悬念
+  （`create_backup(settings)` 是同步函数，`VACUUM INTO` 对运行中的 WAL 库就是安全一致性快照）。
+  **四问已由审核方 2026-11-05 定案，不再讨论**：① 产物与 UI 同落 `<data_dir>/backups/`、共用
+  `KEEP_BACKUPS=10` 轮转（两套轮转互相看不见必然出事）；② **不加 PIN、不加鉴权**——能执行命令就等于
+  有本机物理访问权，套 PIN 是自欺，代价必须写进 `--help` 与文档；③ 要给 Windows 计划任务示例（须实测）；
+  ④ 失败只做退出码 + 日志，不做推送（反清单）。硬约束：只**调用** `app/services/backup.py`，
+  禁止在 CLI 里另写快照/打包/manifest/轮转；必须支持 `--data-dir` 并默认打印用的是哪一份库
+  （本机实测存在 `data/` 与 `wengu-api/data/` 两份平行库，版本与错题数都不同，"备份错了那份"是最容易
+  发生的事故）。
 - **P4-2 可移植部署**：Docker 镜像原样上云（搬 SQLite 文件 + 挂载卷 + `data/inbox`）；Postgres 迁移为**可选**路径。
 - **P4-3（可选）本地模型层**：若购置带 N 卡主机，Qwen-VL/PaddleOCR 经 Provider 接入做**隐私化系统内识别/转录**（替代外部 agent）。禁：为省 API 去租云 GPU。
 
