@@ -480,7 +480,7 @@ docs/deploy/backup-restore.md：包结构、导出下载、Docker 恢复、原�
 # 待投工单卡（v2.6 决策轮登记，**未开工**）
 
 > 来源：`docs/audit/pr1-24-retrospective.md` 的交付回顾审计 + 用户拍板（砍 PWA、归并补 UI、按建议顺序推进）。
-> 投单顺序 = ~~P5-6~~（PR#27）→ ~~P0-3~~（PR#28）→ ~~P3-3a~~（PR#29）→ ~~P3-3b~~（PR#30）→ ~~P3-3c~~（PR#31）→ ~~P5-1a~~（PR#32）→ ~~P5-1b~~（PR#33）→ ~~P0-4~~（PR#34）→ ~~P1-3e~~（PR#35）→ ~~P1-3f~~（PR#36）→ ~~P1-13~~（PR#37）→ ~~P1-13b~~（PR#38，随 `v0.5.0` 发布）→ **P4-1（Tailscale 可达性 + 裸奔口子收紧，本文件末尾新卡）**。每张卡可整段复制给 Qoder。
+> 投单顺序 = ~~P5-6~~（PR#27）→ ~~P0-3~~（PR#28）→ ~~P3-3a~~（PR#29）→ ~~P3-3b~~（PR#30）→ ~~P3-3c~~（PR#31）→ ~~P5-1a~~（PR#32）→ ~~P5-1b~~（PR#33）→ ~~P0-4~~（PR#34）→ ~~P1-3e~~（PR#35）→ ~~P1-3f~~（PR#36）→ ~~P1-13~~（PR#37）→ ~~P1-13b~~（PR#38，随 `v0.5.0` 发布）→ ~~P4-1~~（PR#39，端口默认回环 + Tailscale 可达性）→ **P4-1b（部署面命令体检，本文件末尾新卡）**。每张卡可整段复制给 Qoder。
 > **2026-11-03 更新**：P5-6 孤儿表切片已交付（迁移 0019 一次退役 `problem_extractions` /
 > `photo_capture_items` / `photo_captures` 三表；见 `TICKETS.md` 与 `docs/STATUS.md` §4.18），
 > 本卡留作回溯；P0-3 亦已交付（PR#28），下一张待投 = **P3-3a**。
@@ -1162,3 +1162,83 @@ Caddy / Nginx basic auth / OAuth / Cloudflare Tunnel 等公网鉴权栈；零迁
 > ② sidecar 路径 A 从未在 Linux/群晖起过，`serve.json` 只做了格式同构比对、无运行时验证。
 > 已知小瑕疵（留后续小票）：`remote-check.ps1` 在两个端口都没监听时仍判"仅本机可达"，
 > 更准确的判定应是"服务未运行"。
+
+## P4-1b —— 部署面命令体检（写给家长/开发者敲的每条命令都必须真能跑）
+
+```
+你在 wengu 仓库工作。开工前完整读：AGENTS.md §7（开源分发护栏，受众是"能装 Docker 的半技术家长"）
++ §8（一票一 PR / DoD）+ TICKETS.md 的 P4-1b 与 P4-1c + Makefile 全文 + README.md 快速开始段
++ wengu-api/README.md + wengu-web/README.md + seeds/README.md + docs/deploy/ 全部四篇。
+
+【全局纪律】一条 ticket = 一个 PR。禁止引入新依赖；零迁移；不改任何业务 API、权限与备份实现。
+本票的产出物主要是"一张命令 → 实测结果"的对照表，不是新功能。
+现有代码与本卡不一致时以实际代码为准，不要硬凑；本卡事实由审核方 2026-11-05 读盘核实。
+
+【事实（逐条可复核）】
+1. Makefile:135-138 `backup:` 调 `$(VENV_PY) -m scripts.local_backup`。`wengu-api/scripts/` 实际只有
+   `__init__.py` / `export_topics_junior.py` / `import_questions.py` / `import_seed.py`，**全仓没有
+   `local_backup.py`**。审核方只读实跑：`No module named scripts.local_backup`。
+2. Makefile:134 注释指向 `docs/manuals/ops/backup.md`——**这个文件不存在**。`docs/manuals/` 本身在
+   （只有 `guide/.gitkeep` 与 `ops/.gitkeep` 两个空骨架，见 CHANGELOG:1761 的建仓记录与 `目录结构.md:38`），
+   但里面没有任何文档；实际部署文档在 `docs/deploy/`：backup-restore.md / docker.md / mobile-access.md /
+   upgrade-v0.5.0.md。
+3. Makefile:39 的 `.PHONY` 声明了 `restore`，但文件里**没有 `restore:` 规则**（Makefile 正文到 138 行
+   为止，最后一条规则就是 `backup:`）→ `make restore` 只会报 "No rule to make target"；`help:` 也没列它。
+4. Makefile:82 `dev-api` 是 `$(VENV_UVICORN) app.main:app --reload --host 0.0.0.0` —— **P4-1 收紧后
+   仓库里最后一处"默认全网卡"**，而 README:73 与 wengu-api/README.md:36 都叫家长敲 `make dev-api`。
+   原生 `run-trial.ps1` 用的是 `--host 127.0.0.1`，两条路径口径不一致。
+5. Makefile:119 `lint:` 是 `$(VENV_RUFF) check .`，**不带 `--no-cache`**——本仓已多次被 `.ruff_cache`
+   骗出与 CI 相反的假绿（投单前言也明写了"lint 证据必须 --no-cache"）。CI 是全新 checkout，绿是真的；
+   本地这条给的是假证据。
+6. `seeds/README.md:34` 行内注释写 `--src ../cn-math-taxonomy-main`，Makefile:96 写
+   `--src ../../cn-math-taxonomy-main`。上游 clone 实际在**仓库根的上一级**（本机
+   `D:\MyProducts\StudyDesk\cn-math-taxonomy-main`），`cd wengu-api` 之后只有 `../../` 对，README 少一级
+   （CHANGELOG:1177 当年只修了 Makefile 侧，漏了这行注释）。
+7. Makefile:53 的 `help` 说 `make seed-load` 是"从 seeds/ 装载 knowledge_seed + prerequisite_edges"，
+   而 recipe（96）做的是**从上游 clone 转换生成 `seeds/data/`**（一次性开发者动作）。措辞会让家长
+   以为这是日常步骤。
+8. Makefile:137 `@mkdir -p backups` 在 Windows 分支由 `SHELL := cmd.exe`（10–11 行）执行，`-p` 是
+   POSIX 写法，cmd.exe 下行为不可靠。**必须在 Windows 实测后再决定怎么写，不许照抄本卡措辞。**
+9. 现行唯一备份路径：家长区 `POST /api/backup/export`（`app/api/backup.py` + `app/services/backup.py`，
+   `VACUUM INTO` 一致性快照 → `<data_dir>/backups/wengu-backup-*.zip`，`KEEP_BACKUPS=10` 轮转）；
+   恢复 = 停机整库替换 `scripts/restore.ps1` + `docs/deploy/backup-restore.md`。
+
+【任务】
+1. 删除死的 `backup:` 目标，并删掉 `.PHONY` 里不存在的 `restore`。**不要**新写一个 CLI 备份脚本
+   冒充它（见【另开一票】）。`help` 的"备份"段改成指向家长区导出 + `docs/deploy/backup-restore.md`，
+   并保留"每次升级/迁移前必须先备份"的提醒（P4-1 之后升级会自动迁移，见 upgrade-v0.5.0.md §2）。
+2. `dev-api` 的 `--host 0.0.0.0` → 默认 `127.0.0.1`，与 P4-1 口径一致；确需局域网调试用变量覆盖
+   （建议 `HOST ?= 127.0.0.1`），并在 README / wengu-api/README 写清怎么覆盖与风险。
+3. `lint:` 加 `--no-cache`（`format:` 保持原样，不要顺手改无关目标）。
+4. 修 `seeds/README.md` 那行 `--src` 层级；把 `help` 里 seed-load 的描述改成与 recipe 一致
+   （"从上游 clone 转换生成 seeds/data/，一次性、开发者跑；需要本地有上游 clone"）。
+5. **Windows 实测**（试用机就是 Windows 11 + PS 5.1）：`make help`、`make upgrade`、`make lint`、
+   `make dev-api`、以及改动前的 `make backup` 各跑一次，把真实输出/报错原文贴进 PR。若 cmd.exe 下
+   POSIX 写法确实有问题，改成跨平台安全的写法并说明依据。
+6. 全仓再扫一遍"写给用户敲的命令/文件路径"是否还有死引用：README.md、wengu-api/README.md、
+   wengu-web/README.md、seeds/README.md、`目录结构.md`（整篇都在声明路径，逐个对磁盘核一遍）、docs/**。
+   每条要么实测通过，要么改掉/删掉；PR 里给一张 `命令 → 实测结果` 对照表，覆盖你扫到的每一条。
+
+【DoD】
+- `grep -rn "local_backup" .`（排除 node_modules/venv）**零命中**；`grep -rn "docs/manuals/ops/backup.md" .`
+  也**零命中**——要么把那行注释改指 `docs/deploy/backup-restore.md`，要么把 `docs/manuals/` 这个空骨架
+  一并清掉（`guide/.gitkeep` 与 `ops/.gitkeep` 里没有任何文档），二选一并在 PR 里说明为什么。
+  CHANGELOG 里的历史条目**不要改**（那是发生过的事实，允许保留对旧名的记述）。
+- `make help` 列出的每个 target 都真实存在；不存在的要么实现要么从 help 删除。
+- `make lint` 与 CI 结论一致：同一份代码在干净 checkout 与本机都绿（证明假绿口子堵上了）。
+- `make dev-api` 起来后跑 `.\scripts\remote-check.ps1`，判定必须是"仅本机可达"（api 只绑 127.0.0.1:8000），
+  且 `http://127.0.0.1:8000/health` 返回 200；贴两次输出作为**证伪证据**（改回 0.0.0.0 时判定应变
+  "局域网可达"）。
+- `pytest -q` 全绿（当前基线 **526 passed**）、`ruff check --no-cache .` 绿、`npm run lint` 与
+  `npm run build` 绿、CI 绿。零迁移、零新依赖、业务 API 与权限未改。
+- CHANGELOG 在 `## [Unreleased]` 下记 Fixed（`make backup` 死目标）+ Changed（`make dev-api` 默认回环，
+  属行为变更，要写怎么覆盖）。
+【禁止】新写 `local_backup.py` 或任何 CLI 备份实现来"让 make backup 复活"；改 `app/services/backup.py`
+的快照/轮转/manifest 逻辑；把 `dev-api` 留在 0.0.0.0 只靠文档提醒；为了数字好看删改 CHANGELOG 历史
+条目；顺手重构 Makefile 里与本票无关的目标（install-*、seed-*、migrate、up/down/logs 等）。
+
+【另开一票，本票不做】P4-1c：是否给家长一个"不停服务、命令行即可导出备份"的入口。技术上可行
+（`VACUUM INTO` 对运行中的 WAL 库是安全的一致性快照，P5-2 就是这么实现的），但要一并决定：产物是否
+同落 `<data_dir>/backups/` 并共用 `KEEP_BACKUPS` 轮转、CLI 侧的权限模型（绕过 PIN 意味着什么）、
+Windows 计划任务怎么调、失败怎么告警。想清楚再开工，不要为了补 make 目标顺手造一半。
+```

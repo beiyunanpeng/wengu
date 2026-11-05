@@ -444,12 +444,22 @@
     `docker compose config -q` 静默通过且渲染出 `host_ip: 127.0.0.1`（api 8000 / web 5173 两组）、
     CI run `41954176088` success。**两项待试用机实测**：`tailscale serve --bg http://127.0.0.1:5173`
     的 CLI 形式（以 `tailscale serve --help` 为准）、sidecar 路径 A 在 Linux/群晖的运行时验证。
-- **P4-1b 部署面命令体检**（登记，未开工）：`make backup` 是死目标——Makefile:138 调
-  `python -m scripts.local_backup`，而 `wengu-api/scripts/` 只有 `export_topics_junior.py` /
-  `import_questions.py` / `import_seed.py`，全仓无 `local_backup.py`（审核方 2026-11-04 只读实跑报
-  `No module named scripts.local_backup`）；该行注释还指向不存在的 `docs/manuals/ops/backup.md`，
-  而 P5-2 的家长区备份（`app/services/backup.py` → `POST /api/backup/export`）才是现行唯一路径。
-  本票只做"仓库里写出来的每条命令都能真跑通"这一件事：删/改死目标、补齐或改指向真实文档。
+- **P4-1b 部署面命令体检**（已出卡，见 `docs/tooling/qoder-build-plan.md` 末尾）：本票只做一件事——
+  **仓库里写给家长/开发者敲的每条命令都必须真能跑**。审核方 2026-11-05 读盘 + 只读实跑核实九条事实，
+  其中六处是缺陷：① `make backup`（Makefile:135-138）调不存在的 `scripts.local_backup`
+  （实跑 `No module named scripts.local_backup`）；② 同行注释指向 `docs/manuals/ops/backup.md`，该**文件
+  不存在**（`docs/manuals/{guide,ops}/` 只是建仓时留的空骨架，各有一个 `.gitkeep`），部署文档实际在
+  `docs/deploy/`；③ `.PHONY` 声明了 `restore` 但**没有该规则**；
+  ④ `make dev-api` 仍 `--host 0.0.0.0`，是 P4-1 收紧后**最后一处默认全网卡**，而 README 叫家长敲它；
+  ⑤ `make lint` 不带 `--no-cache`，正是本仓反复踩的 `.ruff_cache` 假绿口子；
+  ⑥ `seeds/README.md` 的 `--src ../cn-math-taxonomy-main` 比 Makefile 的 `../../` 少一级（上游 clone 在
+  仓库根的上一级），且 `help` 把 seed-load 描述成"从 seeds/ 装载"而 recipe 实际是"从上游转换生成"。
+  现行唯一备份路径是家长区 `POST /api/backup/export`（P5-2），恢复走停机整库替换 `scripts/restore.ps1`。
+  **禁止**为了补 `make backup` 而新造一个 CLI 备份实现。
+- **P4-1c（候选，未开工）不停服务的命令行备份入口**：技术上可行（`VACUUM INTO` 对运行中的 WAL 库是
+  安全一致性快照，P5-2 已这么实现），但要先定四件事再开工：产物是否同落 `<data_dir>/backups/` 并共用
+  `KEEP_BACKUPS` 轮转、CLI 侧权限模型（绕过家长 PIN 意味着什么）、Windows 计划任务怎么调、失败怎么告警。
+  登记理由：升级前（`0019` 这类破坏性迁移）必须在**服务未起**时也能备份，现在只有 UI 一条路。
 - **P4-2 可移植部署**：Docker 镜像原样上云（搬 SQLite 文件 + 挂载卷 + `data/inbox`）；Postgres 迁移为**可选**路径。
 - **P4-3（可选）本地模型层**：若购置带 N 卡主机，Qwen-VL/PaddleOCR 经 Provider 接入做**隐私化系统内识别/转录**（替代外部 agent）。禁：为省 API 去租云 GPU。
 
