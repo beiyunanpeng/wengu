@@ -7,6 +7,25 @@
 
 ## [Unreleased]
 
+### Added
+
+- **P4-1c 命令行备份入口（服务未起也能用，零迁移、零新依赖）**（2026-11-05）：
+  - 新增 `wengu-api/scripts/backup_cli.py`：`python -m scripts.backup_cli` 备份当前配置
+    指向的库，`--data-dir PATH` 指定另一份数据目录，`--dry-run` 只打印将备份的库、产物
+    目录、现有备份份数/最旧文件名、alembic 版本与计数，不写任何文件。
+  - **与家长区「备份」页共用同一实现与轮转**：只调用
+    `app.services.backup.create_backup`，产物同落 `<data_dir>/backups/`、
+    同名 `wengu-backup-<UTC时间戳>.zip`、同 `KEEP_BACKUPS=10` 轮转；CLI 不含任何
+    自写的 VACUUM INTO / zip 打包 / manifest 生成 / 轮转逻辑，不构成第二个写入路径。
+  - 成功输出 filename / size_bytes / sha256 / alembic 版本 / 各表计数，退出码 0；
+    失败只打印一行原因（来自 `BackupError`）并以非 0 退出，不做推送/通知。
+  - `Makefile` 加回 `backup` 目标（`make backup`；Docker 形态 `make backup DATA_DIR=data`），
+    `make help` 备份段保留家长区入口与"每次升级/迁移前必须先备份"提醒。
+  - `docs/deploy/backup-restore.md` 新增「命令行 / 计划任务备份」：权限含义（能跑命令 =
+    能导出全部错题/答案/原图，无 PIN）、两份数据目录怎么选、实测过的 Windows 计划任务
+    示例、为何升级前跑。`app/services/backup.py`、`app/api/backup.py`、
+    `scripts/restore.ps1` 均未改动。
+
 ### Fixed
 
 - **P4-1b 部署面命令体检（零迁移、零新依赖）**（2026-11-05）：

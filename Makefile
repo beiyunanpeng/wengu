@@ -31,13 +31,15 @@ endif
 PORT          ?= 8000
 WEB_PORT      ?= 5173
 HOST          ?= 127.0.0.1
+DATA_DIR      ?=
 M             ?= auto
 D             ?= base
 
 .PHONY: help install-api dev-api install-web dev-web \
         seed-load seed-questions migrate upgrade downgrade migration-test \
         test lint format \
-        up down logs
+        up down logs \
+        backup
 
 help:
 	@echo "wengu 开发命令（跨平台）："
@@ -68,8 +70,10 @@ help:
 	@echo "  make down               docker compose down"
 	@echo "  make logs               docker compose logs -f"
 	@echo ""
-	@echo "  # 备份（唯一入口：家长区「备份」页 → POST /api/backup/export）"
-	@echo "  每次升级/迁移前必须先备份：解锁家长区 → 备份 → 立即导出（一致性快照，保留最近 10 份）"
+	@echo "  # 备份（两条入口，同一实现与轮转：<data_dir>/backups/，保留最近 10 份）"
+	@echo "  make backup             命令行导出（服务未起也能用；Docker 形态加 DATA_DIR=data）"
+	@echo "  也可以在家长区「备份」页点「立即导出」"
+	@echo "  每次升级/迁移前必须先备份；能跑命令 = 能导出全部错题/答案/原图（无 PIN）"
 	@echo "  恢复 = 停服务后整库替换，步骤见 docs/deploy/backup-restore.md"
 	@echo ""
 	@echo "注意：wengu 无外部依赖，SQLite + 本地卷即全部数据；无需装 MySQL/Redis。"
@@ -132,3 +136,9 @@ down:
 
 logs:
 	docker compose logs -f
+
+# ---------- 备份 ----------
+# 与家长区「备份」页同一实现与轮转；只读业务库、只写 <data_dir>/backups/
+# DATA_DIR 相对仓库根解析：make backup DATA_DIR=data（Docker 形态）
+backup:
+	cd wengu-api && $(VENV_PY) -m scripts.backup_cli $(if $(DATA_DIR),--data-dir "$(abspath $(DATA_DIR))")
