@@ -30,9 +30,17 @@ Docker Desktop **不支持** `/dev/net/tun`，所以不要在 compose 里启用 
 改为在**宿主机**安装 Tailscale 客户端并登录同一 tailnet，然后：
 
 ```powershell
-tailscale serve --bg 5173
+tailscale serve --bg --yes 5173
 tailscale serve status
 ```
+
+> **首次会报 `Serve is not enabled on your tailnet.` 并给出一个 `https://login.tailscale.com/f/serve?node=…`
+> 链接**（2026-11-05 真机遇到）。这不是错误，是 **tailnet 级的一次性开关**：Serve 依赖 Tailscale 为
+> `*.ts.net` 自动签发 HTTPS 证书的能力，该能力默认关闭。用浏览器打开那个链接、登录同一账号、点启用，
+> 然后重跑上面两条命令即可（只需做一次，之后整个 tailnet 都可用）。
+> 也可以在管理后台 `https://login.tailscale.com/admin/dns` 的 **HTTPS Certificates** 里确认已开启。
+>
+> `--yes` 表示不交互确认；**`--bg` 不能省**（不带就在前台占住终端窗口）。
 
 `serve status` 会显示 `https://<主机名>.<你的 tailnet>.ts.net` 已转发到
 `http://127.0.0.1:5173`。手机浏览器打开这个 https 地址即可；端口不是 5173 时换成你的

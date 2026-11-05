@@ -141,9 +141,14 @@ docker compose start api
 # 2) 部署机：装 Tailscale 客户端（Microsoft Store 搜 Tailscale，或 https://tailscale.com/download 下载 MSI），登录你的 tailnet
 
 # 3) 配转发（裸端口形式，已按 tailscale serve --help 核实）
-tailscale serve --bg 5173
+tailscale serve --bg --yes 5173
 tailscale serve status
 ```
+
+> **首次大概率报 `Serve is not enabled on your tailnet.`** 并打印一个
+> `https://login.tailscale.com/f/serve?node=…` 链接——这是 **tailnet 级的一次性开关**（Serve 依赖
+> Tailscale 给 `*.ts.net` 自动签发 HTTPS 证书的能力，默认关闭）。浏览器打开该链接、登录同一账号、
+> 点启用，再重跑上面两条。**只需做一次。**
 
 > **语法核实记录（2026-11-05，Windows 11 真机 `tailscale serve --help`）**：`<target>` 接受裸端口
 > （`3000`）、部分 URL（`localhost:3000`）或完整 URL（`http://localhost:3000/foo`），官方示例就是
