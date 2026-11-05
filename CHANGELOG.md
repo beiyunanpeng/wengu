@@ -38,14 +38,26 @@
     `pytest-of-roc`，把失效的 `pytest-current` 用 `os.rmdir`（目录符号链接的正确原语）移除；
     连链接本身都删不掉时，把整个临时根移开为 `pytest-of-roc.stale-<时间>-<pid>`（**不删除**、
     保留现场）并在 stderr 明确提示，本次在干净的新根上运行。没有吞异常、没有改保留数、
-    没有换 pytest 版本：判据是清理真的跑完（编号目录收敛到 3 个）。
+    没有换 pytest 版本。
+  - **验证口径（按实测收紧，不写成"已根治"）**：**本机噪音已消除**——来源是**一次性**把坏根
+    移开（`pytest-of-roc.stale-*`），审核方复跑三次均零 Traceback、编号目录收敛到 3；
+    钩子的**主动修复分支（`os.rmdir` 删死链接）目前只有单元测试覆盖逻辑，尚无真机符号链接
+    验证**——非管理员且未开开发者模式时 `os.symlink` 报 WinError 1314，pytest 自己也建不出
+    这个链接，本机无法自然复现。新增 `wengu-api/tests/unit/test_conftest_temp_root.py` 5 条单测
+    （全部打桩 `Path.is_symlink` / `Path.resolve` / `os.rmdir` / `os.rename`，临时根落 `tmp_path`，
+    **不读写真实 `%TEMP%`、不建真符号链接**，Windows/ubuntu 均可跑）：① 死链接 + `os.rmdir`
+    成功 → 链接被移除、临时根未改名、stderr 无 `[p0-5]`；② 死链接 + `os.rmdir` 抛 `OSError`
+    → 整根改名为 `pytest-of-roc.stale-<时间>-<pid>`，stderr 打出 `[p0-5] cannot remove …;
+    moved temp root to …`；③④⑤ 守卫三情形（给了 `--basetemp` / `sys.platform != "win32"` /
+    链接健康）→ 计数桩断言 `os.rmdir` 与 `os.rename` **均未被调用**。
   - **`make help` 等中文输出被 cmd.exe 代码页吃掉**：Windows 分支 `SHELL := cmd.exe`，
     `@echo "…中文…"` 的 UTF-8 字节经 OEM 代码页（中文 Windows 为 936）后尾字节变 `?`
     （`make help` 原始字节里 25 个 `?`，`decode('utf-8')` 直接抛 `UnicodeDecodeError`）。
     Makefile 新增 `SAY`：Windows 分支 `$(info …)`（make 自己直写 stdout，不经过 cmd），
-    Unix 分支保持 `@echo "…"`；把所有含中文的 `@echo`（`help` 整段 + 6 条 `===>`）改走 `SAY`，
-    并给 `upgrade` / `backup` 补上 `===>` 中文提示（原卡假定这两条已有，实际没有）。
-    中文 help 未改英文，Linux/macOS 的 `/bin/sh` 分支行为不变。
+    Unix 分支保持 `@echo "…"`；把所有含中文的 `@echo`（`help` 整段 + 6 条既有 `===>`）改走 `SAY`。
+    另**新增两条 `===>` 中文输出行**（`upgrade` 的"升级前请先 make backup"、`backup` 的导出说明）
+    ——这是**为满足本票 DoD 断言而新增的输出行，属行为变更**（`make upgrade` / `make backup`
+    现在会多打一行中文提示）。中文 help 未改英文，Linux/macOS 的 `/bin/sh` 分支行为不变。
   - 业务代码、测试断言、`pyproject.toml` 的 pytest 参数与版本线均未改动。
 
 - **P4-1b 部署面命令体检（零迁移、零新依赖）**（2026-11-05）：
