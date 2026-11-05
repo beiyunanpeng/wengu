@@ -9,6 +9,9 @@ ifeq ($(OS),Windows_NT)
     # cmd.exe 才能正确解析 venv\Scripts\ 反斜杠路径；每条 recipe 用 && 串成一行
     SHELL         := cmd.exe
     .SHELLFLAGS   := /C
+    # cmd.exe 按 OEM 代码页（中文 Windows 是 936）解析命令，UTF-8 中文会被拆成 '?'；
+    # $(info) 由 make 自己直写 stdout，不经过 cmd，字节原样保留
+    SAY           = $(info $(1))
     VENV_PY       = venv\Scripts\python
     VENV_UVICORN  = venv\Scripts\uvicorn
     VENV_PIP      = venv\Scripts\pip
@@ -17,6 +20,7 @@ ifeq ($(OS),Windows_NT)
     VENV_RUFF     = venv\Scripts\ruff
     PYTHON        ?= python3.12
 else
+    SAY           = @echo "$(1)"
     VENV_PY       = venv/bin/python
     VENV_UVICORN  = venv/bin/uvicorn
     VENV_PIP      = venv/bin/pip
@@ -42,73 +46,75 @@ D             ?= base
         backup
 
 help:
-	@echo "wengu 开发命令（跨平台）："
-	@echo ""
-	@echo "  # 后端"
-	@echo "  make install-api        创建 venv 并安装 wengu-api 依赖（PYTHON=$(PYTHON)）"
-	@echo "  make dev-api            启动 FastAPI (http://$(HOST):$(PORT)，HOST/PORT 可覆盖；默认仅本机)"
-	@echo ""
-	@echo "  # 前端"
-	@echo "  make install-web        安装 wengu-web 依赖"
-	@echo "  make dev-web            启动 Vite 开发服务器 (http://localhost:$(WEB_PORT))"
-	@echo ""
-	@echo "  # 数据与迁移"
-	@echo "  make seed-load          从上游 cn-math-taxonomy 转换生成 seeds/data/（一次性，开发者跑；需先 clone 到仓库父目录）"
-	@echo "  make seed-questions     转换初中题库到 seeds/data/questions.json（一次性）"
-	@echo "  make migrate            生成新 Alembic 迁移（改表后跑；M=描述）"
-	@echo "  make upgrade            应用最新迁移到 SQLite"
-	@echo "  make downgrade          回退迁移（D=base 或 revision）"
-	@echo "  make migration-test     跑迁移测试（幂等 + 回退）"
-	@echo ""
-	@echo "  # 测试"
-	@echo "  make test               跑所有 pytest"
-	@echo "  make lint               ruff 检查"
-	@echo "  make format             ruff format"
-	@echo ""
-	@echo "  # Docker（家长部署主路径）"
-	@echo "  make up                 docker compose up -d --build --wait"
-	@echo "  make down               docker compose down"
-	@echo "  make logs               docker compose logs -f"
-	@echo ""
-	@echo "  # 备份（两条入口，同一实现与轮转：<data_dir>/backups/，保留最近 10 份）"
-	@echo "  make backup             命令行导出（服务未起也能用；Docker 形态加 DATA_DIR=data）"
-	@echo "  也可以在家长区「备份」页点「立即导出」"
-	@echo "  每次升级/迁移前必须先备份；能跑命令 = 能导出全部错题/答案/原图（无 PIN）"
-	@echo "  恢复 = 停服务后整库替换，步骤见 docs/deploy/backup-restore.md"
-	@echo ""
-	@echo "注意：wengu 无外部依赖，SQLite + 本地卷即全部数据；无需装 MySQL/Redis。"
+	$(call SAY,wengu 开发命令（跨平台）：)
+	$(call SAY,)
+	$(call SAY,  # 后端)
+	$(call SAY,  make install-api        创建 venv 并安装 wengu-api 依赖（PYTHON=$(PYTHON)）)
+	$(call SAY,  make dev-api            启动 FastAPI (http://$(HOST):$(PORT)，HOST/PORT 可覆盖；默认仅本机))
+	$(call SAY,)
+	$(call SAY,  # 前端)
+	$(call SAY,  make install-web        安装 wengu-web 依赖)
+	$(call SAY,  make dev-web            启动 Vite 开发服务器 (http://localhost:$(WEB_PORT)))
+	$(call SAY,)
+	$(call SAY,  # 数据与迁移)
+	$(call SAY,  make seed-load          从上游 cn-math-taxonomy 转换生成 seeds/data/（一次性，开发者跑；需先 clone 到仓库父目录）)
+	$(call SAY,  make seed-questions     转换初中题库到 seeds/data/questions.json（一次性）)
+	$(call SAY,  make migrate            生成新 Alembic 迁移（改表后跑；M=描述）)
+	$(call SAY,  make upgrade            应用最新迁移到 SQLite)
+	$(call SAY,  make downgrade          回退迁移（D=base 或 revision）)
+	$(call SAY,  make migration-test     跑迁移测试（幂等 + 回退）)
+	$(call SAY,)
+	$(call SAY,  # 测试)
+	$(call SAY,  make test               跑所有 pytest)
+	$(call SAY,  make lint               ruff 检查)
+	$(call SAY,  make format             ruff format)
+	$(call SAY,)
+	$(call SAY,  # Docker（家长部署主路径）)
+	$(call SAY,  make up                 docker compose up -d --build --wait)
+	$(call SAY,  make down               docker compose down)
+	$(call SAY,  make logs               docker compose logs -f)
+	$(call SAY,)
+	$(call SAY,  # 备份（两条入口，同一实现与轮转：<data_dir>/backups/，保留最近 10 份）)
+	$(call SAY,  make backup             命令行导出（服务未起也能用；Docker 形态加 DATA_DIR=data）)
+	$(call SAY,  也可以在家长区「备份」页点「立即导出」)
+	$(call SAY,  每次升级/迁移前必须先备份；能跑命令 = 能导出全部错题/答案/原图（无 PIN）)
+	$(call SAY,  恢复 = 停服务后整库替换，步骤见 docs/deploy/backup-restore.md)
+	$(call SAY,)
+	$(call SAY,注意：wengu 无外部依赖，SQLite + 本地卷即全部数据；无需装 MySQL/Redis。)
+	@cd .
 
 # ---------- 后端 ----------
 install-api:
-	@echo "===> 创建 venv 并安装 wengu-api 依赖..."
+	$(call SAY,===> 创建 venv 并安装 wengu-api 依赖...)
 	cd wengu-api && $(PYTHON) -m venv venv && $(VENV_PIP) install --upgrade pip && $(VENV_PIP) install -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
 
 dev-api:
-	@echo "===> 启动 FastAPI (http://$(HOST):$(PORT)/docs)..."
+	$(call SAY,===> 启动 FastAPI (http://$(HOST):$(PORT)/docs)...)
 	cd wengu-api && $(VENV_UVICORN) app.main:app --reload --host $(HOST) --port $(PORT)
 
 # ---------- 前端 ----------
 install-web:
-	@echo "===> 安装 wengu-web 依赖..."
+	$(call SAY,===> 安装 wengu-web 依赖...)
 	cd wengu-web && npm ci --registry=https://registry.npmmirror.com
 
 dev-web:
-	@echo "===> 启动 Vite 开发服务器 (http://localhost:$(WEB_PORT))..."
+	$(call SAY,===> 启动 Vite 开发服务器 (http://localhost:$(WEB_PORT))...)
 	cd wengu-web && npm run dev -- --port $(WEB_PORT)
 
 # ---------- 数据与迁移 ----------
 seed-load:
-	@echo "===> 从 cn-math-taxonomy 转换初中 seed 到 seeds/data/（一次性，开发者跑）..."
+	$(call SAY,===> 从 cn-math-taxonomy 转换初中 seed 到 seeds/data/（一次性，开发者跑）...)
 	cd wengu-api && $(VENV_PY) -m scripts.import_seed --src ../../cn-math-taxonomy-main
 
 seed-questions:
-	@echo "===> 从 cn-math-taxonomy 转换初中题库到 seeds/data/questions.json（一次性，开发者跑）..."
+	$(call SAY,===> 从 cn-math-taxonomy 转换初中题库到 seeds/data/questions.json（一次性，开发者跑）...)
 	cd wengu-api && $(VENV_PY) -m scripts.import_questions --src ../../cn-math-taxonomy-main
 
 migrate:
 	cd wengu-api && $(VENV_ALEMBIC) revision --autogenerate -m "$(M)"
 
 upgrade:
+	$(call SAY,===> 应用最新迁移到数据库（升级前请先 make backup）...)
 	cd wengu-api && $(VENV_ALEMBIC) upgrade head
 
 downgrade:
@@ -141,4 +147,5 @@ logs:
 # 与家长区「备份」页同一实现与轮转；只读业务库、只写 <data_dir>/backups/
 # DATA_DIR 相对仓库根解析：make backup DATA_DIR=data（Docker 形态）
 backup:
+	$(call SAY,===> 导出备份到 <data_dir>/backups/（与家长区「备份」页同一实现与轮转）...)
 	cd wengu-api && $(VENV_PY) -m scripts.backup_cli $(if $(DATA_DIR),--data-dir "$(abspath $(DATA_DIR))")
