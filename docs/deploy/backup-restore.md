@@ -51,18 +51,22 @@ curl -OJ http://127.0.0.1:8000/api/backup/download/<文件名> -b cookies.txt
 
 家长区「备份」页之外还有一条命令行入口，专门解决"升级前服务已经停了，但还没备份"：
 
-```powershell
-# 原生 run-trial.ps1 形态：默认就是 wengu-api\data
-cd D:\wengu
-wengu-api\venv\Scripts\python -m scripts.backup_cli --dry-run   # 先看会备份哪一份库
-wengu-api\venv\Scripts\python -m scripts.backup_cli
+必须在 `wengu-api` 目录下执行（`scripts.backup_cli` 是该包的模块路径；在仓库根执行会报
+`No module named scripts.backup_cli`）。`--data-dir` 按**当前目录**解析，所以 Docker 形态写 `..\data`：
 
-# Docker 形态：数据在 <仓库>\data
-wengu-api\venv\Scripts\python -m scripts.backup_cli --data-dir data --dry-run
-wengu-api\venv\Scripts\python -m scripts.backup_cli --data-dir data
+```powershell
+# 原生 run-trial.ps1 形态：默认库就在 wengu-api\data
+cd D:\wengu\wengu-api
+venv\Scripts\python -m scripts.backup_cli --dry-run   # 先看会备份哪一份库
+venv\Scripts\python -m scripts.backup_cli
+
+# Docker 形态：数据在 <仓库>\data（相对 wengu-api 就是 ..\data）
+venv\Scripts\python -m scripts.backup_cli --data-dir ..\data --dry-run
+venv\Scripts\python -m scripts.backup_cli --data-dir ..\data
 ```
 
-用 Makefile 时 `DATA_DIR` 相对仓库根解析（省略则用原生默认目录）：
+嫌路径麻烦就用 Makefile，它已经处理了 `cd wengu-api`，且 `DATA_DIR` **相对仓库根**解析
+（与上面 `--data-dir` 的基准不同，别混用）：
 
 ```powershell
 make backup
