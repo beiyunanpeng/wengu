@@ -480,7 +480,10 @@ docs/deploy/backup-restore.md：包结构、导出下载、Docker 恢复、原�
 # 待投工单卡（v2.6 决策轮登记，**未开工**）
 
 > 来源：`docs/audit/pr1-24-retrospective.md` 的交付回顾审计 + 用户拍板（砍 PWA、归并补 UI、按建议顺序推进）。
-> 投单顺序 = ~~P5-6~~（PR#27）→ ~~P0-3~~（PR#28）→ ~~P3-3a~~（PR#29）→ ~~P3-3b~~（PR#30）→ ~~P3-3c~~（PR#31）→ ~~P5-1a~~（PR#32）→ ~~P5-1b~~（PR#33）→ ~~P0-4~~（PR#34）→ ~~P1-3e~~（PR#35）→ ~~P1-3f~~（PR#36）→ ~~P1-13~~（PR#37）→ ~~P1-13b~~（PR#38，随 `v0.5.0` 发布）→ ~~P4-1~~（PR#39，端口默认回环 + Tailscale 可达性）→ ~~P4-1b~~（PR#40，部署面命令体检）→ **P4-1c（命令行备份入口，四问已定案，本文件末尾新卡）**。每张卡可整段复制给 Qoder。
+> 投单顺序 = ~~P5-6~~（PR#27）→ ~~P0-3~~（PR#28）→ ~~P3-3a~~（PR#29）→ ~~P3-3b~~（PR#30）→ ~~P3-3c~~（PR#31）→ ~~P5-1a~~（PR#32）→ ~~P5-1b~~（PR#33）→ ~~P0-4~~（PR#34）→ ~~P1-3e~~（PR#35）→ ~~P1-3f~~（PR#36）→ ~~P1-13~~（PR#37）→ ~~P1-13b~~（PR#38，随 `v0.5.0` 发布）→ ~~P4-1~~（PR#39，端口默认回环 + Tailscale 可达性）→ ~~P4-1b~~（PR#40，部署面命令体检）→ ~~P4-1c~~（PR#41，命令行备份入口，四问按定案执行）。**当前无待投卡**；下一张候选：
+P4-2 可移植部署 / P5-5 英文 README + 独立隐私声明 / P3-4 听力默写，以及待登记的
+P0-5（`pytest` 收尾 `atexit PermissionError [WinError 5]` 与 `make help` 中文标点乱码这类噪音）。
+每张卡可整段复制给 Qoder。
 > **2026-11-03 更新**：P5-6 孤儿表切片已交付（迁移 0019 一次退役 `problem_extractions` /
 > `photo_capture_items` / `photo_captures` 三表；见 `TICKETS.md` 与 `docs/STATUS.md` §4.18），
 > 本卡留作回溯；P0-3 亦已交付（PR#28），下一张待投 = **P3-3a**。
@@ -1379,3 +1382,42 @@ Windows 计划任务怎么调、失败怎么告警。想清楚再开工，不要
 在 stdout 或日志打印题目、答案、文件 URL、PII 或密钥；复活 `local_backup` 这个名字；
 顺手改 `app/api/backup.py` 的端点行为；把 CLI 变成第二个写入路径（它只读业务库、只写 backups/）。
 ```
+
+> **状态：已合并（2026-11-05，PR#41 squash → main `8bbef94`；原分支 `feat/p4-1c-backup-cli` 已删）**
+>
+> 【四问的执行结果】① 产物与 UI 同目录同命名同 `KEEP_BACKUPS=10` 轮转（有 integration 用例连跑 11 次
+> 只留 10 份来证明共用，不是各留一套）；② 无 PIN、无伪鉴权，代价写进了 `--help` 描述与
+> `docs/deploy/backup-restore.md` §2.1；③ Windows 计划任务示例**实测通过**（`schtasks /Create` +
+> `/Run` + `/Query` 上次结果=0），并记下一条真坑：`/TR` 里写 `set PYTHONUTF8=1 && …` 会把值带成
+> `1 `（尾随空格）导致 Python 报 invalid value 直接退出；④ 失败只有退出码 + 一行 stderr，无推送。
+>
+> 【实现纪律】CLI 是纯参数壳：只调 `create_backup`，复用服务的 `BACKUP_NAME_RE` / `COUNT_TABLES` /
+> `backups_dir`；`app/services/backup.py`、`app/api/backup.py`、`scripts/restore.ps1`、requirements
+> 与前端均未改动；工单存档与 CHANGELOG 历史条目未被触碰（投单前言第 6 条首次生效即被遵守）。
+>
+> 【审核方实跑证据】`pytest -q` **530 passed** / 285.84s（526 基线 + 新增 4，单跑两个新文件 4 passed）；
+> `ruff check . --no-cache` 绿；`npm run lint` / `npm run build` 绿；`--dry-run` 默认指向
+> `wengu-api\data\wengu.db`（`0011`，mistakes=2 / events=13），`--data-dir ../data` 确实换到
+> `<仓库>\data\wengu.db`（`0012`，mistakes=3 / events=20）；缺库退出码 **1** 且 stderr 一行原因；
+> 证伪两组——把 `_settings` 改成忽略 `--data-dir` → 两个 unit 用例双红，把 `if args.dry_run:`
+> 改成 `if False:` → "不落盘"断言在第 48 行变红；两次均还原、`git status` 空、`diff` 与 HEAD 一致。
+> CI run `41978695623` success（api 2m5s / web 20s）；合并后 main `8bbef94` 的树与审过的
+> `b1ad589` 逐字节一致。
+>
+> 【审核方修复】交付版文档 §2.1 第一条命令照抄跑不通（在仓库根执行报 `No module named
+> scripts.backup_cli`，且 `--data-dir data` 基准应为 `..\data`）——`scripts` 是 `wengu-api` 下的包。
+> 已随 PR 补一笔 `docs(deploy)` 修正，并写明 `--data-dir`（按当前目录）与 Makefile `DATA_DIR`
+> （按仓库根 `$(abspath)`）的解析基准差异。这正是 P4-1b 立的规矩，不能带着合并。
+>
+> 【对交付方复核点的答复】① 确认 `--data-dir` 强制 `db_path=<data_dir>/wengu.db` 是期望语义
+> （本机 `wengu-api/.env` 未设 `WENGU_DB_PATH`/`WENGU_DATA_DIR`，无冲突；CLI 无条件先打印实际
+> db_path 是主防线，不再加冲突警告分支）；② 确认 Makefile 解析基准合理；③ 它对自身行为的描述**不准**——
+> 缺 `alembic_version` 表的库实测是**非 0 退出**（不是"显示未知"），且真实备份走
+> `create_backup → _snapshot_meta` 同样失败，dry-run 与 UI 端点行为一致（P5-2 既有语义），
+> 判定可接受：没有 `alembic_version` 的库不是 wengu 库，备份它才是事故。
+>
+> 【残留】试用实测在 `data/backups/`（2 份）与 `wengu-api/data/backups/`（3 份）留下真实备份 zip，
+> 均已 gitignore，审核方建议**保留**（删备份不算收口）；临时计划任务已确认清除（`schtasks /Query`
+> 报找不到、任务清单 grep `wengu` 零命中、`%TEMP%\wengu-backup.log` 不存在）。
+> `pytest` 收尾 `atexit PermissionError [WinError 5]` 连续两票出现，与 `make help` 在 Git Bash 下的
+> 中文标点乱码，均属存量噪音，待另开 P0-5 处理。

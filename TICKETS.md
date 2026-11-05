@@ -462,7 +462,7 @@
   现行唯一备份路径是家长区 `POST /api/backup/export`（P5-2），恢复走停机整库替换 `scripts/restore.ps1`。
   出卡正文（九条事实 + 禁止项 + 我那条写坏的 grep DoD 及其修订口径）完整保留在
   `docs/tooling/qoder-build-plan.md` 的 P4-1b 卡，**不得为指标归零而删改**。
-- **P4-1c（已出卡，见 `docs/tooling/qoder-build-plan.md` 末尾）不停服务的命令行备份入口**：动机是真实缺口——
+- **P4-1c 不停服务的命令行备份入口**（**已合并**：PR#41 squash → main `8bbef94`，2026-11-05）：动机是真实缺口——
   `0019` 这类破坏性迁移要求"服务没起的时候也能先备份"，而现在只有家长区 UI 一条路。技术上无悬念
   （`create_backup(settings)` 是同步函数，`VACUUM INTO` 对运行中的 WAL 库就是安全一致性快照）。
   **四问已由审核方 2026-11-05 定案，不再讨论**：① 产物与 UI 同落 `<data_dir>/backups/`、共用

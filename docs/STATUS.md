@@ -187,6 +187,18 @@
   (head)`、`make dev-api` 后 `remote-check.ps1` 判「仅本机可达」/ `HOST=0.0.0.0` 时判「局域网
   可达」、`pytest` **526 passed**、`ruff check --no-cache` / `npm run lint` / `npm run build` 绿。
   零迁移、无新依赖、业务 API 与权限未改。
+- **P4-1c 命令行备份入口已合并**（2026-11-05，PR#41 squash → main `8bbef94`）：补上
+  `wengu-api/scripts/backup_cli.py`（`--data-dir` / `--dry-run`），**纯参数壳**——只调
+  `app.services.backup.create_backup`，与家长区「备份」页同落 `<data_dir>/backups/`、同命名、
+  同 `KEEP_BACKUPS=10` 轮转（integration 用例连跑 11 次只留 10 份证明共用），不构成第二个写入路径。
+  四问按定案执行：产物与轮转同一套、**不加 PIN/伪鉴权**（能跑命令 = 能导出全部错题/答案/原图，
+  已写进 `--help` 与文档）、给出**实测通过**的 Windows 计划任务示例（含 `/TR` 里
+  `set PYTHONUTF8=1` 会带尾随空格导致 Python 拒绝启动这条真坑）、失败只给退出码 + 一行原因。
+  `make backup`（`DATA_DIR` 按仓库根解析）随之加回。审核证据：`pytest` **530 passed**（526 基线 +
+  新增 4）、`ruff check --no-cache` 绿、`npm run lint`/`build` 绿、`--dry-run` 实测能按参数在
+  `0011/mistakes=2` 与 `0012/mistakes=3` 两份平行库之间正确切换、缺库退出码 1；两组证伪（忽略
+  `--data-dir`、让 dry-run 落盘）都能让新用例变红。审核方另修掉一处文档缺陷：§2.1 第一条命令照抄
+  跑不通（缺 `cd wengu-api`、`--data-dir` 基准错）。零迁移、零新依赖。
 - **下一步（v2.6 决策轮定的顺序）**：① ~~P5-6 口径清理~~、~~P0-3 端到端回归~~、
   ~~P3-3a 手填背诵~~、~~P3-3b 词表导入~~、~~P3-3c 从错题抽词~~、~~P5-1a 配置持久化修复~~、
   ~~P5-1b 首次运行向导 UI~~、~~P1-3e 移动端投递~~、~~P1-3f BOM 剥离~~、
@@ -202,7 +214,7 @@
 | Phase 1 | 核心闭环 | 进行中 | P1-0～P1-13b 完成（模型在环旧链路已退役，含 P1-3e 投递入口、P1-3f BOM 归一、P1-13 归并 UI、P1-13b 归并弹窗不预选）；仅剩 P1-7b，P1-7c 阻塞 |
 | Phase 2 | 每日任务 + 家长看板 | 进行中 | P2-5 家长看板、P2-4 两角色 + 本地 PIN、P2-6 极简打卡、P2-1 日队列（本轮仅到期复习/考核）、P2-3 课表/日历约束层、P2-2 番茄钟执行、P2-7 打印导出已完成；背诵铺底已随 P3-3a 以独立到期端点 + 复习页入口交付；作业 deadline 与硬事件抬权重未开始 |
 | Phase 3 | 内容与扩展 | 进行中 | P3-1 家长录题（真题入库审核流水线）+ P3-1b 家长题接入检索池 + P3-1c 题库修订/软作废 + P3-2 主动加练变式 + **P3-3a 家长手填英语背诵** + **P3-3b 词表批量导入** + **P3-3c 从错题抽词**已完成；P3-5 前置（语文/化学家长自建章级 seed）已交付；听力默写、语文客观题、信奥、长期计划未开始 |
-| Phase 4 | 基础设施演进 | 进行中 | **P4-1 Tailscale 可达性 + 默认只绑回环已合并**（PR#39；两项待试用机实测：`tailscale serve` CLI 形式、sidecar 路径 A 运行时验证）；**P4-1b 部署面命令体检已合并**（PR#40 → `6f6c4cf`；死 `make backup`/`.PHONY restore` 删除、`make dev-api` 默认回环、`make lint --no-cache`、`seeds/README.md --src` 层级、`docs/manuals` 空骨架清理）；P4-1c 命令行备份入口未开工；P4-2 可移植部署、P4-3 可选本地模型未开始 |
+| Phase 4 | 基础设施演进 | 进行中 | **P4-1 Tailscale 可达性 + 默认只绑回环已合并**（PR#39；两项待试用机实测：`tailscale serve` CLI 形式、sidecar 路径 A 运行时验证）；**P4-1b 部署面命令体检已合并**（PR#40 → `6f6c4cf`；死 `make backup`/`.PHONY restore` 删除、`make dev-api` 默认回环、`make lint --no-cache`、`seeds/README.md --src` 层级、`docs/manuals` 空骨架清理）；P4-1c 命令行备份入口已合并（PR#41 → `8bbef94`；CLI 只调 `create_backup`，与 UI 同目录同命名同 10 份轮转、无 PIN、Windows 计划任务示例已实测）；P4-2 可移植部署、P4-3 可选本地模型未开始 |
 | Phase 5 | 开源分发与打包 | 部分完成 | LICENSE / README / CHANGELOG / `.env.example` / 第三方署名已就位；P5-2 备份 v1（导出一致性快照 + 停机恢复脚本）已交付；首次运行向导、在线恢复、云备份 / 清空级联、鉴权开关、教材包安装器未做 |
 
 ## 3. Phase 1 工单完成情况（v2.5 收口后）
