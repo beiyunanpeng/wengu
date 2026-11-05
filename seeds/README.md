@@ -30,8 +30,9 @@ seeds/
 上游更新后重跑转换脚本（需要本地有上游 clone）：
 
 ```bash
+# 在仓库根目录执行：把上游 clone 到仓库的父目录（与仓库同级）
 git clone https://github.com/xiaoyang111222/cn-math-taxonomy.git ../cn-math-taxonomy-main  # 一次性
-make seed-load   # python -m scripts.import_seed --src ../cn-math-taxonomy-main
+make seed-load   # 等价于 cd wengu-api && python -m scripts.import_seed --src ../../cn-math-taxonomy-main
 ```
 
 转换规则：过滤初中（grade 7–9）→ 12 核心字段直映（camelCase→snake_case）→ 按 id 前缀显式化

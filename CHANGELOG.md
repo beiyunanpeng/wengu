@@ -7,7 +7,28 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **P4-1b 部署面命令体检（零迁移、零新依赖）**（2026-11-05）：
+  - 删除 `make backup` 死目标（Makefile 曾调用全仓不存在的备份模块，实跑报
+    `No module named ...`）；**未新造 CLI 备份实现**。现行唯一备份入口仍是家长区
+    「备份」页（`POST /api/backup/export`），恢复见 `docs/deploy/backup-restore.md`。
+  - 删掉 `.PHONY` 中无规则的 `restore`；`make help` 不再列出 `make backup`，备份段改为
+    指向家长区导出与 `docs/deploy/backup-restore.md`，保留"每次升级/迁移前必须先备份"提醒。
+  - `make lint` 加 `--no-cache`，与本仓"lint 证据必须 --no-cache"纪律及 CI 口径一致。
+  - `seeds/README.md` 的 `--src` 修正为 `../../cn-math-taxonomy-main`（recipe 在 `wengu-api/`
+    下执行）；`make help` 的 seed-load 描述改为"从上游转换生成 `seeds/data/`（一次性，开发者跑）"。
+  - 删除 `docs/manuals/{guide,ops}` 空骨架（只有 `.gitkeep`，无任何文档），部署命令统一落
+    `docs/deploy/`；`目录结构.md` 按磁盘实况重写（迁移 head=0020、web 实际目录、配置真源）。
+  - `docs/deploy/backup-restore.md` 的原生恢复步骤修正：`.\run-trial.ps1 -Stop`（停止）、
+    无参 `.\run-trial.ps1`（启动）——原 `stop`/`start` 位置参数脚本并不接受。
+
 ### Changed
+
+- **`make dev-api` 默认只绑回环（行为变更）**（2026-11-05）：监听地址默认 `HOST=127.0.0.1`
+  （与 P4-1 的 Docker/Vite 口径一致），同网段设备默认访问不到。**要局域网调试**：
+  `make dev-api HOST=0.0.0.0`，自担风险（孩子区免登录，这不是远程访问方案）；远程请走
+  Tailscale，见 `docs/deploy/mobile-access.md`。端口仍可 `PORT=8100` 覆盖。
 
 - **P4-1 默认只绑回环 + Tailscale 可达性（无迁移、无新依赖）**（2026-11-04）：
   - **Docker（行为变更）**：api/web 的发布端口改为

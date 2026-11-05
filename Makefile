@@ -27,30 +27,31 @@ else
 endif
 
 # 端口可用环境变量覆盖：make dev-api PORT=8100
+# 监听地址默认仅回环（与 P4-1 一致）：确需局域网调试用 make dev-api HOST=0.0.0.0
 PORT          ?= 8000
 WEB_PORT      ?= 5173
+HOST          ?= 127.0.0.1
 M             ?= auto
 D             ?= base
 
 .PHONY: help install-api dev-api install-web dev-web \
         seed-load seed-questions migrate upgrade downgrade migration-test \
         test lint format \
-        up down logs \
-        backup restore
+        up down logs
 
 help:
 	@echo "wengu 开发命令（跨平台）："
 	@echo ""
 	@echo "  # 后端"
 	@echo "  make install-api        创建 venv 并安装 wengu-api 依赖（PYTHON=$(PYTHON)）"
-	@echo "  make dev-api            启动 FastAPI (http://localhost:$(PORT)，PORT 可覆盖)"
+	@echo "  make dev-api            启动 FastAPI (http://$(HOST):$(PORT)，HOST/PORT 可覆盖；默认仅本机)"
 	@echo ""
 	@echo "  # 前端"
 	@echo "  make install-web        安装 wengu-web 依赖"
 	@echo "  make dev-web            启动 Vite 开发服务器 (http://localhost:$(WEB_PORT))"
 	@echo ""
 	@echo "  # 数据与迁移"
-	@echo "  make seed-load          从 seeds/ 装载 knowledge_seed + prerequisite_edges"
+	@echo "  make seed-load          从上游 cn-math-taxonomy 转换生成 seeds/data/（一次性，开发者跑；需先 clone 到仓库父目录）"
 	@echo "  make seed-questions     转换初中题库到 seeds/data/questions.json（一次性）"
 	@echo "  make migrate            生成新 Alembic 迁移（改表后跑；M=描述）"
 	@echo "  make upgrade            应用最新迁移到 SQLite"
@@ -67,8 +68,9 @@ help:
 	@echo "  make down               docker compose down"
 	@echo "  make logs               docker compose logs -f"
 	@echo ""
-	@echo "  # 备份"
-	@echo "  make backup             本地导出 SQLite + uploads 到 backups/zip"
+	@echo "  # 备份（唯一入口：家长区「备份」页 → POST /api/backup/export）"
+	@echo "  每次升级/迁移前必须先备份：解锁家长区 → 备份 → 立即导出（一致性快照，保留最近 10 份）"
+	@echo "  恢复 = 停服务后整库替换，步骤见 docs/deploy/backup-restore.md"
 	@echo ""
 	@echo "注意：wengu 无外部依赖，SQLite + 本地卷即全部数据；无需装 MySQL/Redis。"
 
@@ -78,8 +80,8 @@ install-api:
 	cd wengu-api && $(PYTHON) -m venv venv && $(VENV_PIP) install --upgrade pip && $(VENV_PIP) install -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
 
 dev-api:
-	@echo "===> 启动 FastAPI (http://localhost:$(PORT)/docs)..."
-	cd wengu-api && $(VENV_UVICORN) app.main:app --reload --host 0.0.0.0 --port $(PORT)
+	@echo "===> 启动 FastAPI (http://$(HOST):$(PORT)/docs)..."
+	cd wengu-api && $(VENV_UVICORN) app.main:app --reload --host $(HOST) --port $(PORT)
 
 # ---------- 前端 ----------
 install-web:
@@ -116,7 +118,7 @@ test:
 	cd wengu-api && $(VENV_PYTEST)
 
 lint:
-	cd wengu-api && $(VENV_RUFF) check .
+	cd wengu-api && $(VENV_RUFF) check --no-cache .
 
 format:
 	cd wengu-api && $(VENV_RUFF) format .
@@ -130,9 +132,3 @@ down:
 
 logs:
 	docker compose logs -f
-
-# ---------- 备份（v2.4 AESGCM + git 私有仓库路径详见 docs/manuals/ops/backup.md）----------
-backup:
-	@echo "===> 本地打包 SQLite + uploads 到 backups/wengu-<timestamp>.zip"
-	@mkdir -p backups
-	cd wengu-api && $(VENV_PY) -m scripts.local_backup --out ../backups

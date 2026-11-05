@@ -177,6 +177,16 @@
   `host_ip: 127.0.0.1`、CI `41954176088` success。
   **待试用机实测（不当已完成）**：`tailscale serve --bg http://127.0.0.1:5173` 的 CLI 形式
   （以 `tailscale serve --help` 为准）、sidecar 路径 A 在 Linux/群晖的运行时验证。
+- **P4-1b 部署面命令体检已交付**（2026-11-05，待评审合并）：删掉调用不存在模块的 `backup:`
+  目标与 `.PHONY` 里无规则的 `restore`（**不新造 CLI 备份实现**），`help` 备份段改指家长区
+  「备份」页 + `docs/deploy/backup-restore.md`；`make dev-api` 新增 `HOST ?= 127.0.0.1`
+  （局域网调试显式 `HOST=0.0.0.0`，README 已写明风险）；`make lint` 加 `--no-cache`；
+  `seeds/README.md` 的 `--src` 改为 `../../`；删除 `docs/manuals/` 空骨架并按磁盘重写
+  `目录结构.md`；顺带修正 `docs/deploy/backup-restore.md` 里 `run-trial.ps1` 的错误参数。
+  实测：`make help` 列出的 15 个 target 逐个存在、`make upgrade` 空库跑到 `0020_recitation
+  (head)`、`make dev-api` 后 `remote-check.ps1` 判「仅本机可达」/ `HOST=0.0.0.0` 时判「局域网
+  可达」、`pytest` **526 passed**、`ruff check --no-cache` / `npm run lint` / `npm run build` 绿。
+  零迁移、无新依赖、业务 API 与权限未改。
 - **下一步（v2.6 决策轮定的顺序）**：① ~~P5-6 口径清理~~、~~P0-3 端到端回归~~、
   ~~P3-3a 手填背诵~~、~~P3-3b 词表导入~~、~~P3-3c 从错题抽词~~、~~P5-1a 配置持久化修复~~、
   ~~P5-1b 首次运行向导 UI~~、~~P1-3e 移动端投递~~、~~P1-3f BOM 剥离~~、
@@ -192,7 +202,7 @@
 | Phase 1 | 核心闭环 | 进行中 | P1-0～P1-13b 完成（模型在环旧链路已退役，含 P1-3e 投递入口、P1-3f BOM 归一、P1-13 归并 UI、P1-13b 归并弹窗不预选）；仅剩 P1-7b，P1-7c 阻塞 |
 | Phase 2 | 每日任务 + 家长看板 | 进行中 | P2-5 家长看板、P2-4 两角色 + 本地 PIN、P2-6 极简打卡、P2-1 日队列（本轮仅到期复习/考核）、P2-3 课表/日历约束层、P2-2 番茄钟执行、P2-7 打印导出已完成；背诵铺底已随 P3-3a 以独立到期端点 + 复习页入口交付；作业 deadline 与硬事件抬权重未开始 |
 | Phase 3 | 内容与扩展 | 进行中 | P3-1 家长录题（真题入库审核流水线）+ P3-1b 家长题接入检索池 + P3-1c 题库修订/软作废 + P3-2 主动加练变式 + **P3-3a 家长手填英语背诵** + **P3-3b 词表批量导入** + **P3-3c 从错题抽词**已完成；P3-5 前置（语文/化学家长自建章级 seed）已交付；听力默写、语文客观题、信奥、长期计划未开始 |
-| Phase 4 | 基础设施演进 | 进行中 | **P4-1 Tailscale 可达性 + 默认只绑回环已合并**（PR#39；两项待试用机实测：`tailscale serve` CLI 形式、sidecar 路径 A 运行时验证）；P4-1b 部署面命令体检已登记未开工（`make backup` 是死目标）；P4-2 可移植部署、P4-3 可选本地模型未开始 |
+| Phase 4 | 基础设施演进 | 进行中 | **P4-1 Tailscale 可达性 + 默认只绑回环已合并**（PR#39；两项待试用机实测：`tailscale serve` CLI 形式、sidecar 路径 A 运行时验证）；**P4-1b 部署面命令体检已交付**（死 `make backup`/`.PHONY restore` 删除、`make dev-api` 默认回环、`make lint --no-cache`、`seeds/README.md --src` 层级、`docs/manuals` 空骨架清理）；P4-1c 命令行备份入口未开工；P4-2 可移植部署、P4-3 可选本地模型未开始 |
 | Phase 5 | 开源分发与打包 | 部分完成 | LICENSE / README / CHANGELOG / `.env.example` / 第三方署名已就位；P5-2 备份 v1（导出一致性快照 + 停机恢复脚本）已交付；首次运行向导、在线恢复、云备份 / 清空级联、鉴权开关、教材包安装器未做 |
 
 ## 3. Phase 1 工单完成情况（v2.5 收口后）

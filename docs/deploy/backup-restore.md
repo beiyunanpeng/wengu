@@ -79,7 +79,7 @@ curl -OJ http://127.0.0.1:8000/api/backup/download/<文件名> -b cookies.txt
 `wengu-api\data`，不是 Docker 的 `.\data`**，两者别弄混。步骤：
 
 ```powershell
-.\run-trial.ps1 stop          # 1) 先停写；确认 8000 / 5173 都已释放
+.\run-trial.ps1 -Stop         # 1) 先停写；确认 8000 / 5173 都已释放
 ```
 
 2. 用 `-SkipServiceControl -SkipHealthCheck` 只做文件替换（脚本不碰容器、不查健康）：
@@ -92,7 +92,7 @@ curl -OJ http://127.0.0.1:8000/api/backup/download/<文件名> -b cookies.txt
 3. 重新起服务并核对：
 
 ```powershell
-.\run-trial.ps1 start         # 4) 浏览器打开看板，核对错题数 / 到期队列与 manifest 计数一致
+.\run-trial.ps1               # 3) 浏览器打开看板，核对错题数 / 到期队列与 manifest 计数一致
 ```
 
 - 安全副本落在 `wengu-api\backups\pre-restore-<时间戳>\`（回滚就是把它拷回 `wengu-api\data`）。

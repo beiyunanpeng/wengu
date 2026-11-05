@@ -79,6 +79,11 @@ make dev-web         # http://localhost:5173
 `make test` / `make lint` / `make migration-test` 分别跑测试、ruff、迁移回退测试。
 Windows 上若 `make` 不在 PATH，重开终端或安装 [GNU Make](https://winget.run/pkg/ezwinports/make)（`winget install ezwinports.make`）。
 
+> **`make dev-api` 默认只监听 `127.0.0.1`**（与 Docker 口径一致）：同网段手机/平板默认连不上。
+> 确需局域网调试时用 `make dev-api HOST=0.0.0.0`，**这是临时调试开关，不是远程访问方案**——
+> 孩子区免登录，暴露到局域网等于免鉴权；远程请走 Tailscale（见
+> [`docs/deploy/mobile-access.md`](./docs/deploy/mobile-access.md)）。端口仍可用 `PORT=8100` 覆盖。
+
 ## 📦 当前进度
 
 - ✅ **P1-0 Repo 骨架**（2026-10-24）：FastAPI `/health` + SQLite WAL + Alembic 基线 + React 空壳（Mantine + KaTeX）+ Docker/CI；`docker compose up` 双服务 healthy 已实测。
@@ -108,7 +113,8 @@ Windows 上若 `make` 不在 PATH，重开终端或安装 [GNU Make](https://win
 - ✅ **P5-2 备份 v1（导出一致性快照 + 停机恢复）**（2026-10-31）：家长区新增「备份」页——`VACUUM INTO` 一致性快照 + `uploads/`、`seeds_local/`、未处理 `inbox/` 打成 `data/backups/wengu-backup-<时间戳>.zip`，附 `manifest.json`（各文件 sha256、alembic 版本、表计数），只保留最近 10 份；导出全程只读业务库、不写任何表。恢复走 [`scripts/restore.ps1`](./scripts/restore.ps1) + [`docs/deploy/backup-restore.md`](./docs/deploy/backup-restore.md)：停服 → 安全副本 → 整库替换 → 起服核对，**不做运行中热恢复**。三个端点全部家长 PIN 保护，下载名做路径遍历防护。
 - ✅ **P5-1a 配置持久化修复 + 家长配置端点**（2026-11-04）：修掉 **Docker 形态下运行时配置永远读不到**的缺陷（旧逻辑读 `PROJECT_ROOT/config/app-config.json`，容器里 `PROJECT_ROOT=/` 而该目录既未 COPY 也未挂载，三个参数静默走默认）。解析顺序改为 `WENGU_APP_CONFIG` → **`<data_dir>/app-config.json`**（Docker 即 `<仓库>/data/app-config.json`，**随 data 卷持久、无需额外挂载**）→ 仓库根 `config/app-config.json`（原生老用户**只读兼容回退**，`GET /api/config` 返回 `legacy` 与迁移提示，**不自动搬运/删除**）；写入一律落 data_dir（同目录 tmp + fsync + `os.replace` + 进程内锁）。新增 `GET/PUT /api/config`（均 `require_parent`）：GET 返回生效值 + 每项来源 + 读写路径 + 兼容提示；PUT 只收 `daily_review_limit 1..200` / `daily_recitation_limit 1..20` / `exam_day_limit_factor 1..3`，非法 422 **不写盘**、未知键与布尔值拒绝，改完不重启即生效。备份包纳入 `<data>/app-config.json`（manifest 记 sha256），`restore.ps1` 同步替换。**无迁移、无新依赖；`/setup` 向导 UI 归 P5-1b**。
 - ✅ **P4-1 默认只绑回环 + Tailscale 可达性**（2026-11-04）：Docker 的 api/web 端口默认只发布到 `127.0.0.1`（`WENGU_BIND_ADDR` 可覆盖），原生 Vite 的 `server.host` 同步改回环；新增 `deploy/tailscale/serve.json`（官方 `TS_SERVE_CONFIG` 格式、`AllowFunnel=false`）与分平台 Tailscale 说明（Linux/群晖 sidecar；Windows/macOS 宿主机 `tailscale serve`）；新增只读 `scripts/remote-check.ps1` 与手机/平板接入指南。远程访问口径统一为只认 tailnet，无迁移、无新依赖。
-- ⏳ 下一张工单：**P4-1b 部署面命令体检**（`make backup` 死目标）；P0-1 样本扩容 + P1-7b 前置回溯诊断仍待做；P5-5 剩英文 README + 独立隐私声明 + 发布打包。
+- ✅ **P4-1b 部署面命令体检**（2026-11-05）：删除死 `make backup` 目标与 `.PHONY` 里无规则的 `restore`（备份唯一入口仍是家长区「备份」页导出）；`make dev-api` 默认只绑 `127.0.0.1`，局域网调试用 `HOST=0.0.0.0` 显式覆盖；`make lint` 加 `--no-cache`；修 `seeds/README.md` 的 `--src` 层级与 `make help` 文案；清理 `docs/manuals/` 空骨架。无迁移、无新依赖。
+- ⏳ 下一步：**P4-1c 命令行备份入口**（需先定产物位置/权限模型/计划任务/告警四问）；P0-1 样本扩容 + P1-7b 前置回溯诊断仍待做；P5-5 剩英文 README + 独立隐私声明 + 发布打包。
 
 > 完整的工单状态、实测数字、阻塞项与下一步建议见 [`docs/STATUS.md`](./docs/STATUS.md)。
 
