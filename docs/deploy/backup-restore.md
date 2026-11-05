@@ -47,6 +47,71 @@ curl -OJ http://127.0.0.1:8000/api/backup/download/<文件名> -b cookies.txt
 未解锁时三个接口（export / list / download）一律 `403`。文件名只接受
 `wengu-backup-<UTC 时间戳>.zip`，含 `../`、反斜杠、盘符或绝对路径一律 `400/404`。
 
+### 2.1 命令行 / 计划任务备份（服务未起也能用）
+
+家长区「备份」页之外还有一条命令行入口，专门解决"升级前服务已经停了，但还没备份"：
+
+必须在 `wengu-api` 目录下执行（`scripts.backup_cli` 是该包的模块路径；在仓库根执行会报
+`No module named scripts.backup_cli`）。`--data-dir` 按**当前目录**解析，所以 Docker 形态写 `..\data`：
+
+```powershell
+# 原生 run-trial.ps1 形态：默认库就在 wengu-api\data
+cd D:\wengu\wengu-api
+venv\Scripts\python -m scripts.backup_cli --dry-run   # 先看会备份哪一份库
+venv\Scripts\python -m scripts.backup_cli
+
+# Docker 形态：数据在 <仓库>\data（相对 wengu-api 就是 ..\data）
+venv\Scripts\python -m scripts.backup_cli --data-dir ..\data --dry-run
+venv\Scripts\python -m scripts.backup_cli --data-dir ..\data
+```
+
+嫌路径麻烦就用 Makefile，它已经处理了 `cd wengu-api`，且 `DATA_DIR` **相对仓库根**解析
+（与上面 `--data-dir` 的基准不同，别混用）：
+
+```powershell
+make backup
+make backup DATA_DIR=data
+```
+
+它与家长区导出**共用同一份实现、同一个 `backups/` 目录、同一命名和同一套"保留最近 10 份"的
+轮转**：两条入口互相看得见对方导出的文件，不会出现各留 10 份的情况。产物结构、`manifest.json`
+与恢复流程完全相同，恢复仍走 §3。
+
+- 输出只有路径、文件名、大小、sha256、alembic 版本与错题/事件计数；失败时退出码非 0，
+  并打印一行原因。不做推送/锁屏告警。
+- **这条命令没有 PIN、没有会话**。能在这台机器上执行命令的人，本来就能直接读 `wengu.db`
+  与 `uploads/`；因此"能跑命令 = 能导出全部错题、订正答案与上传原图"。别把仓库目录共享给
+  不信任的账号，也不要在公共/CI 机器上保留数据卷。
+- **先确认备份的是哪一份库**：同一台机器上可能有两份平行数据（原生 `wengu-api\data`、
+  Docker `<仓库>\data`），版本与错题数都可能不同。`--dry-run` 会打印数据目录、实际 db 路径、
+  现有备份份数与错误计数，升级前对照一下，别备份错那份。
+
+#### Windows 计划任务（定时自动备份）
+
+图形界面：任务计划程序 → 创建任务 → 「操作」→ 启动程序：
+
+- 程序：`cmd.exe`
+- 参数：`/c cd /d D:\wengu\wengu-api && venv\Scripts\python -m scripts.backup_cli --data-dir ..\data >> "%TEMP%\wengu-backup.log" 2>&1`
+  （原生形态去掉 `--data-dir ..\data`；日志路径可自改）
+- 触发：每天一次；需要机器没登录也跑就勾"不管用户是否登录"，并保存账户密码。
+
+命令行等价（PowerShell 5.1 实测通过，2026-11-05）：
+
+```powershell
+$tr = 'cmd /c cd /d D:\wengu\wengu-api && venv\Scripts\python -m scripts.backup_cli --data-dir ..\data >> "%TEMP%\wengu-backup.log" 2>&1'
+schtasks /Create /TN "wengu-backup" /SC DAILY /ST 22:00 /F /TR $tr
+schtasks /Run /TN "wengu-backup"                    # 先手动跑一次
+schtasks /Query /TN "wengu-backup" /FO LIST /V      # 看"上次结果"：0 = 成功
+```
+
+> 实测记录：用上面的 `/TR` 形式创建一次性任务并 `/Run`，任务正常执行，日志输出为
+> "备份完成 / size_bytes / sha256 / alembic / 计数"。**不要**在 `/TR` 里写
+> `set PYTHONUTF8=1 && ...`——`cmd /c` 会把值带成 `1 `（尾随空格），Python 直接报
+> `invalid PYTHONUTF8 environment variable value` 并退出。
+
+**为什么在升级前跑**：`docker compose up` 与 `run-trial.ps1` 启动时会跑 `alembic upgrade head`，
+破坏性迁移执行后旧代码已无法读新库。服务停着的时候正好用这条命令留一份快照，再升级。
+
 ## 3. 恢复（Windows PowerShell，推荐）
 
 前置：已拿到备份 zip；在仓库根目录执行；Docker Desktop 可用。
