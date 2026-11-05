@@ -54,6 +54,9 @@ docker compose up -d --build --wait
 首次打开会看到**设置向导横幅**：家长解锁后可查看学科 seed 覆盖、设置每日复习/背诵上限，
 完成后横幅消失；孩子区不需要填任何个人信息。
 
+> 想按顺序一次走完「选形态 → 起服务 → 先备份 → 手机连上 → 录第一条错题」，含每步的期望输出与
+> 连不上时的二分定位，见 [`docs/deploy/from-zero.md`](./docs/deploy/from-zero.md)。
+
 > 若 `8000` 被系统保留（Windows Hyper-V 常见），改用：
 > `WENGU_API_PORT=8100 docker compose up -d --build --wait`（PowerShell: `$env:WENGU_API_PORT=8100; docker compose up -d --build --wait`）。
 

@@ -496,6 +496,16 @@
   禁止在 CLI 里另写快照/打包/manifest/轮转；必须支持 `--data-dir` 并默认打印用的是哪一份库
   （本机实测存在 `data/` 与 `wengu-api/data/` 两份平行库，版本与错题数都不同，"备份错了那份"是最容易
   发生的事故）。
+- **P4-1d api 镜像缺 `scripts/`，纯 Docker 家庭用不上命令行备份入口**（2026-11-05 出 `docs/deploy/from-zero.md`
+  时发现，登记未开工）：`wengu-api/Dockerfile` 只 `COPY app / alembic.ini / migrations`，没有 `scripts/`，
+  所以 `docker compose exec api python -m scripts.backup_cli` 必然 `No module named scripts`；
+  而纯 Docker 家庭**宿主机没有 venv**，P4-1c 那条命令行入口对他们等于不存在，日常只剩"服务在跑时点 UI"
+  一条路——恰好绕回 P4-1c 立票要解决的那个缺口（"升级前服务已停也能备份"）。
+  修法很小：镜像 `COPY scripts ./scripts`（`backup_cli` 只依赖 `app.*` 与标准库），并补一条
+  `docker compose exec api python -m scripts.backup_cli --dry-run` 的实测；文档同步改
+  `docs/deploy/from-zero.md` 第 4 步与 `backup-restore.md`。
+  ⚠️ 注意别顺手把 `import_seed.py` / `import_questions.py` 变成容器里的"可跑入口"——它们读的是
+  仓库外的上游 clone，镜像里没有，`--dry-run` 式的路径校验要一并说明。
 - **P4-2 可移植部署**：Docker 镜像原样上云（搬 SQLite 文件 + 挂载卷 + `data/inbox`）；Postgres 迁移为**可选**路径。
 - **P4-3（可选）本地模型层**：若购置带 N 卡主机，Qwen-VL/PaddleOCR 经 Provider 接入做**隐私化系统内识别/转录**（替代外部 agent）。禁：为省 API 去租云 GPU。
 
