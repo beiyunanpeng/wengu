@@ -19,7 +19,7 @@ wengu-api/
 │  ├─ services/                  # intake / inbox / grading / mistakes / review / quiz / bank
 │  ├─ judge/                     # judgeAnswer 规范化 + AST 白名单沙箱 verify
 │  └─ seed/                      # seed 装载 + 题库内存索引（bank.py / svg.py）
-├─ migrations/                   # Alembic（head = 0013_drop_model_tables）
+├─ migrations/                   # Alembic（head = 0020_recitation）
 ├─ scripts/                      # import_seed / import_questions / export_topics_junior
 ├─ tests/                        # unit / integration
 ├─ requirements.txt
@@ -43,6 +43,8 @@ make downgrade D=base               # 回退到空库（保留空的 alembic_ver
 ```
 
 > 端口：默认 8000。若被系统保留（Windows Hyper-V 常见），`make dev-api PORT=8100`。
+> 监听地址：`make dev-api` 默认只绑 `127.0.0.1`（仅本机可访问）；确需局域网调试用
+> `make dev-api HOST=0.0.0.0`——孩子区免登录，**别把它当远程方案**，远程请走 Tailscale。
 > 数据库文件：默认 `wengu-api/data/wengu.db`（`WENGU_DB_PATH` 可改），首次运行自动建目录。
 > 监听目录：默认 `wengu-api/data/inbox`（`WENGU_INBOX_DIR` 可改）——外部 agent 把转录 JSON
 > 放进该目录即被后台扫描校验入库为**草稿**（不自动转正、不判分、不建错题），

@@ -444,18 +444,24 @@
     `docker compose config -q` 静默通过且渲染出 `host_ip: 127.0.0.1`（api 8000 / web 5173 两组）、
     CI run `41954176088` success。**两项待试用机实测**：`tailscale serve --bg http://127.0.0.1:5173`
     的 CLI 形式（以 `tailscale serve --help` 为准）、sidecar 路径 A 在 Linux/群晖的运行时验证。
-- **P4-1b 部署面命令体检**（已出卡，见 `docs/tooling/qoder-build-plan.md` 末尾）：本票只做一件事——
+- **P4-1b 部署面命令体检**（已交付，待评审）：本票只做一件事——
   **仓库里写给家长/开发者敲的每条命令都必须真能跑**。审核方 2026-11-05 读盘 + 只读实跑核实九条事实，
-  其中六处是缺陷：① `make backup`（Makefile:135-138）调不存在的 `scripts.local_backup`
-  （实跑 `No module named scripts.local_backup`）；② 同行注释指向 `docs/manuals/ops/backup.md`，该**文件
-  不存在**（`docs/manuals/{guide,ops}/` 只是建仓时留的空骨架，各有一个 `.gitkeep`），部署文档实际在
-  `docs/deploy/`；③ `.PHONY` 声明了 `restore` 但**没有该规则**；
-  ④ `make dev-api` 仍 `--host 0.0.0.0`，是 P4-1 收紧后**最后一处默认全网卡**，而 README 叫家长敲它；
-  ⑤ `make lint` 不带 `--no-cache`，正是本仓反复踩的 `.ruff_cache` 假绿口子；
-  ⑥ `seeds/README.md` 的 `--src ../cn-math-taxonomy-main` 比 Makefile 的 `../../` 少一级（上游 clone 在
-  仓库根的上一级），且 `help` 把 seed-load 描述成"从 seeds/ 装载"而 recipe 实际是"从上游转换生成"。
+  其中六处缺陷与处置（原文保留，便于日后回看"当初到底哪里坏了"）：
+  ① `make backup`（Makefile:135-138）调全仓不存在的 `scripts.local_backup`（实跑
+  `No module named scripts.local_backup`）→ **已删除该目标，没有新造 CLI 备份实现**；
+  ② 同行注释指向 `docs/manuals/ops/backup.md`，该**文件不存在**（`docs/manuals/{guide,ops}/` 只是
+  建仓时留的空骨架，各有一个 `.gitkeep`）→ 空骨架已删，备份/恢复口径统一指家长区导出与
+  `docs/deploy/backup-restore.md`；③ `.PHONY` 声明了 `restore` 但**没有该规则** → 已删；
+  ④ `make dev-api` 曾 `--host 0.0.0.0`，是 P4-1 收紧后**最后一处默认全网卡**，而 README 叫家长敲它
+  → 默认 `HOST=127.0.0.1`，局域网调试须显式 `HOST=0.0.0.0`；⑤ `make lint` 不带 `--no-cache`，
+  正是本仓反复踩的 `.ruff_cache` 假绿口子 → 已补；⑥ `seeds/README.md` 的
+  `--src ../cn-math-taxonomy-main` 比 Makefile 的 `../../` 少一级（上游 clone 在仓库根的上一级），
+  且 `help` 把 seed-load 描述成"从 seeds/ 装载"而 recipe 实际是"从上游转换生成" → 已对齐。
+  另修 `docs/deploy/backup-restore.md` 里 `run-trial.ps1` 的错误调用形式（脚本只认 `-Stop` 开关与
+  无参启动，原写的 `stop` / `start` 位置参数会被拒）。
   现行唯一备份路径是家长区 `POST /api/backup/export`（P5-2），恢复走停机整库替换 `scripts/restore.ps1`。
-  **禁止**为了补 `make backup` 而新造一个 CLI 备份实现。
+  出卡正文（九条事实 + 禁止项 + 我那条写坏的 grep DoD 及其修订口径）完整保留在
+  `docs/tooling/qoder-build-plan.md` 的 P4-1b 卡，**不得为指标归零而删改**。
 - **P4-1c（候选，未开工）不停服务的命令行备份入口**：技术上可行（`VACUUM INTO` 对运行中的 WAL 库是
   安全一致性快照，P5-2 已这么实现），但要先定四件事再开工：产物是否同落 `<data_dir>/backups/` 并共用
   `KEEP_BACKUPS` 轮转、CLI 侧权限模型（绕过家长 PIN 意味着什么）、Windows 计划任务怎么调、失败怎么告警。

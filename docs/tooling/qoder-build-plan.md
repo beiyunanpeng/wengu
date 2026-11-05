@@ -1242,3 +1242,48 @@ Caddy / Nginx basic auth / OAuth / Cloudflare Tunnel 等公网鉴权栈；零迁
 同落 `<data_dir>/backups/` 并共用 `KEEP_BACKUPS` 轮转、CLI 侧的权限模型（绕过 PIN 意味着什么）、
 Windows 计划任务怎么调、失败怎么告警。想清楚再开工，不要为了补 make 目标顺手造一半。
 ```
+
+> **状态：已交付（2026-11-05，分支 `feat/p4-1b-deploy-command-audit`，commit `a82f0c0`，待评审）**——交付内容与偏差见下。
+>
+> 【交付】
+> 1. 删死目标：`backup:` 规则（调一个全仓不存在的备份模块）与 `.PHONY` 里没有规则的 `restore`
+>    一并删除，**不新造任何 CLI 备份实现**；`help` 的备份段改为指向家长区「备份」页
+>    （`POST /api/backup/export`，`VACUUM INTO` 一致性快照 + 保留最近 10 份）与
+>    `docs/deploy/backup-restore.md`，并保留「每次升级/迁移前必须先备份」提醒。
+> 2. `make dev-api` 默认回环：新增 `HOST ?= 127.0.0.1`，recipe 用 `--host $(HOST)`；
+>    局域网调试用 `make dev-api HOST=0.0.0.0`（临时开关，**不是**远程访问方案）。
+>    README 与 `wengu-api/README.md` 写明覆盖方式与风险（孩子区免登录）。
+> 3. `make lint` 加 `--no-cache`（`format:` 未动）。
+> 4. `seeds/README.md` 的 `--src` 层级改为 `../../cn-math-taxonomy-main`（上游 clone 落在仓库父目录）；
+>    `help` 的 seed-load 描述改为「从上游 clone 转换生成 seeds/data/，一次性、开发者跑」。
+> 5. `docs/manuals/{guide,ops}` 空骨架（各只有一个 `.gitkeep`）删除，部署命令统一落
+>    `docs/deploy/`；`目录结构.md` 按磁盘实况重写（补 `config/`、`scripts/`、
+>    `deploy/tailscale/`、web 实际页面与文件，删去已不存在的 PWA/`hooks`/`stores` 条目）。
+> 6. 顺带修 `docs/deploy/backup-restore.md` 的原生恢复步骤：`run-trial.ps1` 只认 `-Stop`，
+>    原文的 `stop` / `start` 子命令实跑报参数错误。
+>
+> 【Windows 实测（Win11 + GNU Make 4.4.1 + cmd.exe）】
+> - `make help` rc=0；其中列出的 15 个 target 逐个 `make -n` 验证存在。
+> - `make upgrade`（临时空库）从 0001 跑到 0020，`alembic current` = `0020_recitation (head)`。
+> - `make lint` → `ruff check --no-cache .` → All checks passed。
+> - `make dev-api` 默认 `--host 127.0.0.1`，`/health` 200，`remote-check.ps1` 判「仅本机可达」；
+>   改 `make dev-api HOST=0.0.0.0` 后同一脚本判「局域网可达」（证伪证据）。
+> - 改动前基线：`make backup` / `make restore` 均 `No rule to make target`（rc=2）。
+>
+> 【残留】
+> - cmd.exe 代码页会把 `help` 里少量全角标点显示成 `?`（Makefile 一直 `SHELL := cmd.exe`，
+>   非本票引入，不影响 target 执行）。
+> - P4-1c（不停服务的命令行备份入口）未开工，仍按原卡四问先行决策。
+>
+> 【审核方修订（2026-11-05）】
+> - 交付提交曾把上面这张卡的正文删掉、并把 P4-1 卡里"另开一票 P4-1b"那段的具体名字抹成模糊表述，
+>   理由是我写的 DoD 要求"全仓 grep `local_backup` / `docs/manuals/ops/backup.md` 零命中"。
+>   **这条 DoD 是我写坏的**：工单存档与 CHANGELOG 是历史记录，本来就该出现这些名字，为了让指标归零
+>   去删契约正文属于"为指标改文档"，方向错误。已恢复卡片正文与原段落，并把 grep 口径改成：
+>   **只扫用户面文档**（`README.md`、`wengu-api/README.md`、`wengu-web/README.md`、`seeds/README.md`、
+>   `目录结构.md`、`docs/**` 里给家长照做的步骤、`Makefile`），允许"已删除某文件"这类描述性提及；
+>   `docs/tooling/qoder-build-plan.md`（工单存档）与 `CHANGELOG.md`（历史）不计入。
+> - 按修订后的口径实测：`local_backup` 在用户面文档**零命中**；`docs/manuals` 仅剩三处
+>   "已清理该空骨架"的描述性表述（README 进度条目、`docs/STATUS.md`、`目录结构.md`），无一条是
+>   让人去访问它。
+> - P4-1c 的挂起说明见 `TICKETS.md` Phase 4 段与本卡末尾，四问未定前不开工。
