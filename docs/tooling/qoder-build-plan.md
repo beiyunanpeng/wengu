@@ -1149,7 +1149,16 @@ Caddy / Nginx basic auth / OAuth / Cloudflare Tunnel 等公网鉴权栈；零迁
 本票不要顺手改 Makefile 那一行以外的东西。
 ```
 
-> **状态：已交付（2026-11-04，分支 `feat/p4-1-tailscale-reachability`，待评审）**。实际改动：
+> **状态：已合并（2026-11-05，PR#39 squash → main `170b5da`）**。实际改动：
 > compose 端口默认 `127.0.0.1`、vite 默认回环、`deploy/tailscale/serve.json`、
 > 分平台注释块、只读 `scripts/remote-check.ps1`、`docs/deploy/mobile-access.md`；
-> 与卡片的偏差以交付说明为准。
+> 与卡片的偏差以交付说明为准（Qoder 修正了本卡"事实 3"里 `network_mode: service:api` 与
+> "反代到 web 容器 nginx:80"互相矛盾的缺陷，改为 `service:web`，并把单文件挂载改成目录挂载）。
+>
+> **合并后仍需在试用机验证的两件事**（静态审核证不了，别当已完成）：
+> ① `tailscale serve --bg http://127.0.0.1:5173` 的 CLI 形式——官方 serve 文档只给裸端口
+> `tailscale serve 3000` 且注明"CLI 在 1.52 版变更过"，须以试用机 `tailscale serve --help`
+> 打印的形式为准，不符就改 `mobile-access.md` 与 compose 注释块 B（文档返工，不另开票）；
+> ② sidecar 路径 A 从未在 Linux/群晖起过，`serve.json` 只做了格式同构比对、无运行时验证。
+> 已知小瑕疵（留后续小票）：`remote-check.ps1` 在两个端口都没监听时仍判"仅本机可达"，
+> 更准确的判定应是"服务未运行"。
