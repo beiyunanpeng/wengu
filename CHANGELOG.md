@@ -7,6 +7,34 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **P4-1 默认只绑回环 + Tailscale 可达性（无迁移、无新依赖）**（2026-11-04）：
+  - **Docker（行为变更）**：api/web 的发布端口改为
+    `"${WENGU_BIND_ADDR:-127.0.0.1}:${WENGU_API_PORT:-8000}:8000"`（web 同理），
+    默认只有部署机能访问。此前默认绑 `0.0.0.0`，同网段任意设备都能读写孩子区（免登录）
+    与家长区入口（PIN 只防误入）。**要恢复 LAN 直连**：显式
+    `WENGU_BIND_ADDR=0.0.0.0 docker compose up -d`（PowerShell 先
+    `$env:WENGU_BIND_ADDR="0.0.0.0"`），并自担风险；手机/平板远程请走 Tailscale，
+    不要靠开 `0.0.0.0`。
+  - **原生**：`wengu-web/vite.config.ts` 的 `server.host` 由 `true` 改为 `127.0.0.1`
+    （原来 5173 局域网可达且 `/api` 代理直通后端）。LAN 调试需显式
+    `npm run dev -- --host 0.0.0.0`；`run-trial.ps1` 与本机访问不受影响。
+  - **Tailscale 修成可照做**：新增 `deploy/tailscale/serve.json`（`tailscale serve`
+    官方 `TS_SERVE_CONFIG` 格式，`${TS_CERT_DOMAIN}` 由容器替换，`AllowFunnel=false`
+    只走 tailnet）；`docker-compose.yml` 注释块拆成 A) Linux/群晖 sidecar（与 web 共享
+    netns、目录挂载配置）与 B) Windows/macOS 宿主机 Tailscale + `tailscale serve`
+    （Docker Desktop 不支持 `/dev/net/tun`，compose 不参与）。`TS_AUTHKEY` 仍只从
+    环境变量注入，仓库内不含任何真实/示例 key；`tailscale-state/` 加入 `.gitignore`。
+  - **只读自检**：新增 `scripts/remote-check.ps1`（PowerShell 5.1，UTF-8 带 BOM + LF），
+    打印 web/api 监听地址与是否只绑回环、`docker compose port`、`tailscale status` /
+    `serve status`、本机 `/health` 状态码，并给出「仅本机可达 / 局域网可达 /
+    tailnet 已转发」判定；不修改配置、不重启服务、不写库、不打印 cookie/密钥。
+  - **文档**：新增 `docs/deploy/mobile-access.md`（手机/平板三步接入）；README、
+    `docs/deploy/docker.md`、设计文档 §2 技术栈的远程访问口径统一为
+    "只认 Tailscale（tailnet 私有网）；CF Tunnel / 公网反代须先真鉴权与用户隔离，未支持"。
+  - 业务 API、权限、`require_parent`/PIN、会话 cookie 与数据库结构均未改动。
+
 ## [0.5.0] - 2026-11-04
 
 ### Added

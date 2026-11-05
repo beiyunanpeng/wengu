@@ -6,7 +6,9 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     server: {
-      host: true,
+      // 默认只绑回环：vite 的 /api 代理直通后端，绑 0.0.0.0 等于把整套系统开到局域网。
+      // 局域网调试需显式：npm run dev -- --host 0.0.0.0（自担风险）；远程访问走 Tailscale。
+      host: "127.0.0.1",
       port: 5173,
       proxy: {
         "/api": {

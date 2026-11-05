@@ -34,7 +34,7 @@
 | 前端 | React 19 · Vite · TypeScript · Mantine · KaTeX |
 | 内核 | **零模型**：后端不调用任何云端 VLM/OCR/文本模型，无 provider 抽象、无模型审计表 |
 | 判分 | 系统只判自造同类题：运行时 `judgeAnswer` 归一化比对；**AST 白名单沙箱跑 `verify`**（题库入库时） |
-| 部署 | Docker Compose 一键起；远程访问 Tailscale / Cloudflare Tunnel |
+| 部署 | Docker Compose 一键起；端口默认只绑回环；远程访问 **Tailscale（tailnet 私有网）** |
 | 分发 | 开源，**每个家长自托管自己的一份**（单用户实例） |
 
 ## 🚀 快速开始（面向"会装 Docker 不写代码"的家长）
@@ -46,7 +46,7 @@ git clone https://github.com/<你>/wengu.git
 cd wengu
 cp wengu-api/.env.example wengu-api/.env   # 可选；v2.5 零模型通常无需任何 Key
 docker compose up -d --build --wait
-# 前端：http://localhost:5173
+# 前端：http://localhost:5173（默认只绑回环；手机/平板远程见 docs/deploy/mobile-access.md）
 # 后端健康检查：http://localhost:8000/health
 # 外部 agent 转录 JSON 投递目录：./data/inbox（宿主侧）
 ```
@@ -56,6 +56,10 @@ docker compose up -d --build --wait
 
 > 若 `8000` 被系统保留（Windows Hyper-V 常见），改用：
 > `WENGU_API_PORT=8100 docker compose up -d --build --wait`（PowerShell: `$env:WENGU_API_PORT=8100; docker compose up -d --build --wait`）。
+
+> **默认只绑回环**：api/web 都发布到 `127.0.0.1`，同网段设备默认访问不到。要让同 Wi-Fi 的设备直连须显式
+> `WENGU_BIND_ADDR=0.0.0.0`（自担风险，孩子区免登录）；手机/平板远程请走 Tailscale，
+> 见 [`docs/deploy/mobile-access.md`](./docs/deploy/mobile-access.md)，不要靠开 `0.0.0.0`。
 
 > 国内网络建议在 Docker Desktop → Settings → Docker Engine 配置 registry mirrors（如 `https://docker.m.daocloud.io`），否则拉取基础镜像会很慢或失败。API 镜像构建默认走清华 pip 源，可用 `--build-arg PIP_INDEX_URL=...` 覆盖。
 
@@ -103,7 +107,8 @@ Windows 上若 `make` 不在 PATH，重开终端或安装 [GNU Make](https://win
 - ✅ **P3-3c 从错题抽词（候选视图 + 家长勾选入库，零迁移）**（2026-11-03）：「英语背诵」家长区新增「从错题抽词」——从 **active 英语错题当前版本题面**现算候选词（正则 `[A-Za-z][A-Za-z'-]+`、小写、去尾 `'s`、长度 ≥2），去掉硬编码英文停用词（80 词起步集，按试用反馈增删、不做配置化）与**已在背诵池的同词（active/retired 都算已有，不区分大小写）**，同一题内重复只计一次，按「出现错题数」降序、同数按字母升序取前 50。家长勾选后批量入库，逐条报告重复/坏词；**`answer` 一律留空，不自动配释义、不翻译**；成功后可按本批 ids 逐条退役（无新撤销端点）。候选**每次现算**、无后台任务、无定时同步，**必须家长勾选才入库**。`GET /api/recitations/candidates` 与 `POST /api/recitations/candidates/batch` 均挂 `require_parent`。**零迁移、零新依赖**，抽词不改动 `mistakes`/`mistake_versions`/`attempts`/`review_schedules`。
 - ✅ **P5-2 备份 v1（导出一致性快照 + 停机恢复）**（2026-10-31）：家长区新增「备份」页——`VACUUM INTO` 一致性快照 + `uploads/`、`seeds_local/`、未处理 `inbox/` 打成 `data/backups/wengu-backup-<时间戳>.zip`，附 `manifest.json`（各文件 sha256、alembic 版本、表计数），只保留最近 10 份；导出全程只读业务库、不写任何表。恢复走 [`scripts/restore.ps1`](./scripts/restore.ps1) + [`docs/deploy/backup-restore.md`](./docs/deploy/backup-restore.md)：停服 → 安全副本 → 整库替换 → 起服核对，**不做运行中热恢复**。三个端点全部家长 PIN 保护，下载名做路径遍历防护。
 - ✅ **P5-1a 配置持久化修复 + 家长配置端点**（2026-11-04）：修掉 **Docker 形态下运行时配置永远读不到**的缺陷（旧逻辑读 `PROJECT_ROOT/config/app-config.json`，容器里 `PROJECT_ROOT=/` 而该目录既未 COPY 也未挂载，三个参数静默走默认）。解析顺序改为 `WENGU_APP_CONFIG` → **`<data_dir>/app-config.json`**（Docker 即 `<仓库>/data/app-config.json`，**随 data 卷持久、无需额外挂载**）→ 仓库根 `config/app-config.json`（原生老用户**只读兼容回退**，`GET /api/config` 返回 `legacy` 与迁移提示，**不自动搬运/删除**）；写入一律落 data_dir（同目录 tmp + fsync + `os.replace` + 进程内锁）。新增 `GET/PUT /api/config`（均 `require_parent`）：GET 返回生效值 + 每项来源 + 读写路径 + 兼容提示；PUT 只收 `daily_review_limit 1..200` / `daily_recitation_limit 1..20` / `exam_day_limit_factor 1..3`，非法 422 **不写盘**、未知键与布尔值拒绝，改完不重启即生效。备份包纳入 `<data>/app-config.json`（manifest 记 sha256），`restore.ps1` 同步替换。**无迁移、无新依赖；`/setup` 向导 UI 归 P5-1b**。
-- ⏳ 下一张工单：**P5-1b 首次运行向导 UI**（随后 P1-3e 移动端投递、P1-13 归并 UI）；P0-1 样本扩容 + P1-7b 前置回溯诊断仍待做；**P1-7c 自动排复习仍受 Phase 0 闸门阻塞**。
+- ✅ **P4-1 默认只绑回环 + Tailscale 可达性**（2026-11-04）：Docker 的 api/web 端口默认只发布到 `127.0.0.1`（`WENGU_BIND_ADDR` 可覆盖），原生 Vite 的 `server.host` 同步改回环；新增 `deploy/tailscale/serve.json`（官方 `TS_SERVE_CONFIG` 格式、`AllowFunnel=false`）与分平台 Tailscale 说明（Linux/群晖 sidecar；Windows/macOS 宿主机 `tailscale serve`）；新增只读 `scripts/remote-check.ps1` 与手机/平板接入指南。远程访问口径统一为只认 tailnet，无迁移、无新依赖。
+- ⏳ 下一张工单：**P4-1b 部署面命令体检**（`make backup` 死目标）；P0-1 样本扩容 + P1-7b 前置回溯诊断仍待做；P5-5 剩英文 README + 独立隐私声明 + 发布打包。
 
 > 完整的工单状态、实测数字、阻塞项与下一步建议见 [`docs/STATUS.md`](./docs/STATUS.md)。
 
@@ -117,13 +122,17 @@ Windows 上若 `make` 不在 PATH，重开终端或安装 [GNU Make](https://win
 | [`docs/audit/pr1-24-retrospective.md`](./docs/audit/pr1-24-retrospective.md) | 交付回顾审计报告（PR#1–#24：票↔卡↔提交↔盘上证据映射、七条红线逐条核对、与设计不符的缺口与文档过实清单） |
 | [`docs/specs/architecture/StudyDesk-设计说明文档-v2.md`](./docs/specs/architecture/StudyDesk-设计说明文档-v2.md) | **唯一事实来源**（v2.5，§16 为零模型改向定稿）——16 轮拷问敲定的完整设计树 |
 | [`docs/deploy/backup-restore.md`](./docs/deploy/backup-restore.md) | 备份导出与停机整库恢复（含 Windows 脚本、手动步骤、回滚与核对清单） |
+| [`docs/deploy/mobile-access.md`](./docs/deploy/mobile-access.md) | 手机/平板怎么连回家里那台机器（Tailscale tailnet，三步 + 只读自检） |
 | [`docs/methodology/phase0.md`](./docs/methodology/phase0.md) | Phase 0 实测方法论（手写识别 & 分题型判分，历史记录） |
 | [`docs/templates/`](./docs/templates/) | 外部 agent 转录模板（frontmatter `id`+`version`，改语义必递增） |
 | [`THIRD-PARTY-NOTICES.md`](./THIRD-PARTY-NOTICES.md) | 第三方数据源归属（`cn-math-taxonomy` CC BY-NC 4.0） |
 
 ## ⚠️ 安全与合规
 
-- **公网暴露前必须先加鉴权与用户隔离**，或走 **Tailscale**；wengu 默认按"本机 / 可信内网"设计。
+- **公网暴露前必须先加鉴权与用户隔离**，或走 **Tailscale（tailnet 私有网）**；wengu 默认按"本机 / 可信内网"设计。
+  Cloudflare Tunnel / 公网反向代理同样属于公网暴露，**未支持**——不要把它当成 Tailscale 的等价替代。
+  手机/平板接入步骤见 [`docs/deploy/mobile-access.md`](./docs/deploy/mobile-access.md)；只读自检脚本
+  [`scripts/remote-check.ps1`](./scripts/remote-check.ps1)。
 - **本地家长 PIN 只防误入，不是安全边界**：它只挡"家长区"（作废/组卷/题库审核），孩子区免 PIN，
   也不做登录/账号/多租户。会话 cookie 用 `WENGU_SESSION_SECRET` 签名；未设置时首启生成
   `data/.session_secret`（多实例/公网部署必须显式设置）。

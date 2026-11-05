@@ -435,6 +435,10 @@
     0.0.0.0；被注释的 tailscale 块引用了**不存在的** `deploy/tailscale/serve.json`，且
     `/dev/net/tun` + `network_mode: service:` 在 Docker Desktop for Windows 上不成立；
     原生形态 `run-trial.ps1` 后端只绑 127.0.0.1，但 `vite.config.ts` 的 `server.host = true` 让 5173 局域网可达。
+  - **状态：已完成（2026-11-04，分支 feat/p4-1-tailscale-reachability，待评审）**：compose 端口默认
+    `127.0.0.1`（`WENGU_BIND_ADDR` 可覆盖）；vite `server.host` 改回环；新增
+    `deploy/tailscale/serve.json`、分平台 Tailscale 说明、只读 `scripts/remote-check.ps1` 与
+    `docs/deploy/mobile-access.md`；CF Tunnel 与 Tailscale 的并列表述已统一掉。无迁移、无新依赖。
 - **P4-1b 部署面命令体检**（登记，未开工）：`make backup` 是死目标——Makefile:138 调
   `python -m scripts.local_backup`，而 `wengu-api/scripts/` 只有 `export_topics_junior.py` /
   `import_questions.py` / `import_seed.py`，全仓无 `local_backup.py`（审核方 2026-11-04 只读实跑报
