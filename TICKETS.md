@@ -315,6 +315,59 @@
   新增 Node 内置 test runner 单测 5 条（`npm test`），CI web job 增加该步骤；后端/权限/预览契约
   零改动、既有归并集成断言一字未改。零迁移、无新依赖。
 
+### P1-16 题目图片附件写入路径激活（v2.7 D5；零迁移，唯一新依赖 python-multipart）
+- **现状（2026-11-11 读盘）**：`mistake_versions.problem_images`（`models/mistakes.py:61`，Text 可空）
+  为死字段，全仓零引用；`uploads/` 只在备份打包出现（`services/backup.py:225`，
+  `_add_tree(zf, data_dir / "uploads", "uploads", files)` 目录名硬编码）；`core/config.py` 无 uploads
+  路径定义（仅 `data_dir`:32）；全仓**无任何** StaticFiles mount / 下载端点 / multipart 上传端点；
+  `requirements.txt` **无 python-multipart**。§18 D5 原文误写 `mistakes.problem_images`，已更正为
+  `mistake_versions.problem_images`（当前版本行）。
+- 交付：
+  - `core/config.py` 加 `uploads_dir` property = `data_dir / "uploads"`（与备份打包同名，不得出现第二个目录）；
+  - `requirements.txt` 加 **python-multipart**（FastAPI 收文件前置，小库；本票唯一新依赖，CHANGELOG 点名）；
+  - 上传 `POST /api/mistakes/{id}/images`（孩子区免 PIN，与 `/labels` 同级）：multipart 单文件；
+    校验 MIME 白名单（jpeg/png/webp）**且魔数校验**（不看扩展名）、单文件 ≤5MB、单题 ≤3 张；
+    落盘 `uploads/<mistake_id>/<uuid4>.<ext>`——原始文件名绝不进路径；当前版本 `problem_images`
+    写 JSON 相对路径数组；
+  - 读取 `GET /api/mistakes/{id}/images/{index}`（孩子区）：只允许解析到 `uploads_dir` 内（前缀断言），
+    返回 bytes + 正确 Content-Type；**禁 StaticFiles 挂 data_dir**（会连带暴露库与 inbox）；
+  - 删除：仅可移除列表内本票上传的文件（移除数组项 + 删文件，删除路径必须在 uploads 内断言）；
+  - 前端：`MistakeDetailPage` 在 `standard_answer` 展示块（:479-484）后加"原题图"区——缩略图并排
+    （img 走读取端点）、上传按钮（≥3 枚后置灰）、移除按钮（确认框）；
+  - **核对页附件不做**（草稿生命周期未收敛会留孤儿文件；真需求出现另开小票）。
+- DoD：上传→详情可见→备份 zip 含该文件（集成断言）；非白名单 MIME / 魔数不符 / >5MB / 第 4 张 → 422 稳定码；
+  文件名注入（`../`）不可达（存储路径断言 uuid 形态）；删除只影响 uploads 内本文件；
+  `pytest -m e2e` 加 1 条（上传→揭示→备份包含）；全量绿 + `ruff check --no-cache` + build；
+  **零迁移**（head 保持 0020_recitation）。
+- 禁止：挂 StaticFiles 或暴露 uploads 之外的任何目录；引入 OCR/VLM/模型调用（零模型红线）；
+  `problem_images` 出现第二条写入路径；存原始文件名；放行 SVG/HTML（XSS 面）。
+
+### P1-17 订正笔记 correction_notes（v2.7 D6；迁移 0022 + 模板 version 2）
+- **现状（2026-11-11 读盘）**：全仓无 `correction_notes`；`FIELD_LIMITS`（`services/ingestion.py:19-29`，
+  9 键）无此键、未知字段静默丢弃（:111）；模板 `docs/templates/doubao_transcribe_v1.md` frontmatter
+  `id: doubao_transcribe` / `version: 1`、`schema_fields` 8 键（:6）；确认请求 `DraftConfirmRequest`
+  （`api/imports.py:118-124`）= primary_topic_id/standard_answer/error_cause/concept_ids/question_type/actor；
+  确认映射 `services/intake.py:339-378`；mistakes **无内容编辑 PATCH**（只有 `/labels` :346）。
+- 交付：
+  - 迁移 **0022**（可逆；0021 已被 P2-2b `pomodoro_sessions` 占用，施工时仍取 alembic head+1）：
+    `mistake_versions` 加 `correction_notes` Text 可空（应用层 ≤500 校验，不加 CHECK）；
+  - 契约：`FIELD_LIMITS` 加 `correction_notes: 500`；模板 **version 1→2**（改语义必递增），
+    `schema_fields` 加 `correction_notes`，规则写明**只转录卷面孩子/家长手写内容，agent 不得自产讲解**；
+    P0-2 黄金样例补含/不含 notes 的对照；
+  - 写入三径：核对页确认 payload 加可选 `correction_notes`（`DraftConfirmRequest` + `IntakePage` 确认表单，
+    空 = 不存）；`ImportPage` 手填表单加同名可选字段；`services/intake.py` 确认映射写入当前版本；
+  - 展示与编辑：`MistakeDetailPage` 与 `standard_answer` 并排展示（MathText 渲染）；
+    编辑 = 新 `POST /api/mistakes/{id}/notes`（孩子区免 PIN，actor ∈ {student, parent}），
+    **追加版本行**（复用现有版本追加机制，绝不改写历史版本）；
+  - 定位条款（AGENTS §5 已写）：讲解移出系统 = 系统不生成讲解，不禁存手写笔记；笔记**纯展示数据**，
+    不进判分、排期、掌握度任何链路。
+- DoD：迁移 up/down/up + DDL before/after（P0-3 守卫）；模板 version 2 生效（加载器读到新值）、
+  黄金样例回归通过；转录带 notes → 草稿 → 确认 → 详情显示；不带 → NULL；>500 → 422 不写盘；
+  编辑追加版本行、历史版本行逐行不变（全表快照断言）；`pytest -m e2e` 加 1 条（转录→确认→显示→编辑→版本追加）；
+  全量绿 + `ruff check --no-cache` + build。
+- 禁止：agent 自产讲解文本入契约（违规打回）；把笔记接入判分/排期链路；改写历史版本行；
+  借本票引入任何 AI 生成路径；把 `correction_notes` 做成必填（会挡掉整类入本）。
+
 ---
 
 ## Phase 2 —— 每日任务 + 收口看板
@@ -350,7 +403,7 @@
     （断言 11+3 分组与解锁过滤）；② 真机/手工浏览器 360/412 两档、家长解锁态逐枚点击可达 +
     `documentElement.scrollWidth === clientWidth`，截图与 console 输出贴 PR。
     **不为此引入 DOM 测试栈**（新重依赖，反清单）。断言对象不减弱，只换度量手段。
-  - **状态：已完成（2026-11-11，分支 `feat/p2-8-sidebar-nav`，待评审）**：`AppLayout` 改为左侧
+  - **状态：已合并（2026-11-11，PR#43 squash → main `cdb4ba4`；原分支 `feat/p2-8-sidebar-nav` 已删）**：`AppLayout` 改为左侧
     分组 sidebar（孩子组 8 / 家长组 3，仅解锁渲染）+ `sm` 以下汉堡 Drawer；header 内两处
     `Group wrap="nowrap"` 页签组已移除。`src/lib/nav.ts` 提供 `groupNavItems` / `isNavActive`
     纯函数，`tests/nav.test.ts` 5 条 Node 单测（11 项总数、未解锁过滤、8+3 分组与顺序、不改入参、
