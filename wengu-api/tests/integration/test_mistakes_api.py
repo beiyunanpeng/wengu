@@ -950,3 +950,265 @@ async def test_merge_error_branches_return_stable_codes(tmp_path) -> None:
     assert to_merged_target.status_code == 409, to_merged_target.text
     assert missing_preview.status_code == 404, missing_preview.text
     assert missing_merge.status_code == 404, missing_merge.text
+
+
+async def _open_schedule(
+    factory: async_sessionmaker, mistake_id: int
+) -> ReviewSchedule:
+    async with factory() as session:
+        return (
+            await session.execute(
+                select(ReviewSchedule)
+                .where(
+                    ReviewSchedule.mistake_id == mistake_id,
+                    ReviewSchedule.completed_at.is_(None),
+                )
+                .order_by(ReviewSchedule.id)
+                .limit(1)
+            )
+        ).scalar_one()
+
+
+async def _complete_correct(
+    client: AsyncClient, factory: async_sessionmaker, mistake_id: int
+) -> dict:
+    schedule = await _open_schedule(factory, mistake_id)
+    response = await client.post(
+        f"/api/reviews/{mistake_id}/complete",
+        json={
+            "schedule_id": schedule.id,
+            "correct": True,
+            "completed_on": schedule.due_date.isoformat(),
+        },
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def _ids(response) -> set[int]:
+    assert response.status_code == 200, response.text
+    return {item["id"] for item in response.json()["items"]}
+
+
+@pytest.mark.integration
+async def test_list_q_searches_current_text_and_answer_case_insensitive(
+    tmp_path,
+) -> None:
+    """P2-9 DoD：q 命中题干/答案、大小写不敏感、空 q 不过滤、通配符转义（%/_/\\）、
+    不搜历史版本、超长 422。"""
+
+    factory = _migrated(tmp_path)
+    await _seed_topic(factory)
+
+    async with _client(factory) as client:
+        m1 = await _create_mistake(
+            client, problem_text="解方程 2x=4", answer="x=2"
+        )
+        m2 = await _create_mistake(
+            client, problem_text="Triangle ABC 的面积", answer="12"
+        )
+        m3 = await _create_mistake(
+            client, problem_text="应用题：路程问题", answer="ABC"
+        )
+        # % 鉴别对：仅差一个通配位，未转义时 q="5%off" 会把 5Xoff 也命中
+        m4 = await _create_mistake(client, problem_text="5%off", answer="0.5")
+        m5 = await _create_mistake(client, problem_text="5Xoff", answer="0.5")
+        # 反斜杠鉴别：题干含真反斜杠 a\b
+        m6 = await _create_mistake(client, problem_text="a\\b", answer="1")
+        all_ids = {
+            m1["mistake_id"],
+            m2["mistake_id"],
+            m3["mistake_id"],
+            m4["mistake_id"],
+            m5["mistake_id"],
+            m6["mistake_id"],
+        }
+
+        # 历史版本设防：直插一条 version 比当前小的历史行（确认入本后当前 version=1，
+        # 故历史行 version=0），唯一关键词只存在于历史版本，当前版本不含它。
+        async with factory() as session, session.begin():
+            session.add(
+                MistakeVersion(
+                    mistake_id=m1["mistake_id"],
+                    version=0,
+                    problem_text="旧题干关键词ZZZ",
+                    standard_answer="旧答案",
+                    created_at=datetime.now(UTC),
+                )
+            )
+
+        stem_hit = await client.get("/api/mistakes", params={"q": "方程"})
+        answer_hit = await client.get("/api/mistakes", params={"q": "X=2"})
+        case_insensitive = await client.get("/api/mistakes", params={"q": "abc"})
+        empty_q = await client.get("/api/mistakes", params={"q": ""})
+        no_q = await client.get("/api/mistakes")
+        percent_literal = await client.get("/api/mistakes", params={"q": "5%off"})
+        percent_other = await client.get("/api/mistakes", params={"q": "5Xoff"})
+        underscore_literal = await client.get(
+            "/api/mistakes", params={"q": "a_c"}
+        )
+        backslash_literal = await client.get(
+            "/api/mistakes", params={"q": "a\\b"}
+        )
+        backslash_stripped = await client.get("/api/mistakes", params={"q": "ab"})
+        history_only = await client.get(
+            "/api/mistakes", params={"q": "旧题干关键词ZZZ"}
+        )
+        current_after_history = await client.get(
+            "/api/mistakes", params={"q": "解方程"}
+        )
+        no_match = await client.get("/api/mistakes", params={"q": "不存在的词"})
+        too_long = await client.get("/api/mistakes", params={"q": "x" * 101})
+        max_length = await client.get("/api/mistakes", params={"q": "x" * 100})
+
+    assert _ids(stem_hit) == {m1["mistake_id"]}
+    assert _ids(answer_hit) == {m1["mistake_id"]}
+    # abc 同时命中 m2 题干（大写 ABC）与 m3 答案：大小写不敏感 + 答案可搜
+    assert _ids(case_insensitive) == {m2["mistake_id"], m3["mistake_id"]}
+    assert _ids(empty_q) == all_ids
+    assert _ids(no_q) == all_ids
+    # % 转义：q="5%off" 只命中字面 5%off；未转义时 % 当通配会连 5Xoff 一起命中
+    assert _ids(percent_literal) == {m4["mistake_id"]}
+    assert _ids(percent_other) == {m5["mistake_id"]}
+    assert _ids(underscore_literal) == set()
+    # 反斜杠转义：q="a\b" 命中 a\b；q="ab" 不命中它（未转义 \ 时 ESCAPE 行为会分叉）
+    assert _ids(backslash_literal) == {m6["mistake_id"]}
+    assert m6["mistake_id"] not in _ids(backslash_stripped)
+    # 历史版本设防：唯一关键词只在 version=0 历史行 → 空集；当前版本仍可正常搜到
+    assert _ids(history_only) == set()
+    assert m1["mistake_id"] in _ids(current_after_history)
+    assert no_match.status_code == 200
+    assert no_match.json()["total"] == 0
+    assert too_long.status_code == 422, too_long.text
+    assert max_length.status_code == 200, max_length.text
+
+
+@pytest.mark.integration
+async def test_list_mastery_state_derived_from_review_replay(tmp_path) -> None:
+    """P2-9 DoD：pending=rung0、consolidating=rung≥1 未毕业、graduated=错数归零+尾部连对≥3。"""
+
+    factory = _migrated(tmp_path)
+    await _seed_topic(factory)
+
+    async with _client(factory) as client:
+        pending = await _create_mistake(client)
+        consolidating = await _create_mistake(client)
+        graduated = await _create_mistake(client)
+        pending_id = pending["mistake_id"]
+        consolidating_id = consolidating["mistake_id"]
+        graduated_id = graduated["mistake_id"]
+
+        first = await _complete_correct(client, factory, consolidating_id)
+        assert first["state"]["rung"] == 1
+        assert first["graduated"] is False
+
+        for expected_rung in (1, 2, 2):
+            body = await _complete_correct(client, factory, graduated_id)
+            assert body["state"]["rung"] == expected_rung
+        assert body["graduated"] is True
+        assert body["state"]["times_wrong"] == 0
+        assert body["state"]["trailing_correct"] == 3
+
+        pending_resp = await client.get(
+            "/api/mistakes", params={"mastery_state": "pending"}
+        )
+        consolidating_resp = await client.get(
+            "/api/mistakes", params={"mastery_state": "consolidating"}
+        )
+        graduated_resp = await client.get(
+            "/api/mistakes", params={"mastery_state": "graduated"}
+        )
+        default_resp = await client.get("/api/mistakes")
+        invalid = await client.get(
+            "/api/mistakes", params={"mastery_state": "mastered"}
+        )
+
+    assert _ids(pending_resp) == {pending_id}
+    assert _ids(consolidating_resp) == {consolidating_id}
+    assert _ids(graduated_resp) == {graduated_id}
+    assert _ids(default_resp) == {pending_id, consolidating_id, graduated_id}
+    assert invalid.status_code == 422, invalid.text
+
+
+@pytest.mark.integration
+async def test_list_filters_combine_and_keep_pagination_contract(tmp_path) -> None:
+    """P2-9 DoD：q 与 category/error_cause/mastery_state 组合；total/分页契约不变。"""
+
+    factory = _migrated(tmp_path)
+    await _seed_topic(factory)
+    await _seed_topic(
+        factory, topic_id="cnm_test_geometry", name="几何", subject="数学"
+    )
+
+    async with _client(factory) as client:
+        m1 = await _create_mistake(
+            client,
+            problem_text="解方程 2x=4",
+            answer="x=2",
+            error_cause="calculation",
+        )
+        m2 = await _create_mistake(
+            client,
+            problem_text="解方程 5x=10",
+            answer="x=2",
+            error_cause="careless",
+        )
+        m3 = await _create_mistake(
+            client,
+            problem_text="三角形面积",
+            answer="12",
+            primary_topic_id="cnm_test_geometry",
+            error_cause="calculation",
+        )
+        m4 = await _create_mistake(
+            client,
+            problem_text="解方程 3x=9",
+            answer="x=3",
+            error_cause="calculation",
+        )
+        await _complete_correct(client, factory, m2["mistake_id"])
+        for _ in range(3):
+            await _complete_correct(client, factory, m4["mistake_id"])
+
+        q_only = await client.get("/api/mistakes", params={"q": "解方程"})
+        q_category = await client.get(
+            "/api/mistakes",
+            params={"q": "解方程", "category_id": "cnm_test_equation"},
+        )
+        q_category_cause = await client.get(
+            "/api/mistakes",
+            params={
+                "q": "解方程",
+                "category_id": "cnm_test_equation",
+                "error_cause": "calculation",
+            },
+        )
+        q_cause_pending = await client.get(
+            "/api/mistakes",
+            params={
+                "q": "解方程",
+                "error_cause": "calculation",
+                "mastery_state": "pending",
+            },
+        )
+        answer_wrong_category = await client.get(
+            "/api/mistakes",
+            params={"q": "x=2", "category_id": "cnm_test_geometry"},
+        )
+        paged = await client.get(
+            "/api/mistakes", params={"q": "解方程", "limit": 1, "offset": 1}
+        )
+
+    equation_ids = {m1["mistake_id"], m2["mistake_id"], m4["mistake_id"]}
+    assert _ids(q_only) == equation_ids
+    assert _ids(q_category) == equation_ids
+    assert _ids(q_category_cause) == {m1["mistake_id"], m4["mistake_id"]}
+    assert _ids(q_cause_pending) == {m1["mistake_id"]}
+    assert _ids(answer_wrong_category) == set()
+    assert m3["mistake_id"] not in _ids(q_only)
+
+    assert paged.status_code == 200, paged.text
+    page = paged.json()
+    assert page["total"] == 3
+    # id 倒序：m4, m2, m1 → offset=1 取 m2
+    assert [item["id"] for item in page["items"]] == [m2["mistake_id"]]

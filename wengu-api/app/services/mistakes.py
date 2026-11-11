@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Literal
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,7 +35,14 @@ from app.services.concepts import (
 )
 from app.services.events import append_mistake_version, record_event
 from app.services.labels import LabelSuggestions, suggest_labels
-from app.services.review import ReviewSubjectError, schedule_initial
+from app.services.review import (
+    ReviewStateError,
+    ReviewSubjectError,
+    derive_review_state,
+    schedule_initial,
+)
+from app.services.review_policy import initial_state
+from app.services.review_policy import mastery_state as classify_mastery_state
 
 MAX_CONCEPTS = 10
 MAX_ERROR_CAUSE_LENGTH = 32
@@ -497,10 +504,16 @@ async def list_mistakes(
     category_id: str | None = None,
     concept_id: int | None = None,
     error_cause: str | None = None,
+    q: str | None = None,
+    mastery_state: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> tuple[list[tuple[Mistake, MistakeVersion]], int]:
-    """按最新版本的有效标签检索；concept 过滤会展开人工归并前的历史 id。"""
+    """按最新版本的有效标签检索；concept 过滤会展开人工归并前的历史 id。
+
+    q 对当前版本题干 + 订正答案做大小写不敏感 LIKE（通配符转义，不搜历史版本）；
+    mastery_state 由复习事件重放推导（pending/consolidating/graduated），不加列。
+    """
 
     latest_version = (
         select(func.max(MistakeVersion.version))
@@ -517,6 +530,17 @@ async def list_mistakes(
     )
     if status != "all":
         stmt = stmt.where(Mistake.status == status)
+    if q:
+        escaped = (
+            q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        )
+        pattern = f"%{escaped}%"
+        stmt = stmt.where(
+            or_(
+                MistakeVersion.problem_text.ilike(pattern, escape="\\"),
+                MistakeVersion.standard_answer.ilike(pattern, escape="\\"),
+            )
+        )
 
     rows = (await session.execute(stmt)).all()
     family = (
@@ -534,6 +558,13 @@ async def list_mistakes(
             continue
         if family is not None and not (set(labels.concept_ids) & family):
             continue
+        if mastery_state is not None:
+            try:
+                state = await derive_review_state(session, mistake.id)
+            except ReviewStateError:
+                state = initial_state()
+            if classify_mastery_state(state) != mastery_state:
+                continue
         filtered.append((mistake, version))
 
     filtered.sort(key=lambda item: item[0].id, reverse=True)

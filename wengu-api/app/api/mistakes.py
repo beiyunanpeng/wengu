@@ -249,6 +249,10 @@ async def list_mistakes_endpoint(
     category_id: str | None = Query(default=None, max_length=64),
     concept_id: int | None = Query(default=None, ge=1),
     error_cause: str | None = Query(default=None, max_length=32),
+    q: str | None = Query(default=None, max_length=100),
+    mastery_state: (
+        Literal["pending", "consolidating", "graduated"] | None
+    ) = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     session: AsyncSession = Depends(get_session),
@@ -260,6 +264,8 @@ async def list_mistakes_endpoint(
             category_id=category_id,
             concept_id=concept_id,
             error_cause=error_cause,
+            q=q,
+            mastery_state=mastery_state,
             limit=limit,
             offset=offset,
         )

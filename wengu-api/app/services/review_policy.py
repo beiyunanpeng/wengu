@@ -16,6 +16,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from datetime import date, timedelta
+from typing import Literal
 
 from app.services.recompute import GRADUATION_STREAK
 
@@ -53,6 +54,23 @@ def initial_state() -> ReviewState:
     """新错题首次入复习：第 0 档，错题计数从 1 起（首次答错已经发生）。"""
 
     return ReviewState(rung=0, times_wrong=1, trailing_correct=0)
+
+
+MasteryState = Literal["pending", "consolidating", "graduated"]
+
+
+def mastery_state(state: ReviewState) -> MasteryState:
+    """P2-9 筛选口径（纯分类，不落库）：与 decide() 的毕业判定一致。
+
+    graduated = 错数归零且尾部连对 ≥ GRADUATION_STREAK；
+    未毕业时 rung≥1 = consolidating，rung==0 = pending。
+    """
+
+    if state.times_wrong == 0 and state.trailing_correct >= GRADUATION_STREAK:
+        return "graduated"
+    if state.rung >= 1:
+        return "consolidating"
+    return "pending"
 
 
 def ladder_for(subject: str) -> tuple[int, ...]:
