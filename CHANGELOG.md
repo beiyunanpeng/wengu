@@ -18,6 +18,30 @@
 - **TICKETS 第一批四卡**：P2-8（骨架定案 + DoD 度量法改纯函数单测 + 真机手工取证）、
   P2-2b（计时器续走 + 可设）、P2-9（搜索 + 状态筛选）、P2-10（回收站视图）。
   票号预留 P1-14–P1-17 / P2-9–P2-14，第二至四批卡按批出（设计文档 §18-D）。
+- **P2-9 错题本：全文搜索 + 掌握状态筛选（v2.7 D8）**（2026-11-11）：
+  - **后端 `GET /api/mistakes` 两个可选参数**：`q`（≤100 字符，101 → 422）对**当前版本**
+    `problem_text` + `standard_answer` 做大小写不敏感 LIKE（`%`/`_`/`\` 转义，
+    不搜历史版本）；`mastery_state` ∈ `pending|consolidating|graduated`，全部由
+    `review_schedules` 事件重放推导——graduated = 错数归零 + 尾部连对 ≥3、
+    consolidating = 未毕业且 rung≥1、pending = 未毕业且 rung==0；新增纯函数
+    `review_policy.mastery_state()` 与 `decide()` 毕业口径一致，**不加新列、
+    不引 FTS5/虚拟表/搜索依赖**。
+  - **组合与契约**：q/mastery_state 可与既有 category/error_cause/status 筛选叠加；
+    分页契约不变（total = 过滤后总数，按 id 倒序切片）；掌握状态筛选仅在请求时
+    逐题重放，不请求则零额外开销。
+  - **前端**：错题本页新增搜索框（300ms debounce、maxLength 100）+ 掌握状态 Select
+    （全部/待复习/巩固中/已掌握，可清除），筛选变化自动回第 1 页；「清除筛选」覆盖
+    四项；零结果空态区分「没有匹配的错题」与「还没有错题」。导出打印与
+    `status=active` 语义不变。
+  - **测试**：新增 2 单测（纯函数三档分类 + 与 decide 毕业判定一致）+ 3 集成
+    （题干/答案命中与大小写、通配符转义、空 q 不过滤、超长 422；三档 fixture
+    rung0/rung1/graduated 各断言、非法值 422；组合过滤 + 分页契约）。
+  - **运行态取证（headless Chrome + CDP，未引入 DOM 测试栈）**：桌面 1280×900
+    题干/答案/大小写/无匹配/三档状态/组合/清除全命中预期；360×740 与 412×915
+    零横向溢出、控件全在视口内；捕获 25 条 `/api/mistakes` 请求 URL 为证；
+    console 仅既有 `/favicon.ico` 404，无 React 异常。
+  - 全量 **564 passed**（unit 363 / integration 192 / e2e 9）；`ruff check --no-cache .`
+    全绿；`npm run lint` / `npm test`（16 passed）/ `npm run build` 绿。
 
 ### Fixed
 

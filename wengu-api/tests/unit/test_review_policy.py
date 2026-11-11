@@ -13,6 +13,7 @@ from app.services.review_policy import (
     decide,
     initial_state,
     ladder_for,
+    mastery_state,
     review_interval,
 )
 
@@ -111,3 +112,23 @@ def test_invalid_state_or_ladder_is_rejected() -> None:
         decide(initial_state(), correct=True, completed_on=DAY, ladder=())
     with pytest.raises(ValueError, match="基础间隔"):
         review_interval(0)
+
+
+def test_mastery_state_classifies_pending_consolidating_graduated() -> None:
+    assert mastery_state(initial_state()) == "pending"
+    # rung0 但错数已清零、连对未满 3：仍属待复习
+    assert mastery_state(ReviewState(0, 0, 2)) == "pending"
+    assert mastery_state(ReviewState(1, 0, 1)) == "consolidating"
+    assert mastery_state(ReviewState(2, 1, 0)) == "consolidating"
+    assert mastery_state(ReviewState(2, 0, 3)) == "graduated"
+    # 连对够但错数未归零：不毕业，按 rung 归类
+    assert mastery_state(ReviewState(2, 1, 3)) == "consolidating"
+
+
+def test_mastery_state_matches_decide_graduation() -> None:
+    state = initial_state()
+    for _ in range(3):
+        decision = decide(state, correct=True, completed_on=DAY)
+        state = decision.state
+    assert decision.graduated is True
+    assert mastery_state(state) == "graduated"

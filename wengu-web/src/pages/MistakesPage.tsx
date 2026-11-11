@@ -9,18 +9,30 @@ import {
   Select,
   Stack,
   Text,
+  TextInput,
   Title,
 } from "@mantine/core";
+import { useDebouncedValue } from "@mantine/hooks";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { errorMessage } from "../api/client";
-import { getMistakeOptions, listMistakes } from "../api/endpoints";
+import {
+  getMistakeOptions,
+  listMistakes,
+  type MistakeMasteryState,
+} from "../api/endpoints";
 import type { ErrorCauseOption, MistakeDetail } from "../api/types";
 import CategoryPicker from "../components/CategoryPicker";
 import MathText from "../components/MathText";
 
 const PAGE_SIZE = 20;
+
+const MASTERY_STATE_OPTIONS: { value: MistakeMasteryState; label: string }[] = [
+  { value: "pending", label: "待复习" },
+  { value: "consolidating", label: "巩固中" },
+  { value: "graduated", label: "已掌握" },
+];
 
 export default function MistakesPage() {
   const navigate = useNavigate();
@@ -30,8 +42,13 @@ export default function MistakesPage() {
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [errorCause, setErrorCause] = useState<string | null>(null);
   const [errorCauses, setErrorCauses] = useState<ErrorCauseOption[]>([]);
+  const [search, setSearch] = useState("");
+  const [masteryState, setMasteryState] = useState<MistakeMasteryState | null>(
+    null,
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [debouncedSearch] = useDebouncedValue(search, 300);
 
   useEffect(() => {
     let active = true;
@@ -50,12 +67,18 @@ export default function MistakesPage() {
   }, []);
 
   useEffect(() => {
+    setOffset(0);
+  }, [debouncedSearch, masteryState]);
+
+  useEffect(() => {
     let active = true;
     setLoading(true);
     listMistakes({
       status: "active",
       categoryId,
       errorCause,
+      q: debouncedSearch || null,
+      masteryState,
       limit: PAGE_SIZE,
       offset,
     })
@@ -80,7 +103,7 @@ export default function MistakesPage() {
     return () => {
       active = false;
     };
-  }, [categoryId, errorCause, offset]);
+  }, [categoryId, errorCause, debouncedSearch, masteryState, offset]);
 
   return (
     <Stack gap="md">
@@ -114,6 +137,15 @@ export default function MistakesPage() {
         <Stack gap="sm">
           <Group align="flex-end" wrap="wrap">
             <div style={{ flex: "1 1 240px", minWidth: 220 }}>
+              <TextInput
+                label="搜索题干 / 答案"
+                placeholder="输入关键词"
+                value={search}
+                onChange={(event) => setSearch(event.currentTarget.value)}
+                maxLength={100}
+              />
+            </div>
+            <div style={{ flex: "1 1 240px", minWidth: 220 }}>
               <CategoryPicker
                 value={categoryId}
                 onChange={(value) => {
@@ -140,12 +172,27 @@ export default function MistakesPage() {
                 placeholder="全部错因"
               />
             </div>
-            {(categoryId || errorCause) && (
+            <div style={{ flex: "1 1 160px", minWidth: 150 }}>
+              <Select
+                label="按掌握状态筛选"
+                data={MASTERY_STATE_OPTIONS}
+                value={masteryState}
+                onChange={(value) => {
+                  setMasteryState(value as MistakeMasteryState | null);
+                  setOffset(0);
+                }}
+                clearable
+                placeholder="全部状态"
+              />
+            </div>
+            {(categoryId || errorCause || search || masteryState) && (
               <Button
                 variant="subtle"
                 onClick={() => {
                   setCategoryId(null);
                   setErrorCause(null);
+                  setSearch("");
+                  setMasteryState(null);
                   setOffset(0);
                 }}
               >
@@ -168,8 +215,10 @@ export default function MistakesPage() {
       )}
 
       {!loading && !error && items.length === 0 && (
-        <Alert color="blue" variant="light" title="还没有错题">
-          先在导入页把外部转录的已批改错题生成草稿，再到核对页确认入本。
+        <Alert color="blue" variant="light" title={categoryId || errorCause || debouncedSearch || masteryState ? "没有匹配的错题" : "还没有错题"}>
+          {categoryId || errorCause || debouncedSearch || masteryState
+            ? "换个关键词或清除筛选试试。"
+            : "先在导入页把外部转录的已批改错题生成草稿，再到核对页确认入本。"}
         </Alert>
       )}
 

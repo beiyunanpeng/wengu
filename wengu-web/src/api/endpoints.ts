@@ -67,10 +67,14 @@ import type {
   TopicListResponse,
 } from "./types";
 
+export type MistakeMasteryState = "pending" | "consolidating" | "graduated";
+
 export interface MistakeFilters {
   status?: "active" | "voided" | "all";
   categoryId?: string | null;
   errorCause?: string | null;
+  q?: string | null;
+  masteryState?: MistakeMasteryState | null;
   limit?: number;
   offset?: number;
 }
@@ -85,6 +89,12 @@ export function listMistakes(
   }
   if (filters.errorCause) {
     params.set("error_cause", filters.errorCause);
+  }
+  if (filters.q) {
+    params.set("q", filters.q);
+  }
+  if (filters.masteryState) {
+    params.set("mastery_state", filters.masteryState);
   }
   params.set("limit", String(filters.limit ?? 20));
   params.set("offset", String(filters.offset ?? 0));
