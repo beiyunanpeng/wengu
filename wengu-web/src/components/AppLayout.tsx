@@ -2,69 +2,122 @@ import {
   Alert,
   Anchor,
   AppShell,
+  Burger,
   Button,
   Container,
+  Drawer,
   Group,
+  Stack,
   Text,
 } from "@mantine/core";
+import { useDisclosure } from "@mantine/hooks";
+import { useEffect } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 
 import ParentGate from "./ParentGate";
+import { groupNavItems, isNavActive, NAV, type NavGroup } from "../lib/nav";
 import { useParentSession } from "../parent/ParentSession";
 import { useSetupStatus } from "../setup/SetupStatus";
 
-const NAV: { to: string; label: string; parentOnly?: boolean }[] = [
-  { to: "/dashboard", label: "看板" },
-  { to: "/import", label: "导入" },
-  { to: "/intake", label: "核对" },
-  { to: "/mistakes", label: "错题本" },
-  { to: "/review", label: "复习考核" },
-  { to: "/recitations", label: "英语背诵" },
-  { to: "/schedule", label: "课表/日历" },
-  { to: "/records", label: "练习记录" },
-  { to: "/bank", label: "题库审核", parentOnly: true },
-  { to: "/local-seed", label: "学科 seed", parentOnly: true },
-  { to: "/backup", label: "备份", parentOnly: true },
-];
+const NAVBAR_WIDTH = 220;
+const NAVBAR_BREAKPOINT = "sm";
+
+function NavSections({
+  groups,
+  pathname,
+  onNavigate,
+}: {
+  groups: NavGroup[];
+  pathname: string;
+  onNavigate: () => void;
+}) {
+  return (
+    <Stack gap="lg">
+      {groups.map((group) => (
+        <Stack gap={4} key={group.key}>
+          <Text size="xs" fw={600} c="dimmed" px="xs">
+            {group.title}
+          </Text>
+          {group.items.map((item) => {
+            const active = isNavActive(pathname, item.to);
+            return (
+              <Button
+                key={item.to}
+                component={Link}
+                to={item.to}
+                size="compact-md"
+                justify="flex-start"
+                variant={active ? "filled" : "subtle"}
+                aria-current={active ? "page" : undefined}
+                onClick={onNavigate}
+              >
+                {item.label}
+              </Button>
+            );
+          })}
+        </Stack>
+      ))}
+    </Stack>
+  );
+}
 
 export default function AppLayout() {
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const { unlocked } = useParentSession();
   const { completed } = useSetupStatus();
-  const navItems = NAV.filter((item) => !item.parentOnly || unlocked);
+  const [navOpened, { toggle, close }] = useDisclosure(false);
+  const groups = groupNavItems(NAV, unlocked);
+
+  useEffect(() => {
+    close();
+  }, [pathname, close]);
 
   return (
-    <AppShell header={{ height: 56 }} padding={0}>
+    <AppShell
+      header={{ height: 56 }}
+      navbar={{
+        width: NAVBAR_WIDTH,
+        breakpoint: NAVBAR_BREAKPOINT,
+        collapsed: { mobile: true },
+      }}
+      padding={0}
+    >
       <AppShell.Header>
         <Group h="100%" px="md" justify="space-between" wrap="nowrap">
-          <Text
-            fw={700}
-            size="lg"
-            style={{ cursor: "pointer", whiteSpace: "nowrap" }}
-            onClick={() => navigate("/import")}
-          >
-            wengu · 温故
-          </Text>
-          <Group gap={4} wrap="nowrap">
-            {navItems.map((item) => {
-              const active =
-                pathname === item.to || pathname.startsWith(`${item.to}/`);
-              return (
-                <Button
-                  key={item.to}
-                  size="compact-sm"
-                  variant={active ? "filled" : "subtle"}
-                  onClick={() => navigate(item.to)}
-                >
-                  {item.label}
-                </Button>
-              );
-            })}
-            <ParentGate />
+          <Group gap="xs" wrap="nowrap">
+            <Burger
+              opened={navOpened}
+              onClick={toggle}
+              hiddenFrom={NAVBAR_BREAKPOINT}
+              size="sm"
+              aria-label="打开导航菜单"
+            />
+            <Text
+              fw={700}
+              size="lg"
+              style={{ cursor: "pointer", whiteSpace: "nowrap" }}
+              onClick={() => navigate("/import")}
+            >
+              wengu · 温故
+            </Text>
           </Group>
+          <ParentGate />
         </Group>
       </AppShell.Header>
+      <AppShell.Navbar p="md" style={{ overflowY: "auto" }}>
+        <NavSections groups={groups} pathname={pathname} onNavigate={close} />
+      </AppShell.Navbar>
+      <Drawer
+        opened={navOpened}
+        onClose={close}
+        position="left"
+        size={NAVBAR_WIDTH}
+        title="导航"
+        padding="md"
+      >
+        <NavSections groups={groups} pathname={pathname} onNavigate={close} />
+      </Drawer>
       <AppShell.Main>
         {completed === false && (
           <Alert
