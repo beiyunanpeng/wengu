@@ -42,6 +42,28 @@
     console 仅既有 `/favicon.ico` 404，无 React 异常。
   - 全量 **564 passed**（unit 363 / integration 192 / e2e 9）；`ruff check --no-cache .`
     全绿；`npm run lint` / `npm test`（16 passed）/ `npm run build` 绿。
+- **P2-10 错题本：回收站视图 + 恢复入口（v2.7 D8）**（2026-11-11）：
+  - **前端「在本 / 回收站」视图切换**：`MistakesPage` 头部加 `SegmentedControl`，
+    **仅家长解锁可见**；回收站走既有 `listMistakes status:"voided"`，每行「恢复」
+    复用既有 `unvoidMistake`（`actor=parent`）——**零新端点、零迁移**。确认框范式
+    照抄 `LocalSeedPage`：Modal + 「恢复后果」Alert + 题干预览 + 取消/确认恢复 +
+    失败 Alert，恢复成功绿色通知。
+  - **孩子区安全**：未解锁不渲染切换入口、`isTrash` 恒 false、锁定强制回 active，
+    孩子区看不到也操作不了回收站；回收站视图隐藏导出打印、行按钮改「查看」、
+    加「已作废」徽标与橙色「回收站（家长专属）」横幅；空态区分「回收站是空的」
+    与「没有匹配的已作废错题」。
+  - **计数与刷新**：解锁后并行取 active/voided 两路 `total` 显示在切换标签
+    （不受筛选影响）；恢复成功 bump `refreshKey` → 列表与两视图计数一起刷新。
+  - **测试**：新增 1 集成，复用 e2e ② 路径：void → 退出在本与到期队列 → 进回收站
+    （`status=voided` 列表契约）→ unvoid → 回到在本与到期队列；未解锁
+    unvoid/void 均 403（恢复入口家长专属）。
+  - **运行态取证（headless Chrome + CDP，未引入 DOM 测试栈）**：桌面未解锁切换入口
+    不可见；解锁后 `在本 (2)`/`回收站 (2)`；回收站 2 行「已作废」+「恢复」；确认框
+    「恢复错题 #2」含恢复后果与题干预览；恢复后通知 + `在本 (3)`/`回收站 (1)`；
+    切回在本恢复题回归；360×740 与 412×915 零横向溢出、控件全在视口内；
+    console 仅既有 `/favicon.ico` 404，无 React 异常。
+  - 全量 **565 passed**（unit 363 / integration 193 / e2e 9）；`ruff check --no-cache .`
+    全绿；`npm run lint` / `npm test`（16 passed）/ `npm run build` 绿。
 
 ### Fixed
 
