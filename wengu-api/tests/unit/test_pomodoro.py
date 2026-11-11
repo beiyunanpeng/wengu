@@ -1,8 +1,11 @@
-"""P2-2 番茄钟纯函数：duration 钳制、看板汇总、不影响既有信号。"""
+"""P2-2 番茄钟纯函数：duration 钳制、看板汇总、不影响既有信号。
+
+P2-2b 增补：剩余秒数推导（服务端时间为准，naive/aware 与跨时区都要一致）。
+"""
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta, timezone
 
 import pytest
 from app.services.pomodoro import (
@@ -10,6 +13,7 @@ from app.services.pomodoro import (
     MIN_DURATION_MINUTES,
     POMODORO_COMPLETED,
     clamp_duration,
+    remaining_seconds,
     summarize_pomodoros,
 )
 from app.services.recompute import (
@@ -128,3 +132,49 @@ def test_pomodoro_does_not_change_mastery_streak_or_graduation() -> None:
     )
     assert is_graduated(with_pomodoro, 1) == is_graduated(attempts, 1)
     assert is_graduated(attempts, 1) is False
+
+
+STARTED = datetime(2026, 11, 11, 12, 0, tzinfo=UTC)
+
+
+@pytest.mark.parametrize(
+    ("elapsed_seconds", "expected"),
+    [
+        (0, 25 * 60),
+        (1, 25 * 60 - 1),
+        (60, 24 * 60),
+        (10 * 60, 15 * 60),
+        (25 * 60, 0),
+        (25 * 60 + 90, 0),  # 超时不为负
+        (-30, 25 * 60),  # 时钟回拨不超过计划时长
+    ],
+)
+def test_remaining_is_derived_from_server_now(
+    elapsed_seconds: int, expected: int
+) -> None:
+    now = STARTED + timedelta(seconds=elapsed_seconds)
+    assert remaining_seconds(STARTED, 25, now) == expected
+
+
+def test_remaining_treats_naive_readback_as_utc() -> None:
+    """SQLite 的 DateTime 回读不带时区：naive 值必须与同一 UTC 时刻等价。"""
+
+    now = STARTED + timedelta(minutes=10)
+    assert remaining_seconds(STARTED.replace(tzinfo=None), 25, now) == 15 * 60
+    assert remaining_seconds(STARTED, 25, now.replace(tzinfo=None)) == 15 * 60
+
+
+def test_remaining_normalizes_other_timezones() -> None:
+    """开始时间带 +08:00、当前时间带 -05:00 也要算出同一个剩余秒数。"""
+
+    started = STARTED.astimezone(timezone(timedelta(hours=8)))
+    now = (STARTED + timedelta(minutes=10)).astimezone(
+        timezone(timedelta(hours=-5))
+    )
+    assert remaining_seconds(started, 25, now) == 15 * 60
+
+
+def test_remaining_scales_with_planned_minutes() -> None:
+    now = STARTED + timedelta(minutes=5)
+    assert remaining_seconds(STARTED, 5, now) == 0
+    assert remaining_seconds(STARTED, 120, now) == 115 * 60

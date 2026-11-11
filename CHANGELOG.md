@@ -19,6 +19,40 @@
   P2-2b（计时器续走 + 可设）、P2-9（搜索 + 状态筛选）、P2-10（回收站视图）。
   票号预留 P1-14–P1-17 / P2-9–P2-14，第二至四批卡按批出（设计文档 §18-D）。
 
+### Fixed
+
+- **P2-2b 专注计时：进行中轮次服务端续走 + 时长可设（v2.7 D7，缺陷修复）**（2026-11-11）：
+  - **缺陷**：P2-2 的倒计时是纯前端状态，刷新/切页/换设备即丢；时长硬编码
+    `TOTAL_MINUTES = 25` 不可设。
+  - **迁移 `0021_pomodoro_sessions`（可逆）**：新表 `pomodoro_sessions`
+    （`id/started_at/planned_minutes/mistake_id/actor/status`，CHECK `status ∈
+    active|completed|abandoned`、CHECK `planned_minutes` 5–120、`status` 索引）；
+    up/down/up 与 DDL 逐字对比通过（P0-3 守卫；业务表 21 → **22 张**）。
+  - **四个孩子区免 PIN 端点**：`POST /api/pomodoros/start`（已有 active 轮次 → 409）、
+    `GET /api/pomodoros/active`（空 → `{"session": null}`；带 `remaining_seconds` +
+    `server_now`）、`POST /api/pomodoros/{id}/complete`（body `duration_minutes` =
+    实际分钟，**保留提前完成**）、`POST /api/pomodoros/{id}/abandon`。complete 复用现有
+    `record_pomodoro`：`pomodoro_completed` 事件 **payload 键不变**
+    （`mistake_id/duration_minutes/completed_on`）、幂等键仍 `pomodoro:{started_at 秒级}`，
+    两次 complete 命中幂等键 + 轮次状态守卫、不产生第二条事件；**abandon 只翻状态、不写事件**。
+    新端点 `StrictInt` + `ge=5/le=120` → 4/121 直接 422；旧 `POST /api/pomodoros`
+    钳制语义保持不变。备份计数纳入 `pomodoro_sessions`。
+  - **前端**：`PomodoroTimer` 挂载即 `GET active` 续走（剩余秒以服务端读数为真源，本地时钟
+    只做两次读数间插值，**不用 localStorage**）；时长选择器 5–120、默认 25，删
+    `TOTAL_MINUTES`；续走时已到点的轮次**不自动打点**（离开的时间不算专注），须手点「完成」；
+    计时器从"第一张到期卡"移到复习页头部，队列清空后进行中轮次仍可完成/放弃。
+    `focusMinutes` 纯函数 + 6 条 Node 单测（`npm test` 16 passed）。
+  - **运行态取证（headless Chrome + CDP，两个独立 profile 模拟换设备；未引入 DOM 测试栈）**：
+    45 分钟轮次刷新 / 第二台设备续走同一 session；回拨开始时刻 12 分钟后刷新剩 32:47，
+    提前「完成」记 12 分钟、事件恰 1 条；放弃后事件数不变；5 分钟轮次回拨到点刷新显示
+    00:00 且不自动打点、手点完成记 5；看板今日番茄 2 / 本周专注 17 与事件一致；真实键盘
+    输入 4/121 失焦钳到 5/120、步进按钮停在下/上限，越界未失焦直接点开始被客户端拦截且
+    不建轮次；360×780 与 412×915 两档进行中/空闲均零横向溢出、控件全在视口内。
+    console 仅既有 `/favicon.ico` 404，无 React 异常。
+  - 全量 **559 passed**（unit 361 / integration 189 / e2e 9）；`ruff check --no-cache .`
+    全绿；`npm run lint` / `npm test` / `npm run build` 绿。**不做暂停语义、不自动连跑、
+    不计入掌握度/streak/错题本**。
+
 ## [0.6.0] - 2026-11-05
 
 ### Added

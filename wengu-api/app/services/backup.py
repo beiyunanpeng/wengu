@@ -53,6 +53,7 @@ COUNT_TABLES = (
     "calendar_events",
     "recitation_items",
     "recitation_reviews",
+    "pomodoro_sessions",
 )
 
 logger = logging.getLogger(__name__)

@@ -1,5 +1,6 @@
 import { apiRequest, requestJson } from "./client";
 import type {
+  ActivePomodoroResponse,
   AppConfig,
   AttemptListResponse,
   BackupExportResponse,
@@ -40,7 +41,10 @@ import type {
   PaperSubmitAnswer,
   PaperSubmitResponse,
   PaperAnswerKeyResponse,
+  PomodoroAbandonResponse,
+  PomodoroCompletionResponse,
   PomodoroResponse,
+  PomodoroSession,
   PracticeListResponse,
   PracticeStartResponse,
   PracticeSubmitItem,
@@ -267,6 +271,41 @@ export function recordPomodoro(payload: {
     actor: "student",
     ...payload,
   });
+}
+
+export function startPomodoro(payload: {
+  planned_minutes: number;
+  mistake_id?: number | null;
+  actor?: "student" | "parent";
+}): Promise<PomodoroSession> {
+  return requestJson<PomodoroSession>("/api/pomodoros/start", "POST", {
+    actor: "student",
+    ...payload,
+  });
+}
+
+export function getActivePomodoro(): Promise<ActivePomodoroResponse> {
+  return apiRequest<ActivePomodoroResponse>("/api/pomodoros/active");
+}
+
+export function completePomodoro(
+  sessionId: number,
+  payload: { duration_minutes: number; completed_on?: string },
+): Promise<PomodoroCompletionResponse> {
+  return requestJson<PomodoroCompletionResponse>(
+    `/api/pomodoros/${sessionId}/complete`,
+    "POST",
+    payload,
+  );
+}
+
+export function abandonPomodoro(
+  sessionId: number,
+): Promise<PomodoroAbandonResponse> {
+  return requestJson<PomodoroAbandonResponse>(
+    `/api/pomodoros/${sessionId}/abandon`,
+    "POST",
+  );
 }
 
 export function getInboxInfo(): Promise<InboxInfo> {

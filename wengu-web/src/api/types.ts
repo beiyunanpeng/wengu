@@ -788,6 +788,35 @@ export interface PomodoroResponse {
   duration_minutes: number;
 }
 
+export type PomodoroSessionStatus = "active" | "completed" | "abandoned";
+
+export interface PomodoroSession {
+  id: number;
+  started_at: string;
+  planned_minutes: number;
+  mistake_id: number | null;
+  actor: string;
+  status: PomodoroSessionStatus;
+  remaining_seconds: number;
+  server_now: string;
+}
+
+export interface ActivePomodoroResponse {
+  session: PomodoroSession | null;
+}
+
+export interface PomodoroCompletionResponse {
+  id: number;
+  duration_minutes: number;
+  session_id: number;
+  status: PomodoroSessionStatus;
+}
+
+export interface PomodoroAbandonResponse {
+  session_id: number;
+  status: PomodoroSessionStatus;
+}
+
 export interface BackupManifestSummary {
   version: number;
   created_at: string;
