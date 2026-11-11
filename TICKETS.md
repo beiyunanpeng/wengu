@@ -334,15 +334,71 @@
   - **为什么不是外观问题**：家长解锁后会多出「题库审核 / 学科 seed / 备份」三枚，
     按同一布局它们极可能**完全点不到**——那会把手机上唯一的备份入口和 seed 管理一起锁死。
     开工前先确认这个推论（手机解锁家长区后看三枚页签是否可达），据实调整严重度。
-  - 修法由实施方在实测后选型，但**必须解决"页签数量还会继续增长"这件事**：
-    A) 窄屏折叠成汉堡 + Drawer（推荐，移动端标准做法）；B) 页签条 `overflow-x: auto` +
-    品牌区固定（改动最小，但看不见有哪些页签、且随数量恶化）；C) `wrap="wrap"` 让 header 变高
-    （一行改动，但 11 个页签换行会严重挤压内容区，需实测后再考虑）。
+  - **修法已定案（v2.7 D1，2026-11-11 确认）**：左侧分组 sidebar + 窄屏 drawer（原开放选型保留下文供追溯），但**必须解决"页签数量还会继续增长"这件事**：
+    ~~A) 窄屏折叠汉堡 + Drawer；B) 页签条横向滚动；C) wrap 换行加高 header~~（开放选型已被 v2.7 D1 取代）。
+    定案实施要点：`AppShell` 加 `navbar`（现仅 `header={{height:56}}`，`AppLayout.tsx:38`）；
+    `NAV` 数组（:16-28，`{to,label,parentOnly?}`）按 `parentOnly` 拆孩子/家长两组，家长组仅解锁渲染
+    （`useParentSession().unlocked`，:33）；桌面常驻 sidebar、断点以下汉堡 + Drawer；
+    移除 header 内两处 `Group wrap="nowrap"` 页签组（:40/:49）；分组/过滤抽纯函数供单测。
   - DoD 要点：360px 与 412px 两档宽度下、**家长解锁态（11 枚全出）**逐个断言每个导航目标可达
     （`documentElement.scrollWidth === clientWidth`，且开启菜单后每项的包围盒落在视口内）；
     桌面宽度布局不回退；`npm run lint` / `npm run build` 绿、CI 绿；零迁移、零新依赖。
   - 禁止：为省事删页签或合并功能入口；把导航改成底部 Tab Bar 之类全站重构（除非实测证明 A/B/C 都不成立）；
     顺手改 `AppShell` 之外的页面布局。
+  - **DoD 度量法修订（v2.7，审核方确认）**：盘上无 DOM 测试栈（`npm test` = node --test 纯函数，
+    无 vitest/jsdom/playwright）→ 可达性断言改为 ① NAV 分组/过滤抽纯函数 + Node 单测
+    （断言 11+3 分组与解锁过滤）；② 真机/手工浏览器 360/412 两档、家长解锁态逐枚点击可达 +
+    `documentElement.scrollWidth === clientWidth`，截图与 console 输出贴 PR。
+    **不为此引入 DOM 测试栈**（新重依赖，反清单）。断言对象不减弱，只换度量手段。
+
+### P2-2b 专注计时：进行中轮次服务端续走 + 时长可设（v2.7 D7，缺陷修复）
+- **背景（2026-11-11 读盘）**：`PomodoroTimer.tsx` `TOTAL_MINUTES=25`(:8)、纯 `useState+useRef+setInterval`(:42)，
+  **刷新/切页即丢一轮**（仅挂载 `ReviewPage.tsx:499`，index===0）；后端只有 `POST /api/pomodoros`
+  （`api/pomodoro.py:40-42`，`PomodoroCreate` = mistake_id/duration_minutes/started_at/completed_on/actor），
+  只收"已完成"轮；`clamp_duration` 5–120（`services/pomodoro.py:45-50`）；幂等键
+  `pomodoro:{started_at ts}`(:90)；事件 `pomodoro_completed`(:27)；**无进行中会话表**。
+- 交付：
+  - 新可逆迁移（编号施工时取 alembic head+1，预计 0021）建 `pomodoro_sessions`
+    （id/started_at/planned_minutes/mistake_id/actor/status ∈ {active,completed,abandoned}）；
+  - 端点（孩子区免 PIN，与现有 recordPomodoro 同权限）：`POST /api/pomodoros/start`、
+    `GET /api/pomodoros/active`（返回进行中轮供续走）、`POST /api/pomodoros/{id}/complete`
+    （body duration_minutes = 实际分钟，**保留提前完成**）、`POST /api/pomodoros/{id}/abandon`；
+  - complete 按现有语义写 `pomodoro_completed` 事件（payload 键不变）+ session 置 completed；
+    abandon 不写事件；complete 两次命中现有幂等键 + session 状态守卫，不产生第二条事件；
+  - 前端：挂载时 GET active → 按 remaining = planned - (server now - started_at) 续走；
+    时长选择器 5–120（默认 25）；删 TOTAL_MINUTES 硬编码；切页/刷新/换设备可续。
+- DoD：迁移可逆 + DDL before/after（P0-3 守卫）；集成：start → 模拟新客户端 GET active → complete →
+  事件恰 1 条；abandon → 无事件；duration 4/121 → 422；complete 两次不重复；看板番茄统计不变；
+  全量绿 + `ruff check --no-cache` + build；窄屏可用。
+- 禁止：改 `pomodoro_completed` 事件语义/payload 键（看板依赖）；引入暂停语义（本票不做）；
+  前端 localStorage 当真源；abandon 写事件；顺手重构 ReviewPage 其它逻辑。
+
+### P2-9 错题本：全文搜索 + 掌握状态筛选（v2.7 D8）
+- **现状（2026-11-11 读盘）**：`GET /api/mistakes`（`api/mistakes.py:246-253`）参数
+  status(active/voided/all)/category_id/concept_id/error_cause/limit/offset，**无搜索参数**；
+  `MistakesPage.tsx` 硬编码 `status:"active"`(:56)，筛选仅 categoryId/errorCause；
+  `endpoints.ts` `MistakeFilters.status` 已支持三值(:67)。
+- 交付：后端加可选 `q`（≤100 字符，超 → 422）：对**当前版本** `problem_text` + `standard_answer`
+  大小写不敏感 LIKE；加可选 `mastery_state` ∈ {pending, consolidating, graduated}：
+  graduated = recompute 毕业（错数归零 + 尾部连对 ≥3）、consolidating = 未毕业且 rung≥1、
+  pending = 未毕业且 rung==0，**全部由 review_schedules + recompute 推导，不加新列**；
+  前端搜索框 + 状态 Select（全部/待复习/巩固中/已掌握），与现有筛选可组合。
+- DoD：q 命中题干/答案各有断言；空 q = 不过滤；mastery_state 三值各造 fixture 断言
+  （rung0/rung1/graduated）；与 category/error_cause 组合过滤正确；超长 422；
+  全量绿 + `ruff check --no-cache` + build；窄屏无横向溢出。
+- 禁止：引入 FTS5/虚拟表/搜索依赖（LIKE 足够）；把掌握状态存成列；搜 mistake_versions 历史版本；
+  顺手改 void 语义或列表分页契约。
+
+### P2-10 回收站视图：已作废列表 + 恢复入口（v2.7 D8）
+- **现状（2026-11-11 读盘）**：软删 active/voided；`POST /api/mistakes/{id}/void`(:295-299) /
+  `/unvoid`(:322-326) 均 `require_parent`；`MistakesPage` 恒查 active(:56)，作废题仅详情页可达
+  （`MistakeDetailPage.tsx:342/:364`）——**删了却找不到恢复入口**。
+- 交付：MistakesPage 加"在本 / 回收站"视图切换，**回收站仅家长解锁可见**；回收站视图走
+  `listMistakes status:"voided"`（封装已支持）；每行"恢复"→ 现有 `unvoidMistake`（**不新增端点**）；
+  确认框范式照抄 LocalSeedPage；恢复后刷新两视图并显示计数。
+- DoD：unlocked=false 入口不可见且 unvoid 403（既有）；集成复用 e2e ② 路径：
+  void → 退出 due → unvoid → 回到 due；零迁移、零新端点；全量绿 + `ruff check --no-cache` + build。
+- 禁止：新写恢复端点；物理删除；把回收站暴露给孩子区；顺手改 void/unvoid 权限。
 
 ---
 
