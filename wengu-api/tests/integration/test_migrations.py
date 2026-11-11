@@ -8,9 +8,9 @@ import pytest
 import sqlalchemy.exc
 from alembic import command
 from alembic.config import Config
-from app.models import RecitationItem, RecitationReview
+from app.models import PomodoroSession, RecitationItem, RecitationReview
 from sqlalchemy import create_engine, inspect, text
-from sqlalchemy.schema import CreateTable
+from sqlalchemy.schema import CreateIndex, CreateTable
 
 API_DIR = Path(__file__).resolve().parents[2]
 
@@ -36,6 +36,7 @@ EXPECTED_TABLES = {
     "calendar_events",
     "recitation_items",
     "recitation_reviews",
+    "pomodoro_sessions",
 }
 
 # 易变状态一律不存字段（AGENTS §5：掌握度/毕业/统计由事实推导）
@@ -734,7 +735,7 @@ def test_p5_6_drops_orphan_photo_tables_up_down_up(tmp_path) -> None:
         "photo_capture_items",
         "problem_extractions",
     }.isdisjoint(tables)
-    assert len(tables - {"alembic_version"}) == 21
+    assert len(tables - {"alembic_version"}) == 22
 
     engine = create_engine(f"sqlite:///{db_path.as_posix()}")
     try:
@@ -1571,3 +1572,101 @@ def test_v25_intake_and_quiz_columns(tmp_path) -> None:
         engine.dispose()
 
     command.upgrade(config, "head")
+
+
+@pytest.mark.integration
+def test_p2_2b_pomodoro_sessions_reversible_ddl_is_byte_identical(tmp_path) -> None:
+    """0021 用 op.create_table 显式建表：回退再升级的 DDL 与首次升级、ORM 逐字一致。"""
+
+    db_path = tmp_path / "pomodoro-sessions-ddl.db"
+    config = _alembic_config(db_path)
+    involved = {"pomodoro_sessions"}
+
+    command.upgrade(config, "0020_recitation")
+    assert _master_ddl(db_path, involved) == {}
+
+    command.upgrade(config, "head")
+    before = _master_ddl(db_path, involved)
+    assert set(before) == {
+        "table:pomodoro_sessions",
+        "index:ix_pomodoro_sessions_status",
+    }
+
+    model_engine = create_engine("sqlite://")
+    try:
+        table = PomodoroSession.__table__
+        compiled = str(CreateTable(table).compile(model_engine)).strip()
+        assert before["table:pomodoro_sessions"] == compiled
+        index = next(iter(table.indexes))
+        assert before[f"index:{index.name}"] == str(
+            CreateIndex(index).compile(model_engine)
+        ).strip()
+    finally:
+        model_engine.dispose()
+
+    command.downgrade(config, "0020_recitation")
+    assert _master_ddl(db_path, involved) == {}
+
+    command.upgrade(config, "head")
+    after = _master_ddl(db_path, involved)
+
+    mismatches = _ddl_mismatches(before, after)
+    assert not mismatches, "0021 回退再升级后的 DDL 与首次升级不一致：\n" + "\n".join(
+        mismatches
+    )
+
+
+@pytest.mark.integration
+def test_p2_2b_pomodoro_sessions_status_and_duration_guards(tmp_path) -> None:
+    """三态 CHECK + 计划时长 5–120 CHECK + status 默认 active；回退只删本表。"""
+
+    db_path = tmp_path / "pomodoro-sessions-guard.db"
+    config = _alembic_config(db_path)
+    command.upgrade(config, "head")
+
+    engine = create_engine(f"sqlite:///{db_path.as_posix()}")
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO pomodoro_sessions"
+                    " (started_at, planned_minutes, actor)"
+                    " VALUES (CURRENT_TIMESTAMP, 25, 'student')"
+                )
+            )
+            assert (
+                connection.scalar(
+                    text("SELECT status FROM pomodoro_sessions WHERE id = 1")
+                )
+                == "active"
+            )
+            with pytest.raises(sqlalchemy.exc.IntegrityError, match="CHECK"):
+                connection.execute(
+                    text(
+                        "INSERT INTO pomodoro_sessions"
+                        " (started_at, planned_minutes, actor, status)"
+                        " VALUES (CURRENT_TIMESTAMP, 25, 'student', 'paused')"
+                    )
+                )
+            for minutes in (4, 121):
+                with pytest.raises(sqlalchemy.exc.IntegrityError, match="CHECK"):
+                    connection.execute(
+                        text(
+                            "INSERT INTO pomodoro_sessions"
+                            " (started_at, planned_minutes, actor)"
+                            f" VALUES (CURRENT_TIMESTAMP, {minutes}, 'student')"
+                        )
+                    )
+            assert (
+                connection.scalar(text("SELECT COUNT(*) FROM pomodoro_sessions"))
+                == 1
+            )
+    finally:
+        engine.dispose()
+
+    command.downgrade(config, "0020_recitation")
+    assert "pomodoro_sessions" not in _tables(db_path)
+    assert _master_ddl(db_path, {"pomodoro_sessions"}) == {}
+
+    command.upgrade(config, "head")
+    assert "pomodoro_sessions" in _tables(db_path)

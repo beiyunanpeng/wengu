@@ -19,7 +19,7 @@ wengu-api/
 │  ├─ services/                  # intake / inbox / grading / mistakes / review / quiz / bank
 │  ├─ judge/                     # judgeAnswer 规范化 + AST 白名单沙箱 verify
 │  └─ seed/                      # seed 装载 + 题库内存索引（bank.py / svg.py）
-├─ migrations/                   # Alembic（head = 0020_recitation）
+├─ migrations/                   # Alembic（head = 0021_pomodoro_sessions）
 ├─ scripts/                      # import_seed / import_questions / export_topics_junior
 ├─ tests/                        # unit / integration
 ├─ requirements.txt

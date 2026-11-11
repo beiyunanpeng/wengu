@@ -1,9 +1,9 @@
 # STATUS.md — 开发计划与完成情况
 
-> 快照日期：2026-11-04（**P1-3f 投递侧显式剥离 BOM**；`/import` 粘贴/文件共用归一后再发；无迁移）
-> 基线：`main` = `9388fd4`（P1-3e / PR #35 已合并，本卡已出）；本切片在 `feat/p1-3f-bom` 分支，合并前工作区状态
-> 全量测试：**523 passed**（2026-11-04 本机实跑，unit 344 / integration 170 / **e2e 9**）；`pytest -m e2e` 收集 **9** 条全绿；`ruff check --no-cache .` 全绿；`npm run build` 绿
-> Alembic head：`0020_recitation`；业务表 **21 张**（P1-3f 无迁移、无后端改动、无新依赖）
+> 快照日期：2026-11-11（**P2-2b 专注计时服务端续走 + 时长可设**；迁移 0021）
+> 基线：`main` = `cdb4ba4`（P2-8 / PR #43 已合并）；本切片在 `feat/p2-2b-pomodoro-resume` 分支，合并前工作区状态
+> 全量测试：**559 passed**（2026-11-11 本机实跑，unit 361 / integration 189 / **e2e 9**）；`ruff check --no-cache .` 全绿；`npm run lint` / `npm test`（16）/ `npm run build` 绿
+> Alembic head：`0021_pomodoro_sessions`；业务表 **22 张**（0021 新增 `pomodoro_sessions`）
 
 本文件是**状态快照**，不替代以下事实源；冲突时以它们为准：
 
@@ -60,12 +60,15 @@
   无主考点或题池为空时入口置灰并提示「该知识点暂无同类题」，不报错、不硬凑。
   `/api/practice/*` 全部孩子区免 PIN。新增 4 条集成测试（不变量快照、防客户端谎报、
   自评/跳过、家长题 `problem_bank_id` 回填）。
-- **P2-2 番茄钟执行已交付**：复习页每日队列第一项带**纯前端 25 分钟倒计时**，取消不打点，
-  自然完成或手动“完成”才 `POST /api/pomodoros` 追加 `pomodoro_completed` 事件（幂等键按
-  `started_at`，时长 5–120 钳制，错题可空）；看板与复习页头部显示今日番茄 / 本周专注，
+- **P2-2 番茄钟执行已交付**：复习页带专注计时器，完成才追加 `pomodoro_completed` 事件
+  （幂等键按 `started_at`，错题可空）；看板与复习页头部显示今日番茄 / 本周专注，
   `GET /api/dashboard` 新增 `pomodoros_today`、`focus_minutes_this_week`。
   **不规划、不排程、不自动连跑、无后台计时/通知**；番茄**不计入掌握度、不计入打卡 streak、
-  不进错题本、不完成复习任务**。无新表、无迁移（head 仍 `0015`）。
+  不进错题本、不完成复习任务**。
+- **P2-2b 计时器服务端续走 + 时长可设已交付（v2.7 D7）**：进行中轮次存 `pomodoro_sessions`
+  （迁移 `0021`，可逆），挂载 `GET /api/pomodoros/active` 续走，刷新/切页/换设备接着走；
+  时长 5–120 可选（默认 25），保留提前完成记实际分钟；complete 复用旧打点语义
+  （payload 键与幂等键不变、两次不重复），abandon 只翻状态不写事件；续走时已到点不自动打点。
 - **P2-7 打印导出已交付**：错题本“导出打印”与复习页组卷“导出练习卷”进入**无导航壳打印视图**，
   浏览器“打印 → 另存为 PDF”（零 PDF 库、零服务端文件）。错题按知识点页组输出四区块
   （原题 / 作答 / 正答 / 错因批注，KaTeX），支持知识点/错因/日期筛选；练习卷默认不含答案，
@@ -386,18 +389,25 @@
 - **展示**：日队列页与看板头部“今日课程 + 未来 7 天硬事件”；复习页考试日提示
   “复习上限已临时放宽到 N 道”。事件默认窗口今天起 30 天，接口支持显式 `from`/`to`。
 
-### 4.10 番茄钟（P2-2，计时器不是规划器）
+### 4.10 番茄钟（P2-2 / P2-2b，计时器不是规划器）
 
-- **定位**：对复习队列的下一项做一个 25 分钟**纯前端倒计时**；它不规划、不排程、不自动连跑。
-- **打点**：取消 → 不打点；自然归零或手动“完成” → `POST /api/pomodoros`
-  （`mistake_id` 可空、`duration_minutes`、`started_at`、`completed_on`）→ 追加
-  `pomodoro_completed` 事件（幂等键 `pomodoro:{started_at 秒级}`），返回 `{id, duration_minutes}`。
-  时长服务端钳制 5–120 分钟；`StrictInt` 拒绝布尔/字符串，缺字段、非法日期/枚举 → 422，
-  不存在的 `mistake_id` → 404。**不建新表**。
+- **定位**：复习页头部的专注计时器；它不规划、不排程、不自动连跑。
+- **轮次（P2-2b）**：进行中轮次存服务端 `pomodoro_sessions`（迁移 `0021`，可逆；
+  CHECK `status ∈ active|completed|abandoned`、CHECK `planned_minutes` 5–120、`status` 索引）。
+  `POST /api/pomodoros/start`（已有 active → 409）、`GET /api/pomodoros/active`
+  （带 `remaining_seconds` + `server_now`，空 → `{"session": null}`）、
+  `POST /api/pomodoros/{id}/complete`、`POST /api/pomodoros/{id}/abandon`，均孩子区免 PIN。
+  前端挂载读回续走，剩余秒以服务端读数为真源、本地时钟只做插值（不用 localStorage）；
+  时长 5–120 可选、默认 25；计时器挂页面级，队列清空后进行中轮次仍可完成/放弃。
+- **打点**：放弃 → 只翻轮次状态、**不写事件**；自然归零或手动“完成” → complete 复用
+  `record_pomodoro` → 追加 `pomodoro_completed` 事件（幂等键 `pomodoro:{started_at 秒级}`，
+  payload 键 `mistake_id/duration_minutes/completed_on` 不变），**保留提前完成记实际分钟**；
+  两次 complete 命中幂等键 + 轮次状态守卫、不重复。新端点 `StrictInt` + 5–120 → 4/121 422；
+  旧 `POST /api/pomodoros` 钳制语义不变。续走时已到点的轮次不自动打点，须手点“完成”。
 - **展示**：看板卡片“今日番茄 / 本周专注”与复习页头部摘要，均读 `GET /api/dashboard` 的
   `pomodoros_today`、`focus_minutes_this_week`（周一起算，从事件现算，空库全零）。
 - **边界**：番茄事件**不计入掌握度、不计入 P2-6 streak、不进错题本、不完成复习任务**；
-  刷新/关页即弃，无后台计时、无通知推送、无自动开始下一个。
+  无暂停语义、无后台计时、无通知推送、无自动开始下一个。
 
 ### 4.11 打印导出（P2-7）
 
@@ -833,7 +843,8 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
 
 ### 5.2 数据库与 seed
 
-- Alembic head `0020_recitation`；**21 张业务表**（0020 新增 `recitation_items` /
+- Alembic head `0021_pomodoro_sessions`；**22 张业务表**（0021 新增 `pomodoro_sessions`，
+  可逆迁移；0020 新增 `recitation_items` /
   `recitation_reviews`，可逆迁移；0016 新增 `bank_drafts`，
   `problem_bank` 补 `topic_id` FK + `question_type/difficulty/choices_json/figure/hide_choice_text/percent`；
   0017 再补 `status TEXT NOT NULL server_default 'active'`（CHECK `active|voided`）+
@@ -1066,7 +1077,7 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
 | 工单 | 目标 |
 |---|---|
 | P2-1 | 部分完成：到期复习/考核组织、每日上限（热配置）、今日进度与顺延提示已交付；背诵铺底随 P3-3a 以独立到期端点 + 复习页入口交付（按 `daily_recitation_limit` 截断、排在考核之后）；作业 deadline 插入、硬事件抬权重待 P3 |
-| P2-2 | 已完成：番茄钟执行。复习页对下一项做纯前端 25 分钟倒计时，取消不打点；完成写 `pomodoro_completed`（幂等、5–120 钳制），看板展示今日番茄/本周专注；不计入掌握度/streak/错题本，不规划/排程/自动连跑 |
+| P2-2 | 已完成：番茄钟执行 + P2-2b 服务端续走/时长可设。进行中轮次存 `pomodoro_sessions`（0021），刷新/切页/换设备续走；5–120 可选默认 25，放弃不打点；完成写 `pomodoro_completed`（幂等、payload 不变、保留提前完成），看板展示今日番茄/本周专注；不计入掌握度/streak/错题本，不规划/排程/自动连跑/暂停 |
 | P2-3 | 已完成：课表/日历约束层。家长录入每周课表 + 日历硬事件、孩子只读同见；唯一队列规则 = 考试日放宽上限（热配置系数）；不自动排课/时间块/冲突检测/从课表生成任务 |
 | P2-4 | 已完成：两角色 + 本地 PIN。孩子区免 PIN；家长区（作废/组卷/题库审核）scrypt 哈希 + 签名 cookie 解锁；不做公网账号体系 |
 | P2-5 | 已完成：家长看板（观察复盘型），`GET /api/dashboard` 只读确定性统计，孩子见同一份；无模型/写路径 |

@@ -360,6 +360,12 @@ export default function ReviewPage() {
         </Text>
       )}
 
+      {/* 挂页面级而非第一张到期卡：队列清空后进行中的轮次仍要能续走、完成或放弃。 */}
+      <PomodoroTimer
+        mistakeId={due?.items[0]?.mistake_id ?? null}
+        onRecorded={() => void loadFocus()}
+      />
+
       <Text size="sm" c="dimmed">
         到期任务：能按主考点取到同类题就考（服务端判分，计入掌握度）；
         解答大题或依赖图形则在纸上做、照卷面自评；题库缺口则重做原题。
@@ -462,7 +468,7 @@ export default function ReviewPage() {
         )
       )}
 
-      {due?.items.map((item, index) => (
+      {due?.items.map((item) => (
         <Card key={item.schedule_id} withBorder>
           <Stack gap="sm">
             <Group justify="space-between" align="flex-start" wrap="wrap">
@@ -494,13 +500,6 @@ export default function ReviewPage() {
             <Text size="xs" c="dimmed">
               {taskInstruction(item)}
             </Text>
-
-            {index === 0 && (
-              <PomodoroTimer
-                mistakeId={item.mistake_id}
-                onRecorded={() => void loadFocus()}
-              />
-            )}
 
             {item.task === "redo" ? (
               <MathText text={item.problem_text || "（题目文本缺失）"} />
