@@ -350,6 +350,13 @@
     （断言 11+3 分组与解锁过滤）；② 真机/手工浏览器 360/412 两档、家长解锁态逐枚点击可达 +
     `documentElement.scrollWidth === clientWidth`，截图与 console 输出贴 PR。
     **不为此引入 DOM 测试栈**（新重依赖，反清单）。断言对象不减弱，只换度量手段。
+  - **状态：已完成（2026-11-11，分支 `feat/p2-8-sidebar-nav`，待评审）**：`AppLayout` 改为左侧
+    分组 sidebar（孩子组 8 / 家长组 3，仅解锁渲染）+ `sm` 以下汉堡 Drawer；header 内两处
+    `Group wrap="nowrap"` 页签组已移除。`src/lib/nav.ts` 提供 `groupNavItems` / `isNavActive`
+    纯函数，`tests/nav.test.ts` 5 条 Node 单测（11 项总数、未解锁过滤、8+3 分组与顺序、不改入参、
+    路径高亮）。手工浏览器 + CDP 360×780 / 412×915 两档、家长解锁态 11 枚逐枚点击：路径全部命中、
+    两档横向溢出 0、11 项包围盒全在视口内、点击后 `aria-current` 指向该项；1280px 桌面 sidebar
+    常驻、汉堡隐藏、11 项全可见。`npm run lint` / `npm run build` / `npm test` 绿；零迁移、零新依赖。
 
 ### P2-2b 专注计时：进行中轮次服务端续走 + 时长可设（v2.7 D7，缺陷修复）
 - **背景（2026-11-11 读盘）**：`PomodoroTimer.tsx` `TOTAL_MINUTES=25`(:8)、纯 `useState+useRef+setInterval`(:42)，

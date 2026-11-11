@@ -42,6 +42,22 @@
 
 ### Fixed
 
+- **P2-8 移动端导航溢出（零迁移、零新依赖）**（2026-11-11）：
+  - **修法（v2.7 D1 定案）**：`AppLayout` 由"header 内一排 `nowrap` 页签"改为**左侧分组 sidebar
+    + 窄屏 Drawer**。桌面（≥`sm`）常驻 sidebar，孩子组 8 枚 / 家长组 3 枚（仅解开家长区后渲染）；
+    断点以下 header 只留品牌与家长区入口，汉堡打开 Drawer，点任一入口即关闭并跳转。
+    header 中原两处 `Group wrap="nowrap"` 页签组已移除；页签数量继续增长时 sidebar 内滚动，
+    不再出现"被裁掉且滑不出来"。
+  - `NAV` 与分组/过滤抽到 `src/lib/nav.ts` 纯函数（`groupNavItems` / `isNavActive`），
+    `tests/nav.test.ts` 5 条 Node 单测（`npm test` 10 passed）：11 项总数、未解锁仅孩子组 8 枚、
+    解锁后「孩子组 8 + 家长组 3」分组与顺序、分组不修改入参、完全/子路径高亮。
+  - **可达性取证（手工浏览器 + CDP 设备模拟，未引入 DOM 测试栈）**：360×780 与 412×915 两档、
+    家长解锁态（11 枚全出）逐枚点击——路径逐一命中，`documentElement.scrollWidth === clientWidth`
+    （两档横向溢出均为 0），Drawer 内 11 项包围盒全部落在视口内，每项点击后
+    `aria-current="page"` 指向该项；1280px 桌面回归：sidebar 常驻、汉堡隐藏、11 项全在视口内、
+    零横向溢出。console 仅 1 条既有 `/favicon.ico` 404（与本票无关），无 React 异常。
+  - 零迁移、零新依赖（未引入 vitest/jsdom/playwright）；未改 `AppShell` 之外的页面布局。
+
 - **P0-5 两处 Windows 本地噪音（零迁移、零新依赖）**（2026-11-05）：
   - **pytest 每次跑完刷一段 `PermissionError` Traceback（退出码仍是 0）**：
     `%TEMP%\pytest-of-roc\pytest-current` 被 ACL 锁死（曾提权跑过 pytest 的残留）后，
