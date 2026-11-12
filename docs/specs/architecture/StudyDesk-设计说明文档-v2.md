@@ -478,8 +478,13 @@ X 深挖确认 v2.2 三条决定全部成立、可更具体。追加以下补丁
 
 - **P4-4**：`main.py` seed 装载失败改显式降级（状态端点暴露 + 前端醒目横幅，不再只在日志里）；`learning_events.occurred_at`
   加索引（迁移）；`runtime_config` 同步 IO 改 `to_thread`；0013/0019 数据回退说明补文档。
-- **P4-5**：mastery 增加"最近 N 次"窗口（N 与样本不足时的回退阈值**出票前确认**；须可整体重算、不存易变字段）。
-- **P4-6**：公式题判分走 `sympy` 语义等价（LaTeX 解析路径与是否新增依赖**出票前确认**；解析失败降级自评并标 `formula_fallback`）。
+- **P4-5（参数已定 2026-11-12）**：mastery 增加"最近 N 次"窗口，**N = 20**、**样本 < 5 回退全历史**；
+  常量 `MASTERY_WINDOW_SIZE` / `MASTERY_MIN_SAMPLE`（不做运行时可配）；毕业判定与 `GRADUATION_STREAK` 不动、
+  不存易变字段、可整体重算。
+- **P4-6（路径已定 2026-11-12）**：公式题判分**不引入 antlr**——受限 LaTeX 子集归一（`judge/latex_subset.py`，
+  超出子集抛 `UnsupportedLatex`）+ `sympy.sympify` 等式判断（变量/运算白名单，禁 eval）；
+  解析失败或不可判 → 降级自评并标 `formula_fallback`，不进判分结论。
+  注：`sympy` 早已在 `requirements.txt` 但全仓零使用，本票是首次真正启用。
 
 ### F. 许可与开源基线（D16）
 

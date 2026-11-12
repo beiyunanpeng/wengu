@@ -661,6 +661,51 @@
   - 禁止：seed 失败直接 crash 服务；把 seed 错误明细（题目/路径）暴露给前端；async 路由内保留同步 fsync；
     顺手改 0013/0019 历史行为；给 dashboard 加缓存绕过索引。
 
+### P4-5 mastery 近期窗口（v2.8 §19-E；改掌握度语义，零迁移）
+- **背景（2026-11-12 读盘）**：`services/recompute.py:98-125` 的 `mastery()` = 该 concept **全部历史**正确率，
+  docstring 自述"确定性占位实现"；而 `review_policy.review_interval()` 用 `基础档 × (1 + mastery × 4)` 算间隔
+  → 两年前答对 10 次、最近连错 3 次的孩子 mastery 仍高、间隔反被拉长（评估报告 §4.2 #7 / §5.1）。
+- **参数已定（2026-11-12 用户确认）**：窗口 **N = 20**（按 concept 取最近 20 次计入掌握度的作答事件，
+  沿用 `_counts_toward_mastery` 与 `_dedupe_grading_versions`）；**样本 < 5 回退全历史**（避免冷启动抖动）；
+  多 concept 仍取最小 mastery；`is_graduated` 与 `GRADUATION_STREAK` **一字不改**。
+- 交付：
+  - 模块级常量 `MASTERY_WINDOW_SIZE = 20`、`MASTERY_MIN_SAMPLE = 5`（便于回归与将来调参，**不做运行时可配**）；
+  - `recompute.mastery()` 改窗口实现：沿用 `_events_for_mistake` 的确定性排序（`occurred_at` + `repr` 稳定键），
+    按 concept 过滤后取末尾 N 条；样本不足回退全历史；docstring 写明窗口值、回退阈值、仍为推导值可整体重算；
+  - 设计文档 §5.4/§16 的"掌握度自适应"表述与代码对齐（不再暗示已实现时间衰减）；STATUS/CHANGELOG 记录语义变更
+    与影响面（复习间隔可能整体缩短，属预期）。
+- DoD：单测覆盖 ①窗口内全对 → 1.0；②窗口内全错但历史全对 → mastery 显著下降（证明窗口生效，非全历史）；
+  ③样本 <5 → 与全历史结果一致（回退）；④恰好 20 / 21 条边界；⑤申诉改判在窗口内仍只计最高 `grading_version`；
+  ⑥多 concept 取最小值不变；⑦`is_graduated` 既有断言一字未改仍绿；⑧同输入两次重算相等（幂等）。
+  全量 pytest 绿 + `ruff check --no-cache`；**零迁移**。
+- 禁止：把 mastery 存成列或缓存；改 `GRADUATION_STREAK`/毕业条件；引入 FSRS 或新依赖；
+  把窗口参数做成运行时可配（无证据，先常量）；顺手改 `review_interval` 的公式形状。
+
+### P4-6 公式题判分：受限 LaTeX 子集归一 + sympy 语义等价（v2.8 §19-E；零新依赖）
+- **背景（2026-11-12 读盘）**：`requirements.txt` 已声明 `sympy>=1.13,<2`（注释写"judgeAnswer 用"），
+  但全仓 `grep sympy` **零命中**——声明未使用；判分实际只走 `judge/normalize.py` 的字符串/有理数规范化，
+  `\frac{1}{2}` vs `0.5`、`2(x-3)+4=3x-5` 的等价变形在字符串比对下会误判（评估报告 §5.2 公式盲点）。
+- **路径已定（2026-11-12 用户确认"按建议"）**：**不引入 antlr**（`sympy.parsing.latex` 需 antlr4-python3-runtime，
+  属新重依赖）；改**受限 LaTeX 子集归一 + `sympy.sympify` 等式判断**；超出子集或解析失败 → **降级自评并标 `formula_fallback`**，
+  绝不猜对错。
+- 交付：
+  - 新增 `judge/latex_subset.py`：确定性字符串规则转换器，支持子集 `\frac{a}{b}` / `\sqrt{a}` / `a^{b}` /
+    `\cdot` `\times` `\div` / `\left` `\right` / `\%` / `\pi` / `e^{x}` / 四则括号与等号两侧；
+    **超出子集（积分、求和、矩阵、`\begin{...}`、未识别宏）抛 `UnsupportedLatex`**；
+  - `judge/normalize.py` 增 `formula_equivalent(a, b) -> bool | None`（None = 不可判）：先走现有 NFKC/有理数规则，
+    再试 sympy；`sympify` 前后做变量与运算白名单检查，**禁 eval/exec、禁任意属性调用**，只做 `Eq` / `simplify(lhs-rhs)==0`；
+  - `judge_answer` 接入：仅当题目为公式类（答案含 LaTeX 标记或 `answer_kind == formula`）时尝试；
+    返回 正确 / 错误 / **unknown → fallback**；
+  - fallback 走既有自评路径（`source=student_self`），UI 标注"公式题：系统未自动判定，请自评或家长核对"，
+    `formula_fallback` 作为标签记入 payload（**不进判分结论、不影响掌握度算法**）；
+  - 题库 `verify` 表达式仍走 AST 沙箱，本票不改。
+- DoD：正例 ≥12 条（`\frac{1}{2}≡0.5`、`2(x-3)+4=3x-5 ≡ x=3`、`\sqrt{16}≡4`、常数/单位等价等）；
+  负例不误判为对；`UnsupportedLatex` 用例（积分/矩阵/未知宏）→ 返回 None 且走自评、不报错；
+  sympify 注入用例（`__import__`、`open`、属性访问、下标）必须被白名单拒绝并有断言；同输入重放一致；
+  全量 pytest 绿 + `ruff check --no-cache` + build；**`requirements.txt` 零变化**。
+- 禁止：引入 antlr4-python3-runtime 或任何新依赖；`eval`/`exec` 或 unrestricted `sympify`；
+  把 fallback 伪装成"判对"；对依赖图形的题（`figure`）启用公式判分；改 `judgeAnswer` 既有非公式路径行为。
+
 ---
 
 ## Phase 5 —— 开源分发与打包
