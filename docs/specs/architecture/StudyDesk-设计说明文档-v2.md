@@ -469,9 +469,10 @@ X 深挖确认 v2.2 三条决定全部成立、可更具体。追加以下补丁
 - **P5-7（T1）**：原型先修两处包内问题再合并——① `selfcheck` 在 Windows 默认 GBK 控制台因 `↔` 抛 `UnicodeEncodeError`
   （方案声称的汇总输出/退出码在本机不成立）；② `selfcheck` 只校验旧 Skill，未校验真正分发的 portable Skill。
   保持纯新增；契约 `status` 暂 `proposal`。
-- **P5-8（T2）**：模板升 v2（补 `verify` 或明确声明不暴露给转录端）、文档口径改指 `transcribe/evals/`、旧 Skill 改指新 Skill、
+- **P5-8（T2）**：**模板版本由 P1-17 升到 v2**（含 `correction_notes`），本票不重复升版，只做 `schema_fields` 与契约的字段收口
+  （补 `verify` 或明确声明不暴露给转录端）、文档口径改指 `transcribe/evals/`、旧 Skill 改指新 Skill、
   CI 新增**独立** transcribe job、**后端集成测试消费同一批 fixtures（行为锚定）**、契约转 `active`；
-  与 P1-17 `correction_notes` 协同升版。
+  仅当本票确实改了模板语义才升 v3 并说明理由。
 - **转录准确率仍不可观测**（缺真值样本）：批次 manifest 先进本地，T3 再考虑只读看板；不得宣称准确率已达标。
 
 ### E. 技术债（D15）

@@ -823,6 +823,9 @@
   - `selfcheck` 增加 **portable Skill 校验**：读 `transcribe/skills/wengu-transcribe/SKILL.md` frontmatter 的
     `template_ref` / `contract_ref`，断言文件存在且与契约 `template.id/version`、`channels.primary` 对齐，不一致报 DRIFT；
   - 将 `transcribe/` 7 文件（含上述修复）作为本票提交入 main；`contract/ingestion_v1.json` 保持 `"status": "proposal"`；
+  - **修 `transcribe/validate.py` 的 2 处 ruff `UP038`**（`isinstance` 元组写法改 `X | Y`）：审核方 2026-11-12 实跑确认
+    票内路径 `ruff check --no-cache app tests ../wengu-web/src ../wengu-web/tests` 全绿，但**全仓** `ruff check ..` 报这 2 处；
+    目录一旦提交进 main，CI 的 ruff 步骤就会变红，必须在本票内修掉（不得靠 ruff 配置排除目录绕过）；
   - CHANGELOG `[Unreleased]` 加条目；README/STATUS 不夸大（不得写"转录准确率已验证"）。
 - DoD：Windows 默认 `cmd`/PowerShell（GBK）下 `python transcribe/validate.py selfcheck` 输出完整汇总且无 traceback；
   有 DRIFT 时 `--strict` 退出 1、无 DRIFT 时 0；`evals` 13/13；`py_compile` OK；portable Skill 引用被校验
@@ -837,14 +840,16 @@
   旧 Skill 硬编码 `D:\MyProducts\...` 且 inbox 路径错误；契约 `status: proposal`；CI 无 transcribe job；
   `validate.py` 与后端校验是两份实现（selfcheck 只比常量）。
 - 交付：
-  ① 模板升 **v2**：`version: 2`；`schema_fields` 补 `verify` **或**明确写"verify 不向转录端暴露、仅题库通道使用"（二选一并写理由）；
-     「与 wengu 系统的契约」改指 `transcribe/evals/`；若 P1-17 已合并，v2 必须含可选 `correction_notes` 并写明"只抄卷面手写"。
+  ① **模板版本已由 P1-17 升到 v2**（含 `correction_notes`），本票**不得重复升版**：只做 `schema_fields` 与契约的字段收口——
+     补 `verify` **或**明确写"verify 不向转录端暴露、仅题库通道使用"（二选一并写理由）；「与 wengu 系统的契约」改指 `transcribe/evals/`。
+     **仅当本票确实改了模板语义时**才升到 v3，并在 CHANGELOG 说明为什么不是 v2。
   ② `docs/tooling/wengu-transcribe.md` 改为指向 `transcribe/skills/wengu-transcribe/SKILL.md`，删除本机绝对路径与错误 inbox 路径。
-  ③ 契约 `status: active`、`template.version` 与模板一致；`selfcheck` 增加模板 `id` ↔ 契约 `template.id` 断言。
+  ③ 契约 `status: active`、`template.version` 与模板一致（P1-17 后应为 2，本票若升 v3 则同步为 3）；
+     `selfcheck` 增加模板 `id` ↔ 契约 `template.id` 断言。
   ④ **行为锚定**：`wengu-api/tests/` 新增集成测试，直接加载 `transcribe/evals/fixtures/*.json`，用后端真实
      `validate_envelope/validate_and_normalize` 断言与 `_expect` 一致（不得复制校验逻辑；后端模块不可 import 时用最小驱动）。
   ⑤ CI 新增独立 `transcribe` job：`selfcheck --strict` + `evals` + `py_compile`，不装额外包、不并入 api job。
-- DoD：`selfcheck --strict` 0 DRIFT；模板 v2 被加载器读到；文档不再出现不存在的 `evals/transcribe/`；旧 Skill 无本机绝对路径；
+- DoD：`selfcheck --strict` 0 DRIFT；模板 `version` 与契约 `template.version` 一致（P1-17 后为 2，本票若升 v3 需说明理由）；文档不再出现不存在的 `evals/transcribe/`；旧 Skill 无本机绝对路径；
   后端新测试消费 fixtures 全绿，且**人为改坏一处后端校验逻辑 → 该测试变红**（可证伪）；CI 双绿 + 新 job 绿；全量 pytest/ruff/build 绿。
 - 禁止：恢复模型在环/视觉依赖；让后端 import transcribe 包（测试读 fixtures 文件即可）；把契约改成第二真源；
   顺手改 P1-16/P1-17 语义；在 CI 安装额外依赖。
