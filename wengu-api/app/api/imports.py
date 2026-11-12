@@ -101,6 +101,7 @@ class IntakeDraftInfo(BaseModel):
     problem_text: str
     student_answer: str
     standard_answer: str
+    correction_notes: str
     source_ref: str
     captured_at: str
     suggestion: IntakeSuggestion
@@ -118,6 +119,7 @@ class IntakeDraftList(BaseModel):
 class DraftConfirmRequest(BaseModel):
     primary_topic_id: str | None = Field(default=None, max_length=64)
     standard_answer: str | None = Field(default=None, max_length=500)
+    correction_notes: str | None = Field(default=None, max_length=500)
     error_cause: str | None = Field(default=None, max_length=32)
     concept_ids: list[int] = Field(default_factory=list, max_length=10)
     question_type: Literal["objective", "process"] = "objective"
@@ -201,6 +203,7 @@ async def list_intake_drafts(
                     problem_text=item.normalized.get("problem_text", ""),
                     student_answer=item.normalized.get("student_answer", ""),
                     standard_answer=item.normalized.get("standard_answer", ""),
+                    correction_notes=item.normalized.get("correction_notes", ""),
                     source_ref=item.normalized.get("source_ref", ""),
                     captured_at=item.normalized.get("captured_at", ""),
                     suggestion=IntakeSuggestion(
@@ -240,6 +243,7 @@ async def confirm_intake_draft(
                 draft_id,
                 primary_topic_id=payload.primary_topic_id,
                 standard_answer=payload.standard_answer,
+                correction_notes=payload.correction_notes,
                 error_cause=payload.error_cause,
                 concept_ids=tuple(payload.concept_ids),
                 question_type=payload.question_type,

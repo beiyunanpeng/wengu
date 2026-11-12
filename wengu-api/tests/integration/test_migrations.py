@@ -1670,3 +1670,107 @@ def test_p2_2b_pomodoro_sessions_status_and_duration_guards(tmp_path) -> None:
 
     command.upgrade(config, "head")
     assert "pomodoro_sessions" in _tables(db_path)
+
+
+@pytest.mark.integration
+def test_p1_17_correction_notes_reversible_ddl_is_byte_identical(tmp_path) -> None:
+    """0022 原生 ADD/DROP COLUMN：up/down/up 后 mistake_versions 的 DDL（含 append-only
+    触发器）与首次升级逐字一致。不与 ORM 比列序——DB 列序 = 0002 建表 + 0008/0022 末尾追加。"""
+
+    db_path = tmp_path / "correction-notes-ddl.db"
+    config = _alembic_config(db_path)
+    involved = {"mistake_versions"}
+
+    command.upgrade(config, "0021_pomodoro_sessions")
+    pre = _master_ddl(db_path, involved)
+    assert "correction_notes" not in pre["table:mistake_versions"]
+
+    command.upgrade(config, "head")
+    before = _master_ddl(db_path, involved)
+    assert "correction_notes" in before["table:mistake_versions"]
+    # append-only 触发器随原生 ADD COLUMN 原样保留（batch 重建会连带丢掉，这里钉死）
+    assert "trigger:mistake_versions_UPDATE_guard" in before
+    assert "trigger:mistake_versions_DELETE_guard" in before
+
+    command.downgrade(config, "0021_pomodoro_sessions")
+    downgraded = _master_ddl(db_path, involved)
+    assert "correction_notes" not in downgraded["table:mistake_versions"]
+    assert "trigger:mistake_versions_UPDATE_guard" in downgraded
+    assert "trigger:mistake_versions_DELETE_guard" in downgraded
+
+    command.upgrade(config, "head")
+    after = _master_ddl(db_path, involved)
+
+    mismatches = _ddl_mismatches(before, after)
+    assert not mismatches, "0022 回退再升级后的 DDL 与首次升级不一致：\n" + "\n".join(
+        mismatches
+    )
+
+
+@pytest.mark.integration
+def test_p1_17_correction_notes_nullable_and_append_only_guard(tmp_path) -> None:
+    """correction_notes 可空、库层无 CHECK；UPDATE 该列仍被 append-only 触发器拒绝。"""
+
+    db_path = tmp_path / "correction-notes-guard.db"
+    config = _alembic_config(db_path)
+    command.upgrade(config, "head")
+
+    engine = create_engine(f"sqlite:///{db_path.as_posix()}")
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO mistake_versions"
+                    " (mistake_id, version, status, created_at)"
+                    " VALUES (1, 1, 'active', CURRENT_TIMESTAMP)"
+                )
+            )
+            assert (
+                connection.scalar(
+                    text("SELECT correction_notes FROM mistake_versions WHERE id = 1")
+                )
+                is None
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO mistake_versions"
+                    " (mistake_id, version, status, created_at, correction_notes)"
+                    " VALUES (1, 2, 'active', CURRENT_TIMESTAMP, '移项要变号')"
+                )
+            )
+            assert (
+                connection.scalar(
+                    text("SELECT correction_notes FROM mistake_versions WHERE id = 2")
+                )
+                == "移项要变号"
+            )
+            with pytest.raises(sqlalchemy.exc.IntegrityError, match="append-only"):
+                connection.execute(
+                    text(
+                        "UPDATE mistake_versions SET correction_notes = 'x' WHERE id = 2"
+                    )
+                )
+    finally:
+        engine.dispose()
+
+    command.downgrade(config, "0021_pomodoro_sessions")
+    engine = create_engine(f"sqlite:///{db_path.as_posix()}")
+    try:
+        with engine.connect() as connection:
+            columns = {
+                c["name"] for c in inspect(connection).get_columns("mistake_versions")
+            }
+        assert "correction_notes" not in columns
+    finally:
+        engine.dispose()
+
+    command.upgrade(config, "head")
+    engine = create_engine(f"sqlite:///{db_path.as_posix()}")
+    try:
+        with engine.connect() as connection:
+            columns = {
+                c["name"] for c in inspect(connection).get_columns("mistake_versions")
+            }
+        assert "correction_notes" in columns
+    finally:
+        engine.dispose()

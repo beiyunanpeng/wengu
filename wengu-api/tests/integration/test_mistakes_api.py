@@ -1518,3 +1518,231 @@ async def test_problem_image_missing_mistake_or_index_404(tmp_path) -> None:
         assert missing_get.status_code == 404
         missing_upload = await _upload_image(client, 9999)
         assert missing_upload.status_code == 404
+
+
+@pytest.mark.integration
+async def test_notes_edit_appends_version_and_keeps_history(tmp_path) -> None:
+    """P1-17：编辑订正笔记只追加版本行；历史版本逐行不变（全表快照）；不记事件、不动排期。"""
+
+    factory = _migrated(tmp_path)
+    await _seed_topic(factory)
+
+    async with _client(factory) as client:
+        mistake_id = (await _create_mistake(client))["mistake_id"]
+        created = await client.get(f"/api/mistakes/{mistake_id}")
+        assert created.json()["correction_notes"] is None  # 不带笔记入本 = NULL
+
+        versions_before = await _mistake_version_snapshot(factory)
+        events_before = await _count(factory, LearningEvent)
+        schedules_before = await _count(factory, ReviewSchedule)
+
+        edited = await client.post(
+            f"/api/mistakes/{mistake_id}/notes",
+            json={
+                "base_version": 1,
+                "correction_notes": "移项要变号，下次先写这一步",
+            },
+        )
+        assert edited.status_code == 200, edited.text
+        body = edited.json()
+        assert body["current_version"] == 2
+        assert body["correction_notes"] == "移项要变号，下次先写这一步"
+
+        detail = await client.get(f"/api/mistakes/{mistake_id}")
+        assert detail.json()["correction_notes"] == "移项要变号，下次先写这一步"
+
+    assert await _count(factory, MistakeVersion) == 2
+    versions_after = await _mistake_version_snapshot(factory)
+    # 历史 v1 行逐行不变（快照含 correction_notes 在内的全部列）
+    assert versions_after[0] == versions_before[0]
+    v2 = versions_after[1]
+    assert v2["version"] == 2
+    assert v2["correction_notes"] == "移项要变号，下次先写这一步"
+    # 其余内容全量透传，只改笔记
+    assert v2["problem_text"] == versions_before[0]["problem_text"]
+    assert v2["standard_answer"] == versions_before[0]["standard_answer"]
+    assert v2["student_answer"] == versions_before[0]["student_answer"]
+    # 笔记纯展示：不记学习事件、不动排期/掌握度
+    assert await _count(factory, LearningEvent) == events_before
+    assert await _count(factory, ReviewSchedule) == schedules_before
+
+
+@pytest.mark.integration
+async def test_notes_carry_forward_across_labels_images_and_notes(tmp_path) -> None:
+    """P1-17：笔记/标签/原题图互相透传，任一路编辑都不丢其他字段；历史逐行不变。"""
+
+    factory = _migrated(tmp_path)
+    await _seed_topic(factory)
+    concept_id = await _seed_concept(
+        factory, name="移项", category_id="cnm_test_equation"
+    )
+    settings = _image_settings(tmp_path)
+
+    async with _client(factory, settings=settings) as client:
+        mistake_id = (await _create_mistake(client))["mistake_id"]
+
+        # v2：写笔记
+        notes = await client.post(
+            f"/api/mistakes/{mistake_id}/notes",
+            json={"base_version": 1, "correction_notes": "移项要变号"},
+        )
+        assert notes.status_code == 200, notes.text
+        snap_after_notes = await _mistake_version_snapshot(factory)
+
+        # v3：改标签 → 笔记保留
+        labeled = await client.post(
+            f"/api/mistakes/{mistake_id}/labels",
+            json={
+                "base_version": 2,
+                "category_id": "cnm_test_equation",
+                "concept_ids": [concept_id],
+                "error_cause": "calculation",
+            },
+        )
+        assert labeled.status_code == 200, labeled.text
+        assert labeled.json()["correction_notes"] == "移项要变号"
+        snap_after_labels = await _mistake_version_snapshot(factory)
+        assert snap_after_labels[:2] == snap_after_notes
+
+        # v4：上传原题图 → 笔记 + 标签保留
+        uploaded = await _upload_image(client, mistake_id)
+        assert uploaded.status_code == 200, uploaded.text
+        rel = uploaded.json()["problem_images"][0]
+        assert uploaded.json()["correction_notes"] == "移项要变号"
+        assert uploaded.json()["labels"]["error_cause"] == "calculation"
+        snap_after_image = await _mistake_version_snapshot(factory)
+        assert snap_after_image[:3] == snap_after_labels
+
+        # v5：再改笔记 → 标签 + 原题图保留
+        notes2 = await client.post(
+            f"/api/mistakes/{mistake_id}/notes",
+            json={"base_version": 4, "correction_notes": "订正：先移项再合并"},
+        )
+        assert notes2.status_code == 200, notes2.text
+        body = notes2.json()
+        assert body["current_version"] == 5
+        assert body["correction_notes"] == "订正：先移项再合并"
+        assert body["problem_images"] == [rel]
+        assert body["labels"]["error_cause"] == "calculation"
+        assert [c["id"] for c in body["labels"]["concepts"]] == [concept_id]
+
+    assert await _count(factory, MistakeVersion) == 5
+    final = await _mistake_version_snapshot(factory)
+    assert final[:4] == snap_after_image  # 前 4 行逐行不变
+
+
+@pytest.mark.integration
+async def test_notes_edit_child_area_no_pin(tmp_path) -> None:
+    """P1-17：孩子区免 PIN——未解锁会话也能编辑/读取订正笔记（与 /labels、/images 同级）。"""
+
+    factory = _migrated(tmp_path)
+    await _seed_topic(factory)
+
+    async with _client(factory) as client:
+        mistake_id = (await _create_mistake(client))["mistake_id"]
+
+    async with _client(factory, unlock=False) as locked:
+        edited = await locked.post(
+            f"/api/mistakes/{mistake_id}/notes",
+            json={"base_version": 1, "correction_notes": "孩子自己补的笔记"},
+        )
+        assert edited.status_code == 200, edited.text
+        assert edited.json()["correction_notes"] == "孩子自己补的笔记"
+        detail = await locked.get(f"/api/mistakes/{mistake_id}")
+        assert detail.json()["correction_notes"] == "孩子自己补的笔记"
+
+
+@pytest.mark.integration
+async def test_notes_edit_optimistic_lock_state_and_missing(tmp_path) -> None:
+    """P1-17：base_version 乐观锁 409；已作废 409；不存在 404；冲突都不追加版本。"""
+
+    factory = _migrated(tmp_path)
+    await _seed_topic(factory)
+
+    async with _client(factory) as client:
+        mistake_id = (await _create_mistake(client))["mistake_id"]
+        first = await client.post(
+            f"/api/mistakes/{mistake_id}/notes",
+            json={"base_version": 1, "correction_notes": "第一版笔记"},
+        )
+        assert first.status_code == 200, first.text
+        assert first.json()["current_version"] == 2
+
+        stale = await client.post(
+            f"/api/mistakes/{mistake_id}/notes",
+            json={"base_version": 1, "correction_notes": "过期提交"},
+        )
+        assert stale.status_code == 409, stale.text
+        assert await _count(factory, MistakeVersion) == 2  # 冲突不追加
+
+        voided = await client.post(
+            f"/api/mistakes/{mistake_id}/void",
+            json={"actor": "parent", "reason": "测试作废"},
+        )
+        assert voided.status_code == 200, voided.text
+        state_conflict = await client.post(
+            f"/api/mistakes/{mistake_id}/notes",
+            json={"base_version": 2, "correction_notes": "作废后改笔记"},
+        )
+        assert state_conflict.status_code == 409, state_conflict.text
+
+        missing = await client.post(
+            "/api/mistakes/9999/notes",
+            json={"base_version": 1, "correction_notes": "无此题"},
+        )
+        assert missing.status_code == 404, missing.text
+
+    assert await _count(factory, MistakeVersion) == 2
+
+
+@pytest.mark.integration
+async def test_notes_edit_overlong_empty_and_bad_actor(tmp_path) -> None:
+    """P1-17：>500 → 422 不写盘；空白/None → NULL；非法 actor → 422。"""
+
+    factory = _migrated(tmp_path)
+    await _seed_topic(factory)
+
+    async with _client(factory) as client:
+        mistake_id = (await _create_mistake(client))["mistake_id"]
+
+        overlong = await client.post(
+            f"/api/mistakes/{mistake_id}/notes",
+            json={"base_version": 1, "correction_notes": "x" * 501},
+        )
+        assert overlong.status_code == 422, overlong.text
+        assert await _count(factory, MistakeVersion) == 1  # 超长不写盘
+
+        bad_actor = await client.post(
+            f"/api/mistakes/{mistake_id}/notes",
+            json={"base_version": 1, "correction_notes": "x", "actor": "teacher"},
+        )
+        assert bad_actor.status_code == 422, bad_actor.text
+
+        # 空白 strip 后 = 不存（NULL）
+        blank = await client.post(
+            f"/api/mistakes/{mistake_id}/notes",
+            json={"base_version": 1, "correction_notes": "   "},
+        )
+        assert blank.status_code == 200, blank.text
+        assert blank.json()["correction_notes"] is None
+        assert blank.json()["current_version"] == 2
+
+        # 显式 null 同样落 NULL；家长 actor 也允许
+        explicit_null = await client.post(
+            f"/api/mistakes/{mistake_id}/notes",
+            json={
+                "base_version": 2,
+                "correction_notes": None,
+                "actor": "parent",
+            },
+        )
+        assert explicit_null.status_code == 200, explicit_null.text
+        assert explicit_null.json()["correction_notes"] is None
+
+    async with factory() as session:
+        rows = (
+            await session.scalars(
+                select(MistakeVersion).order_by(MistakeVersion.version)
+            )
+        ).all()
+    assert [r.correction_notes for r in rows] == [None, None, None]

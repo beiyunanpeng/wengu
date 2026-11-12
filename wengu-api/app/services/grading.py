@@ -59,6 +59,7 @@ class ConfirmationDetails:
     """转录草稿转正时随确认一起提交的字段（正常批改确认不用）。"""
 
     standard_answer: str | None = None
+    correction_notes: str | None = None
     primary_topic_id: str | None = None
     suggested_category_id: str | None = None
     suggested_concept_ids: tuple[int, ...] | None = None
@@ -197,6 +198,7 @@ async def append_user_decision(
         now=now,
         primary_topic_id=extra.primary_topic_id,
         standard_answer=extra.standard_answer,
+        correction_notes=extra.correction_notes,
         suggested_category_id=extra.suggested_category_id,
         suggested_concept_ids=extra.suggested_concept_ids,
         suggested_error_cause=extra.suggested_error_cause,

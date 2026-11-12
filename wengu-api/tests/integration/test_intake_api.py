@@ -579,3 +579,144 @@ async def test_attempts_query_filters_by_source(tmp_path) -> None:
     assert all_attempts.json()["total"] == 2
     assert practice.json()["total"] == 1
     assert practice.json()["items"][0]["problem_text"] == "解方程 3x=9"
+
+
+@pytest.mark.integration
+async def test_confirm_carries_transcribed_correction_notes(tmp_path) -> None:
+    """转录带笔记 → 确认（不改笔记）→ 当前版本与详情都显示卷面手写笔记。"""
+
+    factory = _migrated(tmp_path)
+    await _seed_topics(factory)
+    async with _client(factory) as client:
+        (draft_id,) = await _import_drafts(
+            client, [_item(correction_notes="移项要变号，下次先写这一步")]
+        )
+        response = await client.post(
+            f"/api/imports/drafts/{draft_id}/confirm",
+            json={"primary_topic_id": "cnm_001", "actor": "student"},
+        )
+        assert response.status_code == 200, response.text
+        mistake_id = response.json()["mistake_id"]
+        detail = await client.get(f"/api/mistakes/{mistake_id}")
+
+    assert detail.json()["correction_notes"] == "移项要变号，下次先写这一步"
+    async with factory() as session:
+        version = (
+            await session.execute(
+                select(MistakeVersion).where(MistakeVersion.mistake_id == mistake_id)
+            )
+        ).scalar_one()
+        assert version.correction_notes == "移项要变号，下次先写这一步"
+
+
+@pytest.mark.integration
+async def test_confirm_without_notes_stores_null(tmp_path) -> None:
+    """转录不带笔记 → 确认后当前版本 correction_notes 为 NULL，详情返回 null。"""
+
+    factory = _migrated(tmp_path)
+    await _seed_topics(factory)
+    async with _client(factory) as client:
+        (draft_id,) = await _import_drafts(client, [_item()])
+        response = await client.post(
+            f"/api/imports/drafts/{draft_id}/confirm",
+            json={"primary_topic_id": "cnm_001", "actor": "student"},
+        )
+        assert response.status_code == 200, response.text
+        mistake_id = response.json()["mistake_id"]
+        detail = await client.get(f"/api/mistakes/{mistake_id}")
+
+    assert detail.json()["correction_notes"] is None
+    async with factory() as session:
+        version = (
+            await session.execute(
+                select(MistakeVersion).where(MistakeVersion.mistake_id == mistake_id)
+            )
+        ).scalar_one()
+        assert version.correction_notes is None
+
+
+@pytest.mark.integration
+async def test_confirm_notes_payload_overrides_transcribed(tmp_path) -> None:
+    """核对页确认 payload 的笔记覆盖转录值（确认值优先，不静默丢弃）。"""
+
+    factory = _migrated(tmp_path)
+    await _seed_topics(factory)
+    async with _client(factory) as client:
+        (draft_id,) = await _import_drafts(
+            client, [_item(correction_notes="转录原笔记")]
+        )
+        response = await client.post(
+            f"/api/imports/drafts/{draft_id}/confirm",
+            json={
+                "primary_topic_id": "cnm_001",
+                "actor": "parent",
+                "correction_notes": "家长核对后改写的笔记",
+            },
+        )
+        assert response.status_code == 200, response.text
+        mistake_id = response.json()["mistake_id"]
+
+    async with factory() as session:
+        version = (
+            await session.execute(
+                select(MistakeVersion).where(MistakeVersion.mistake_id == mistake_id)
+            )
+        ).scalar_one()
+        assert version.correction_notes == "家长核对后改写的笔记"
+
+
+@pytest.mark.integration
+async def test_confirm_notes_placeholder_does_not_block(tmp_path) -> None:
+    """笔记含〔?〕只点亮草稿徽标，不挡转正（闸门只卡题目/作答/正答）。"""
+
+    factory = _migrated(tmp_path)
+    await _seed_topics(factory)
+    async with _client(factory) as client:
+        (draft_id,) = await _import_drafts(
+            client, [_item(correction_notes="移项要〔?〕号")]
+        )
+        pending = await client.get("/api/imports/drafts")
+        assert pending.json()["items"][0]["has_placeholder"] is True
+        response = await client.post(
+            f"/api/imports/drafts/{draft_id}/confirm",
+            json={"primary_topic_id": "cnm_001", "actor": "student"},
+        )
+        assert response.status_code == 200, response.text
+        mistake_id = response.json()["mistake_id"]
+
+    async with factory() as session:
+        version = (
+            await session.execute(
+                select(MistakeVersion).where(MistakeVersion.mistake_id == mistake_id)
+            )
+        ).scalar_one()
+        assert version.correction_notes == "移项要〔?〕号"
+
+
+@pytest.mark.integration
+async def test_confirm_correction_notes_overlong_422_no_write(tmp_path) -> None:
+    """确认 payload 笔记 >500 → 422，草稿仍待确认，不写错题/版本。"""
+
+    factory = _migrated(tmp_path)
+    await _seed_topics(factory)
+    async with _client(factory) as client:
+        (draft_id,) = await _import_drafts(client, [_item()])
+        response = await client.post(
+            f"/api/imports/drafts/{draft_id}/confirm",
+            json={
+                "primary_topic_id": "cnm_001",
+                "actor": "student",
+                "correction_notes": "x" * 501,
+            },
+        )
+        assert response.status_code == 422, response.text
+        pending = await client.get("/api/imports/drafts")
+
+    assert pending.json()["total"] == 1
+    async with factory() as session:
+        assert (
+            await session.execute(select(func.count()).select_from(Mistake))
+        ).scalar_one() == 0
+        assert (
+            await session.execute(select(func.count()).select_from(MistakeVersion))
+        ).scalar_one() == 0

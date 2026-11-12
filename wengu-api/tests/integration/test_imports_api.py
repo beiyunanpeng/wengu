@@ -241,3 +241,78 @@ async def test_inbox_info_is_read_only_and_not_shadowed_by_batch_route(tmp_path)
     assert "agent_transcribe_v1" in body["channels"]
     assert body["max_items"] == 500
     assert body["max_body_bytes"] == 5 * 1024 * 1024
+
+
+@pytest.mark.integration
+async def test_import_correction_notes_carried_into_draft(tmp_path) -> None:
+    """转录带订正笔记 → 草稿 normalized 携带；不带 → 空串（确认时落 NULL）。"""
+
+    payload = {
+        "channel": "agent_transcribe_v1",
+        "items": [
+            {
+                "subject": "数学",
+                "problem_text": "解方程 2x=4",
+                "student_answer": "x=3",
+                "standard_answer": "x=2",
+                "correction_notes": "移项要变号",
+            },
+            {
+                "subject": "英语",
+                "problem_text": "He ___ (go) to school yesterday.",
+                "student_answer": "go",
+                "standard_answer": "went",
+            },
+        ],
+    }
+    _, factory = _migrated(tmp_path)
+    async with _make_client(factory) as client:
+        response = await client.post(
+            "/api/imports", content=json.dumps(payload, ensure_ascii=False)
+        )
+    assert response.status_code == 201, response.text
+    assert response.json()["draft_count"] == 2
+
+    async with factory() as session:
+        drafts = (
+            (
+                await session.execute(
+                    select(IngestionDraft).order_by(IngestionDraft.seq)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert json.loads(drafts[0].normalized_json)["correction_notes"] == "移项要变号"
+        assert json.loads(drafts[1].normalized_json)["correction_notes"] == ""
+
+
+@pytest.mark.integration
+async def test_import_correction_notes_overlong_skipped(tmp_path) -> None:
+    """订正笔记 >500 → 坏项跳过、定位 correction_notes、不静默截断。"""
+
+    payload = {
+        "channel": "agent_transcribe_v1",
+        "items": [
+            {
+                "problem_text": "好题",
+                "student_answer": "A",
+                "standard_answer": "B",
+                "correction_notes": "x" * 501,
+            }
+        ],
+    }
+    _, factory = _migrated(tmp_path)
+    async with _make_client(factory) as client:
+        response = await client.post(
+            "/api/imports", content=json.dumps(payload, ensure_ascii=False)
+        )
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert detail["errors"][0]["field"] == "correction_notes"
+    assert "未导入" in detail["errors"][0]["reason"]
+
+    async with factory() as session:
+        assert (
+            await session.execute(select(func.count()).select_from(ImportBatch))
+        ).scalar_one() == 0

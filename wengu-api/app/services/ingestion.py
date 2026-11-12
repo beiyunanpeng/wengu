@@ -21,6 +21,7 @@ FIELD_LIMITS: dict[str, int] = {
     "problem_text": 2000,
     "student_answer": 500,
     "standard_answer": 500,
+    "correction_notes": 500,
     "verify": 200,
     "error_cause_suggestion": 50,
     "suggested_topic_id": 40,

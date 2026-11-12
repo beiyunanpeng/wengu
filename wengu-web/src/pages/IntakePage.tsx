@@ -10,6 +10,7 @@ import {
   Select,
   Stack,
   Text,
+  Textarea,
   TextInput,
   Title,
 } from "@mantine/core";
@@ -67,6 +68,7 @@ function DraftCard({
   const [standardAnswer, setStandardAnswer] = useState(
     draft.standard_answer === PLACEHOLDER ? "" : draft.standard_answer,
   );
+  const [correctionNotes, setCorrectionNotes] = useState(draft.correction_notes);
   const [actor, setActor] = useState<"student" | "parent">("parent");
   const [concepts, setConcepts] = useState<Concept[]>([]);
   const [newConceptName, setNewConceptName] = useState("");
@@ -130,6 +132,7 @@ function DraftCard({
       const response = await confirmIntakeDraft(draft.id, {
         primary_topic_id: topicId,
         standard_answer: standardAnswer.trim(),
+        correction_notes: correctionNotes.trim(),
         error_cause: errorCause,
         concept_ids: conceptIds,
         actor,
@@ -223,6 +226,16 @@ function DraftCard({
           onChange={(event) => setStandardAnswer(event.currentTarget.value)}
           placeholder="卷面没有订正答案时，请在这里补填"
           maxLength={500}
+        />
+
+        <Textarea
+          label="订正笔记（可选，只抄卷面手写）"
+          value={correctionNotes}
+          onChange={(event) => setCorrectionNotes(event.currentTarget.value)}
+          placeholder="卷面上孩子/家长手写的订正批注，没有就留空；不要自己写讲解"
+          maxLength={500}
+          autosize
+          minRows={2}
         />
 
         <CategoryPicker
