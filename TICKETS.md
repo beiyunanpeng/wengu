@@ -338,7 +338,7 @@
 - DoD：上传→详情可见→备份 zip 含该文件（集成断言）；非白名单 MIME / 魔数不符 / >5MB / 第 4 张 → 422 稳定码；
   文件名注入（`../`）不可达（存储路径断言 uuid 形态）；删除只影响 uploads 内本文件；
   `pytest -m e2e` 加 1 条（上传→揭示→备份包含）；全量绿 + `ruff check --no-cache` + build；
-  **零迁移**（head 保持 0020_recitation）。
+  **零迁移**（head 保持 0021_pomodoro_sessions）。
 - 禁止：挂 StaticFiles 或暴露 uploads 之外的任何目录；引入 OCR/VLM/模型调用（零模型红线）；
   `problem_images` 出现第二条写入路径；存原始文件名；放行 SVG/HTML（XSS 面）。
 
@@ -642,6 +642,24 @@
   仓库外的上游 clone，镜像里没有，`--dry-run` 式的路径校验要一并说明。
 - **P4-2 可移植部署**：Docker 镜像原样上云（搬 SQLite 文件 + 挂载卷 + `data/inbox`）；Postgres 迁移为**可选**路径。
 - **P4-3（可选）本地模型层**：若购置带 N 卡主机，Qwen-VL/PaddleOCR 经 Provider 接入做**隐私化系统内识别/转录**（替代外部 agent）。禁：为省 API 去租云 GPU。
+- **P4-4 后端健壮性与可观测性小修（v2.8 §19-E；含一张迁移）**：
+  - **背景（2026-11-12 读盘）**：`main.py:49-53` 用 `except Exception: logger.exception(...)` 吞掉 seed 装载失败、以空 seed 继续；
+    `models/events.py` 的 `occurred_at` 无索引（仅 `mistake_id`/`type`），看板曲线全量排序；`runtime_config.save_config`
+    在 async 链上直调含 fsync 的同步写；0013/0019 upgrade `drop_table`、downgrade 只重建空表，缺数据回退说明。
+  - 交付：
+    ① seed 失败可观测：启动加载失败时记录进程内状态，`GET /api/setup/status`（公开只读）增加
+       `seed_loaded: bool` + `seed_error: string | null`（只给错误类别，**不得含题目/PII/绝对路径明细**）；
+       前端 `AppLayout` 在 `seed_loaded === false` 时显示红色横幅"学科 seed 未装载：检查 seeds/data/*.json"。
+       服务不因空 seed 崩溃（家庭可用性优先），但界面必须显式降级。
+    ② 迁移（编号取施工时 head+1）给 `learning_events.occurred_at` 建索引 `ix_learning_events_occurred_at`；
+       可逆 + DDL before/after（P0-3 守卫）。
+    ③ `runtime_config.save_config` 的同步写盘改 `asyncio.to_thread`（文件锁语义与原子写保持不变）。
+    ④ `docs/deploy/backup-restore.md` 补 0013/0019「数据不可回退」说明：升级前备份是硬前置，downgrade 只保结构不保数据。
+  - DoD：seed 坏文件启动 → 服务可用 + 状态端点 `seed_loaded=false` + 前端横幅出现（集成 + 手工取证）；seed 正常 → 横幅不出现；
+    索引存在性/回退后不存在（迁移测试）；`save_config` 并发写测试保持绿；全量绿 + `ruff check --no-cache` + build；
+    CHANGELOG/STATUS 更新。
+  - 禁止：seed 失败直接 crash 服务；把 seed 错误明细（题目/路径）暴露给前端；async 路由内保留同步 fsync；
+    顺手改 0013/0019 历史行为；给 dashboard 加缓存绕过索引。
 
 ---
 
@@ -721,6 +739,18 @@
 - **P5-4 教材 seed 包机制**：多教材 JSON/YAML 可安装可切换。
 - **P5-5 开源基线**：LICENSE + 中英 README（一行安装）+ 隐私声明（数据不出户；**v2.5 后无任何云转录/云推理，题目图片不进网络**——旧表述"云转录仅送题目图"已作废）+ CHANGELOG + `.env.example`；合规点名《个人信息保护法》《未成年人网络保护条例》；**第三方数据 License 署名 + NC 声明**强制。
   **现状（2026-11-02 审计）**：LICENSE / 中文 README / CHANGELOG / `wengu-api/.env.example` / 第三方署名 / 合规点名 **已在盘上**；**英文 README 与独立隐私声明文档仍缺**（本票未完结）。
+  - **v2.8 扩卡（§19-F，2026-11-12 确认）**：
+    ① README 前三行定位改"本地优先的错题复习工作台（AI 转录为可选外挂）"，明写不判真实作业、不生成讲解、零模型内核；
+    ② 克隆地址 `<你>/wengu.git` 改真实地址 `beiyunanpeng/wengu`；
+    ③ 新增独立 `PRIVACY.md`：数据本土化、外部转录上云字段清单与擦除指引、监护人告知与单独同意文案、离线 `/import` 路径；
+       **修正旧句"题目图片不进网络"**——内核零模型，但可选外部转录会把擦除 PII 后的卷面送境内第三方 AI（见 `transcribe/README.md` §0）；
+    ④ CC BY-NC §3(a)(1) 全项：原作者姓名、版权声明、许可通知、免责声明、原始 URI、"已修改（转换初中子集）"标注、
+       `upstream_commit` 钉死为具体 SHA；补 SPDX；表述为 **"MIT 代码 + CC BY-NC 数据"分层**（整体不称 OSI 开源）；
+       核对 LICENSE 使 GitHub API `license` 不再为 `NOASSERTION`；
+    ⑤ 仓库 `description` / `topics` / `homepage`、首个 GitHub Release（说明可复用 `tag-v0.6.0.txt`）、开启 Discussions；
+    ⑥ DoD：陌生人 5 分钟内从 README 完成合规判断并装起来；克隆地址可直接复制；隐私声明与 transcribe checklist 口径一致；
+       CC 署名可人工核对；GitHub 识别 MIT；Release 可下载。
+    ⑦ 禁：声称"完全不上云"；隐瞒外部转录；删除历史条目。
 - **P5-6 交付口径与盘上一致性清理（v2.6 审计新增）**：把审计报告里 B/C 类"文档说的和代码不一致"一次性收干。
   - **孤儿表退役**：`photo_captures` / `photo_capture_items` / `problem_extractions` 是 v2.5 视觉栈退役后的遗留
     （迁移仍建表、但业务代码**零引用**；`problem_extractions` 的两个 FK 还指向另两表）→ 出**可逆迁移 0019**
@@ -735,6 +765,44 @@
   三张孤儿表及显式索引已一次 DROP（不留悬空外键），ORM 类/`__init__` 导出/`backup.py` 表计数同步清理；
   业务表 22 → 19，STATUS §4.18/§5.2 已写清；全量 398 passed、`ruff check --no-cache .` 绿。**剩余**：
   Phase 5 行与 §7 表格的进一步口径复核。
+
+### P5-7 转录可选包 T1：原型收口与两处包内修复（v2.8 §19-D；纯新增）
+- **背景**：`transcribe/` 目录（7 文件）目前未跟踪；审核方 2026-11-12 实跑：`evals` 13/13 通过、UTF-8 下 `selfcheck`
+  10 OK / 2 DRIFT / 1 WARN；但在 Windows 默认 GBK 控制台 **`selfcheck` 因记录名含 `↔` 抛 `UnicodeEncodeError`**
+  （打不到汇总、退出码被 traceback 取代）；`selfcheck` 只读 `docs/tooling/wengu-transcribe.md` 的 frontmatter，
+  **未校验真正分发的 `transcribe/skills/wengu-transcribe/SKILL.md`**。行为锚定（后端测试消费 fixtures）归 P5-8。
+  方案与原型见根目录两份 2026-11-12 文档（不进仓库）。
+- 交付：
+  - 修 `validate.py` 输出编码：`sys.stdout.reconfigure(encoding="utf-8", errors="replace")`（或记录名全 ASCII、详情保留中文），
+    保证 Windows 默认控制台 `selfcheck` / `evals` / `check` 三命令跑完并正确返回 0/1；
+  - `selfcheck` 增加 **portable Skill 校验**：读 `transcribe/skills/wengu-transcribe/SKILL.md` frontmatter 的
+    `template_ref` / `contract_ref`，断言文件存在且与契约 `template.id/version`、`channels.primary` 对齐，不一致报 DRIFT；
+  - 将 `transcribe/` 7 文件（含上述修复）作为本票提交入 main；`contract/ingestion_v1.json` 保持 `"status": "proposal"`；
+  - CHANGELOG `[Unreleased]` 加条目；README/STATUS 不夸大（不得写"转录准确率已验证"）。
+- DoD：Windows 默认 `cmd`/PowerShell（GBK）下 `python transcribe/validate.py selfcheck` 输出完整汇总且无 traceback；
+  有 DRIFT 时 `--strict` 退出 1、无 DRIFT 时 0；`evals` 13/13；`py_compile` OK；portable Skill 引用被校验
+  （人为改坏 `template_ref` → DRIFT，可证伪）；`wengu-api/requirements.txt` 与 Docker 镜像零变化；
+  fixtures 无真实作业内容（抽检 + 文档声明）；提交仅 `transcribe/**` + CHANGELOG。
+- 禁止：把 transcribe 接入后端运行时/API/CI 主链；修改 `docs/templates` 或旧 Skill（属 P5-8）；
+  引入第三方依赖（含 jsonschema）；用"文档说明请设置 PYTHONIOENCODING"代替修复（必须在默认控制台可跑）。
+
+### P5-8 转录契约收口 T2：模板 v2 + 文档口径 + CI + 行为锚定（v2.8 §19-D；改现有文件）
+- **背景（读盘 2026-11-12）**：模板 `docs/templates/doubao_transcribe_v1.md` `version: 1`、`schema_fields` 8 项（缺 `verify`），
+  与后端 `FIELD_LIMITS` 9 项不一致；模板「与 wengu 系统的契约」与旧 Skill 仍要求 `evals/transcribe/`（P1-12 后不存在）；
+  旧 Skill 硬编码 `D:\MyProducts\...` 且 inbox 路径错误；契约 `status: proposal`；CI 无 transcribe job；
+  `validate.py` 与后端校验是两份实现（selfcheck 只比常量）。
+- 交付：
+  ① 模板升 **v2**：`version: 2`；`schema_fields` 补 `verify` **或**明确写"verify 不向转录端暴露、仅题库通道使用"（二选一并写理由）；
+     「与 wengu 系统的契约」改指 `transcribe/evals/`；若 P1-17 已合并，v2 必须含可选 `correction_notes` 并写明"只抄卷面手写"。
+  ② `docs/tooling/wengu-transcribe.md` 改为指向 `transcribe/skills/wengu-transcribe/SKILL.md`，删除本机绝对路径与错误 inbox 路径。
+  ③ 契约 `status: active`、`template.version` 与模板一致；`selfcheck` 增加模板 `id` ↔ 契约 `template.id` 断言。
+  ④ **行为锚定**：`wengu-api/tests/` 新增集成测试，直接加载 `transcribe/evals/fixtures/*.json`，用后端真实
+     `validate_envelope/validate_and_normalize` 断言与 `_expect` 一致（不得复制校验逻辑；后端模块不可 import 时用最小驱动）。
+  ⑤ CI 新增独立 `transcribe` job：`selfcheck --strict` + `evals` + `py_compile`，不装额外包、不并入 api job。
+- DoD：`selfcheck --strict` 0 DRIFT；模板 v2 被加载器读到；文档不再出现不存在的 `evals/transcribe/`；旧 Skill 无本机绝对路径；
+  后端新测试消费 fixtures 全绿，且**人为改坏一处后端校验逻辑 → 该测试变红**（可证伪）；CI 双绿 + 新 job 绿；全量 pytest/ruff/build 绿。
+- 禁止：恢复模型在环/视觉依赖；让后端 import transcribe 包（测试读 fixtures 文件即可）；把契约改成第二真源；
+  顺手改 P1-16/P1-17 语义；在 CI 安装额外依赖。
 
 ---
 
