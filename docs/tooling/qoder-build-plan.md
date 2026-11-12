@@ -1533,3 +1533,278 @@ Windows 计划任务怎么调、失败怎么告警。想清楚再开工，不要
 > 调用过是有物证的（兜底分支当时打了 `[p0-5] cannot remove …; moved temp root to …`，隔离根曾在盘上）。
 > 兜底分支有意**保留现场不删除**（`.stale-*` 需人工清理，本机那份已由审核方用可恢复删除处理）。
 > `make help` 末尾的 `@cd .` 是为避免 make 报 "Nothing to be done for 'help'" 的空操作行，非笔误。
+
+---
+
+## P5-7 —— 转录可选包 T1：原型收口 + 两处包内修复（v2.8 §19-D）
+
+```
+你在 wengu 仓库工作。开工前完整读：AGENTS.md §5（导入即不可信输入 / 转录可选包边界）与 §8（DoD / 一票一 PR）
++ 设计文档 §19 A/B/D + transcribe/README.md + transcribe/CONTRACT.md + transcribe/validate.py 全文
++ docs/templates/doubao_transcribe_v1.md 的 frontmatter + TICKETS.md 的 P5-7 与 P5-8（边界要看清，别做过头）。
+
+【投单纪律（本票必须遵守）】
+1. 新建分支，基点是最新 main：git fetch origin; git switch -c feat/p5-7-transcribe-package origin/main
+2. 本票期间该分支冻结；一票一 PR。
+3. 提交前 `git diff --cached --name-only` 核对只含本票文件并把清单贴进交付描述；出现非本票文件停下来报告。
+4. 中文 commit message 一律 `git commit -F <仓库外 UTF-8 文件>`；lint 证据必须 `ruff check --no-cache`。
+5. 交付给"你自己实跑"的数字，并单列「审核方需复核的点」；不要把计划说成已完成。
+
+【事实（审核方 2026-11-12 本机实跑取证，可复现）】
+1. `transcribe/` 目前是**未跟踪**目录，7 个文件：README.md、CONTRACT.md、validate.py、
+   contract/ingestion_v1.json、skills/wengu-transcribe/SKILL.md、evals/fixtures/{valid_batch,invalid_cases}.json。
+2. `python transcribe/validate.py evals` → **13/13 通过**；UTF-8 环境下 `selfcheck` 输出
+   **10 OK / 2 DRIFT / 1 WARN**，退出 0。
+3. **Windows 默认 GBK 控制台下 `selfcheck` 直接崩溃**：`UnicodeEncodeError: 'gbk' codec can't encode
+   character '\u2194'`，位置 validate.py:406 的 print（记录名「模板 schema_fields ↔ 契约字段」含 `↔`）；
+   打不到汇总行、退出码被 traceback 取代。方案文档声称的"三命令可跑 / --strict 返回 1"在本机默认环境不成立。
+4. `selfcheck` 只读 `docs/tooling/wengu-transcribe.md`（LEGACY_SKILL_PATH，validate.py:42/329/381-383），
+   **完全没校验真正随包分发的 `transcribe/skills/wengu-transcribe/SKILL.md`**（它有 template_ref/contract_ref）。
+5. 全仓 `ruff check --no-cache ..` 报 **2 处 UP038**，位于 transcribe/validate.py:87 与 :89
+   （`isinstance(node.value, (int, float))`、`isinstance(node.op, (ast.UAdd, ast.USub))`）；
+   票内路径（app/tests/web）ruff 全绿。目录一旦进 main，CI 的 ruff 步骤就会红。
+
+【任务】
+1. 修 validate.py 输出编码：在入口 `sys.stdout.reconfigure(encoding="utf-8", errors="replace")`
+   （或记录名改纯 ASCII、详情文本保留中文）。**不接受**"文档写请设置 PYTHONIOENCODING"这种绕过——
+   必须在 Windows 默认 cmd/PowerShell 下直接可跑。
+2. `selfcheck` 增加 **portable Skill 校验**：读 transcribe/skills/wengu-transcribe/SKILL.md 的 frontmatter，
+   断言 template_ref 指向的文件存在、contract_ref 指向 contract/ingestion_v1.json，
+   且模板 id/version/channel 与契约一致；不一致报 DRIFT。旧 Skill 的检查保留。
+3. 修掉第 5 条那 2 处 UP038（改 `int | float`、`ast.UAdd | ast.USub`）。**不得**给 ruff 加
+   exclude / per-file-ignores / `# noqa` 来绕过。
+4. 把 7 个文件提交进 main（本票唯一允许的目录新增）；CHANGELOG 只加本票条目。
+5. 契约 `contract/ingestion_v1.json` 的 `status` 保持 `proposal`、`template.version` 保持 1、`fields` 保持现状——
+   **三方对齐属 P5-8，本票不动这些值**（提前改了会让 P5-8 的"0 DRIFT"验收失去意义）。
+
+【DoD】
+- Windows 默认控制台（GBK，不设任何环境变量）下三条命令跑完：`selfcheck` 输出完整汇总行且**无 traceback**；
+  `selfcheck --strict` 有 DRIFT 时退出 1、无 DRIFT 时退出 0（**两种都要实跑取证**）；`evals` 仍 13/13；
+  `python -m py_compile transcribe/validate.py` 通过。
+- portable Skill 校验可证伪：临时把 SKILL.md 的 template_ref 改成不存在路径 → 出现新 DRIFT；改回 → 消失。
+  两次输出贴交付说明。
+- 全仓 `ruff check --no-cache ..`（不排除任何目录）→ All checks passed。
+- `wengu-api/requirements.txt`、Docker 镜像、CI 主链依赖零变化；暂存清单只含 transcribe/** 与 CHANGELOG.md。
+
+【禁止】
+- 把 transcribe 接入后端运行时（import / 路由 / API 镜像 / CI 主链依赖）；
+- 改 docs/templates/ 模板、docs/tooling/ 旧 Skill、后端 FIELD_LIMITS 或契约数值（全部属 P5-8）；
+- 引入任何第三方依赖（含 jsonschema / pyyaml）；
+- 用 ruff 排除目录或 noqa 绕过 UP038；
+- 交付里写"转录准确率已验证"——本票只验契约一致性与负例拦截，准确率无真值样本、未验证。
+```
+
+## P5-8 —— 转录契约收口 T2：三方对齐 + 文档口径 + CI + 行为锚定（v2.8 §19-D）
+
+```
+你在 wengu 仓库工作。开工前完整读：AGENTS.md §5（转录可选包边界 / 导入即不可信输入）+ 设计文档 §19 A/D
++ transcribe/{README.md,CONTRACT.md,validate.py,contract/ingestion_v1.json}
++ docs/templates/doubao_transcribe_v1.md + docs/tooling/wengu-transcribe.md
++ wengu-api/app/services/ingestion.py + .github/workflows/ci.yml + TICKETS.md 的 P5-8。
+
+【投单纪律（本票必须遵守）】
+1. 新建分支，基点是最新 main：git fetch origin; git switch -c feat/p5-8-contract-closeout origin/main
+2. 本票期间该分支冻结；一票一 PR。
+3. 提交前 `git diff --cached --name-only` 核对范围并贴清单；出现非本票文件停下来报告。
+4. 中文 commit message 一律 `git commit -F <仓库外 UTF-8 文件>`；lint 证据 `ruff check --no-cache`。
+5. 交付给"你自己实跑"的数字 + 单列「审核方需复核的点」。
+
+【事实（审核方 2026-11-12 读盘，**三方字段各不相同**，这是本票要收口的核心）】
+- 后端 `services/ingestion.py` 的 `FIELD_LIMITS`：**10 键**（含 `correction_notes` 与 `verify`）；
+- 模板 `docs/templates/doubao_transcribe_v1.md`：`version: 2`（P1-17 已升），`schema_fields` **9 键**
+  （含 `correction_notes`，**缺 `verify`**）；
+- 契约 `transcribe/contract/ingestion_v1.json`：`fields` **9 键**（含 `verify`，**缺 `correction_notes`**）、
+  `template.version: 1`（落后模板）、`status: "proposal"`；
+- `validate.py:43` 的 LEGACY_EVALS_PATH 指向 `evals/transcribe/`，该目录已随 P1-12 退役、不存在；
+  模板与旧 Skill 的文档口径仍写着它；
+- `docs/tooling/wengu-transcribe.md` 含开发者本机绝对路径与错误 inbox 默认路径（真实默认 `./data/inbox`）；
+- CI 现有 **api / web 两个 job**，无 transcribe job。
+
+【任务】
+1. **契约对齐**：`fields` 补 `correction_notes: 500`（与后端一致，10 键）；`template.version` → 2；
+   `status` → `active`。**模板不再重复升版**（已是 v2）；仅当本票确实改了模板语义才升 v3 并在 CHANGELOG 说明理由。
+2. **模板 `schema_fields` 收口**：补 `verify`，**或**在模板里明确写"verify 不向转录端暴露、仅题库通道使用"
+   （二选一，写清理由）；选后者时契约与 selfcheck 需按"允许模板少 verify"的显式规则判定，不得靠忽略项蒙过。
+3. **文档口径**：模板「与 wengu 系统的契约」与旧 Skill 里 `evals/transcribe/` 改指 `transcribe/evals/`；
+   `docs/tooling/wengu-transcribe.md` 改为指向 `transcribe/skills/wengu-transcribe/SKILL.md`，
+   删除本机绝对路径与错误 inbox 路径（保留可追溯的"已迁移"说明，不得删历史）。
+4. **selfcheck 补强**：增加模板 `id` ↔ 契约 `template.id` 断言；把 LEGACY_EVALS_PATH 检查改为
+   "文档引用的回归目录必须存在"，收口后该项应转为 OK。
+5. **行为锚定（本票最关键）**：在 `wengu-api/tests/` 新增集成测试，直接加载
+   `transcribe/evals/fixtures/*.json`，用后端**真实** `validate_envelope` / `validate_and_normalize`
+   断言与 fixtures 的 `_expect` 一致。**不得把校验逻辑复制进测试**（复制就还是两份实现）。
+6. **CI**：新增**独立** `transcribe` job（`selfcheck --strict` + `evals` + `py_compile`），
+   不安装任何额外包、不并入 api job。
+
+【DoD】
+- `python transcribe/validate.py selfcheck --strict` → **0 DRIFT / 0 WARN**，退出 0（实跑输出贴交付）；
+- 三方字段集合一致性有证据（selfcheck 输出或新增断言）；
+- 后端新测试全绿，且**可证伪**：临时改坏 `ingestion.py` 一处校验（如去掉 `correction_notes` 长度检查）
+  → 该测试变红 → 改回 → 变绿，两次输出贴交付；
+- 文档中不再出现不存在的 `evals/transcribe/`；`docs/tooling/wengu-transcribe.md` 无本机绝对路径；
+- CI 三个 job（api / web / transcribe）全绿；全量 `pytest -q`、`ruff check --no-cache ..`、`npm run build` 绿；
+- CHANGELOG 与 docs/STATUS.md 同步口径。
+
+【禁止】
+- 恢复模型在环 / 视觉依赖；把 transcribe 接入后端运行时；
+- 让后端 **import** transcribe 包（测试只读 fixtures 文件即可）；
+- 把契约 JSON 变成第二真源（后端常量仍是唯一权威，契约是镜像）；
+- 重复升模板版本；顺手改 P1-16 / P1-17 的字段语义或端点行为；
+- 在 CI 安装 jsonschema / pyyaml 等额外依赖。
+```
+
+## P4-4 —— 后端健壮性与可观测性小修（v2.8 §19-E；含一张迁移）
+
+```
+你在 wengu 仓库工作。开工前完整读：AGENTS.md §5（事实源 / 反虚假精确）+ §8 + 设计文档 §19-E
++ wengu-api/app/main.py（lifespan 的 seed 装载段）+ app/models/events.py + app/core/runtime_config.py
++ app/services/dashboard.py（occurred_at 的消费方）+ migrations/versions/0013_* 与 0019_* + TICKETS.md 的 P4-4。
+
+【投单纪律（本票必须遵守）】
+1. 新建分支，基点是最新 main：git fetch origin; git switch -c feat/p4-4-robustness origin/main
+2. 一票一 PR，本票期间分支冻结；提交前核对 `git diff --cached --name-only` 并贴清单。
+3. 中文 commit message 用 `git commit -F <仓库外 UTF-8 文件>`；lint 用 `ruff check --no-cache`。
+4. 交付给"你自己实跑"的数字 + 「审核方需复核的点」。
+
+【事实（审核方 2026-11-12 读盘）】
+1. `app/main.py:49-53`：seed 装载失败被 `except Exception: logger.exception(...)` 吞掉，
+   以**空 seed 继续启动**——服务静默降级成"无知识点/无题库"，用户只有翻日志才知道。
+2. `app/models/events.py`：`learning_events` 只有 `ix_learning_events_mistake_id` 与
+   `ix_learning_events_type` 两个索引，**`occurred_at` 无索引**；而 `services/dashboard.py` 的
+   掌握度曲线按 occurred_at 排序过滤，是全表扫。
+3. `app/core/runtime_config.py`：`_write_json`（:228，内含 `os.fsync` :243）被 async 的
+   `save_config`（:250）在 :264 **直接同步调用**；同仓 `services/backup.py` 已正确用
+   `asyncio.to_thread`，此处不一致。
+4. 迁移 `0013_drop_model_tables` 与 `0019_drop_orphan_photo_tables` 的 upgrade 直接 `drop_table`、
+   downgrade 只重建空表——**逻辑可逆、数据不可逆**，但文档没把这层含义写明。
+5. 当前 alembic head = `0022_correction_notes`，本票新迁移取 **0023**。
+
+【任务】
+1. seed 失败**显式可观测**（不崩溃）：把失败状态记进进程内，公开只读端点 `GET /api/setup/status`
+   增加 `seed_loaded: bool` + `seed_error: string | null`（**只给错误类别，绝不含题目文本/绝对路径/PII**）；
+   前端 `AppLayout` 在 `seed_loaded === false` 时显示红色横幅"学科 seed 未装载：检查 seeds/data/*.json"。
+2. 新可逆迁移 0023：给 `learning_events.occurred_at` 建索引 `ix_learning_events_occurred_at`。
+3. `save_config` 的写盘改 `await asyncio.to_thread(_write_json, ...)`，**原子写与文件锁语义不变**。
+4. `docs/deploy/backup-restore.md` 补一节：0013/0019 属"数据不可回退"迁移，升级前备份是硬前置，
+   downgrade 只保结构不保数据。
+
+【DoD】
+- 造一个坏 seed 文件启动：服务**仍能起**、`/api/setup/status` 返回 `seed_loaded=false`、
+  前端横幅出现（集成测试 + 手工浏览器取证截图）；恢复正常文件后横幅消失。
+- `seed_error` 内容断言不含题目文本与绝对路径（有专门断言）。
+- 迁移 up/down/up 可重入 + DDL before/after 逐字对比（沿用 P0-3 守卫风格），并做可证伪：
+  临时改坏 downgrade 的索引名 → 用例变红 → 改回 → 变绿，两次输出贴交付。
+- `save_config` 并发写测试保持绿；`ruff check --no-cache` + 全量 `pytest -q` + `npm run build` 绿。
+- CHANGELOG 与 docs/STATUS.md 同步。
+
+【禁止】
+- 让 seed 失败直接 crash 服务（家庭可用性优先，必须显式降级而非静默）；
+- 把错误明细（题目/路径/堆栈）暴露给前端或写进日志 PII；
+- 在 async 路由里保留同步 fsync；用缓存/物化视图绕过 occurred_at 索引；
+- 修改 0013/0019 已合并的历史迁移内容（只补文档说明）；
+- 顺手重构 dashboard 查询逻辑。
+```
+
+## P4-5 —— mastery 近期窗口（v2.8 §19-E；改掌握度语义，零迁移）
+
+```
+你在 wengu 仓库工作。开工前完整读：AGENTS.md §5（事实源 + 确定性重算 / 复习掌握度自适应间隔）
++ 设计文档 §5.4、§16.D、§19-E + wengu-api/app/services/recompute.py（mastery / _dedupe_grading_versions /
+MASTERY_SOURCES / GRADUATION_STREAK）+ app/services/review_policy.py（review_interval / decide）
++ tests/unit/test_recompute.py 与 test_review_policy.py + TICKETS.md 的 P4-5。
+
+【投单纪律（本票必须遵守）】
+1. 新建分支，基点是最新 main：git fetch origin; git switch -c feat/p4-5-mastery-window origin/main
+2. 一票一 PR，分支冻结；提交前核对暂存范围并贴清单。
+3. 中文 commit message 用 `git commit -F <仓库外 UTF-8 文件>`；lint 用 `ruff check --no-cache`。
+4. 交付给"你自己实跑"的数字 + 「审核方需复核的点」。
+
+【参数（审核方 2026-11-12 已定死，不要再讨论）】
+- 窗口 **N = 20**：按 concept 取最近 20 次**计入掌握度**的作答事件
+  （沿用 `_counts_toward_mastery`：source ∈ {student_self, system_quiz}，缺 source 的旧事件按历史自评计入；
+  并沿用 `_dedupe_grading_versions`：同一 grading 只计最高版本）。
+- **样本 < 5 回退全历史**（避免冷启动抖动）。
+- 常量 `MASTERY_WINDOW_SIZE = 20`、`MASTERY_MIN_SAMPLE = 5` 放模块级，**不做运行时可配**。
+- 多 concept 仍取最小 mastery；`is_graduated` 与 `GRADUATION_STREAK = 3` **一字不改**。
+
+【事实（为什么要改）】
+`recompute.mastery()` 现在是该 concept 的**全部历史正确率**（docstring 自述"确定性占位实现"）；
+而 `review_policy.review_interval()` 用 `基础档 × (1 + mastery × 4)`。两者叠加的后果：
+两年前答对 10 次、最近连错 3 次的孩子 mastery 仍然高，间隔反而被拉长——与复习目的相反。
+
+【任务】
+1. `mastery()` 改窗口实现：沿用 `_events_for_mistake` 的确定性排序（`occurred_at` + `repr` 稳定键），
+   按 concept 过滤后取**末尾 N 条**；样本不足 `MASTERY_MIN_SAMPLE` 时回退全历史。
+2. docstring 写明：窗口值、回退阈值、仍是推导值可整体重算、**这是启发式不是理论**（勿引用"省 20–30%"之类）。
+3. 文档对齐：设计文档 §5.4/§16 的"掌握度自适应"表述按代码实况收敛（不得暗示已实现时间衰减）；
+   STATUS/CHANGELOG 记录语义变更与影响面（复习间隔可能整体缩短，属预期）。
+
+【DoD（八条断言，缺一个不算完成）】
+① 窗口内全对 → mastery == 1.0；
+② 窗口内全错但历史全对 → mastery 显著下降（证明窗口生效，而不是全历史；断言具体数值区间）；
+③ 样本 < 5 → 与全历史结果一致（回退路径）；
+④ 恰好 20 / 21 条的边界行为正确；
+⑤ 申诉改判在窗口内仍只计最高 `grading_version`（与 `_dedupe_grading_versions` 一致）；
+⑥ 多 concept 取最小 mastery 不变；
+⑦ `is_graduated` 既有断言一字未改仍全绿；
+⑧ 同一事件序列两次重算结果相等（幂等/可重放）。
+全量 `pytest -q` 绿 + `ruff check --no-cache`；**零迁移、零新依赖**。
+
+【禁止】
+- 把 mastery 存成列或缓存字段（必须由事实推导）；
+- 改 `GRADUATION_STREAK` 或毕业条件；引入 FSRS / 外部依赖 / 时间衰减模型（本票只做窗口）；
+- 把窗口参数做成运行时可配或写进 app-config；
+- 顺手改 `review_interval` 的公式形状（`×(1+mastery×4)` 与折半规则保持）。
+```
+
+## P4-6 —— 公式题判分：受限 LaTeX 子集归一 + sympy 语义等价（v2.8 §19-E；零新依赖）
+
+```
+你在 wengu 仓库工作。开工前完整读：AGENTS.md §5（模型只提代码才判 / 判分运行时与入库时分工 /
+禁 eval 必走白名单 AST）+ 设计文档 §19-E、§5.2 + wengu-api/app/judge/normalize.py（judge_answer 现状）
++ app/judge/verify_sandbox.py（AST 白名单先例，风格照它）+ requirements.txt + TICKETS.md 的 P4-6。
+
+【投单纪律（本票必须遵守）】
+1. 新建分支，基点是最新 main：git fetch origin; git switch -c feat/p4-6-formula-judge origin/main
+2. 一票一 PR，分支冻结；提交前核对暂存范围并贴清单。
+3. 中文 commit message 用 `git commit -F <仓库外 UTF-8 文件>`；lint 用 `ruff check --no-cache`。
+4. 交付给"你自己实跑"的数字 + 「审核方需复核的点」。
+
+【路径（审核方 2026-11-12 已定死，不要再讨论）】
+- **不引入 antlr**（`sympy.parsing.latex` 需要 antlr4-python3-runtime，属新重依赖，本票拒绝）。
+- 走**受限 LaTeX 子集归一 + `sympy.sympify` 等式判断**；超出子集或不可判 → **降级自评**并标
+  `formula_fallback`，**绝不猜对错**。
+- 事实依据：`requirements.txt` 已声明 `sympy>=1.13,<2`（注释写"judgeAnswer 用"），但
+  `grep -rn sympy wengu-api/app` **零命中**——它是"已声明未使用"依赖，本票是首次真正启用。
+  **`requirements.txt` 本票必须零变化。**
+
+【任务】
+1. 新增 `app/judge/latex_subset.py`：确定性字符串规则转换器（**不解析任意 LaTeX**）。
+   支持子集：`\frac{a}{b}`、`\sqrt{a}`、`a^{b}`、`\cdot` `\times` `\div`、`\left` `\right`、`\%`、`\pi`、
+   `e^{x}`、四则运算/括号/等号两侧。**超出子集**（积分 `\int`、求和 `\sum`、矩阵、`\begin{...}`、
+   未识别宏）→ 抛 `UnsupportedLatex`。
+2. `judge/normalize.py` 增 `formula_equivalent(a, b) -> bool | None`（None = 不可判）：
+   先走现有 NFKC / 有理数 / 单位规则，再试 sympy；`sympify` 前后做**变量与运算白名单**检查，
+   禁 `eval` / `exec` / 属性访问 / 下标 / 任意函数调用，只做 `Eq` 与 `simplify(lhs - rhs) == 0`。
+3. `judge_answer` 接入：仅当题目为公式类（答案含 LaTeX 标记或 `answer_kind == formula`）时尝试；
+   返回 正确 / 错误 / **unknown → fallback**。
+4. fallback 走既有自评路径（`source=student_self`），UI 明示"公式题：系统未自动判定，请自评或家长核对"；
+   `formula_fallback` 作为**标签**记入 payload，**不进判分结论、不影响掌握度与排期算法**。
+5. 题库 `verify` 表达式仍走 AST 沙箱，本票不改。
+
+【DoD】
+- 正例 **≥12 条**（含 `\frac{1}{2} ≡ 0.5`、`2(x-3)+4=3x-5 ≡ x=3`、`\sqrt{16} ≡ 4`、常数/单位等价等）；
+- 负例不误判为对（有断言）；
+- `UnsupportedLatex` 用例（积分 / 矩阵 / 未知宏）→ 返回 None、走自评、不抛给调用方；
+- **注入用例必须被白名单拒绝并有断言**：`__import__('os')`、`open(...)`、属性访问、下标、lambda；
+- 同输入重放一致（确定性）；
+- 全量 `pytest -q` 绿 + `ruff check --no-cache` + `npm run build`；**`requirements.txt` 零变化**（用
+  `git diff` 证明）。
+
+【禁止】
+- 引入 antlr4-python3-runtime 或任何新依赖；
+- `eval` / `exec` / unrestricted `sympify`（白名单外的名字一律拒绝）；
+- 把 fallback 伪装成"判对"或默认通过；
+- 对依赖图形的题（`figure` / `【依赖图形】`）启用公式判分；
+- 改动 `judgeAnswer` 既有非公式路径的行为与既有断言；把公式判分接进真实作业链路（真实题不在系统内判）。
+```
