@@ -152,3 +152,77 @@ def test_dumps_draft_stable_key_order() -> None:
     b = dumps_draft({"subject": "数学", "problem_text": "x"})
     assert a == b
     assert list(json.loads(a)) == sorted(json.loads(a))
+
+
+def test_normalize_correction_notes_with_and_without() -> None:
+    """含/不含订正笔记对照：笔记只作展示数据携带，不影响残题判定。"""
+    result = validate_and_normalize(
+        [
+            {
+                "problem_text": "解方程 2x=4",
+                "student_answer": "x=3",
+                "standard_answer": "x=2",
+                "correction_notes": "移项要变号，下次先写这一步",
+            },
+            {
+                "problem_text": "默写 apple",
+                "student_answer": "aple",
+                "standard_answer": "apple",
+            },
+        ]
+    )
+    assert not result.errors
+    with_notes, without_notes = result.drafts
+    assert (
+        with_notes["normalized"]["correction_notes"] == "移项要变号，下次先写这一步"
+    )
+    assert without_notes["normalized"]["correction_notes"] == ""
+    assert not with_notes["is_incomplete"]
+    assert not without_notes["is_incomplete"]
+
+
+def test_normalize_correction_notes_overlong_and_bad_type() -> None:
+    """>500 超长跳过不截断；非字符串拒绝——都定位到 correction_notes 字段。"""
+    result = validate_and_normalize(
+        [
+            {
+                "problem_text": "合法题",
+                "student_answer": "A",
+                "standard_answer": "B",
+                "correction_notes": "x" * 501,
+            },
+            {
+                "problem_text": "合法题2",
+                "student_answer": "A",
+                "standard_answer": "B",
+                "correction_notes": 123,
+            },
+        ]
+    )
+    assert not result.drafts
+    fields = {(e.index, e.field) for e in result.errors}
+    assert fields == {(0, "correction_notes"), (1, "correction_notes")}
+    assert any(
+        "超长" in e.reason and "未导入" in e.reason
+        for e in result.errors
+        if e.index == 0
+    )
+    assert any("必须是字符串" in e.reason for e in result.errors if e.index == 1)
+
+
+def test_normalize_correction_notes_placeholder_badge_not_gate() -> None:
+    """笔记含占位符只点亮徽标，不判残题（闸门只卡题目/作答/正答）。"""
+    result = validate_and_normalize(
+        [
+            {
+                "problem_text": "解方程 2x=4",
+                "student_answer": "x=3",
+                "standard_answer": "x=2",
+                "correction_notes": "移项要〔?〕号",
+            }
+        ]
+    )
+    assert not result.errors
+    draft = result.drafts[0]
+    assert draft["has_placeholder"]
+    assert not draft["is_incomplete"]

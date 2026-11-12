@@ -30,6 +30,7 @@ export interface MistakeDetail {
   problem_text: string | null;
   student_answer: string | null;
   standard_answer: string | null;
+  correction_notes: string | null;
   problem_images: string[];
   is_correct: boolean | null;
   labels: MistakeLabels;
@@ -346,6 +347,7 @@ export interface IntakeDraft {
   problem_text: string;
   student_answer: string;
   standard_answer: string;
+  correction_notes: string;
   source_ref: string;
   captured_at: string;
   suggestion: IntakeSuggestion;
@@ -363,6 +365,7 @@ export interface IntakeDraftListResponse {
 export interface DraftConfirmPayload {
   primary_topic_id?: string | null;
   standard_answer?: string | null;
+  correction_notes?: string | null;
   error_cause?: string | null;
   concept_ids?: number[];
   question_type?: "objective" | "process";

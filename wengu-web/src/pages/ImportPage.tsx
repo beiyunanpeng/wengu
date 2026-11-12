@@ -100,6 +100,7 @@ export default function ImportPage() {
   const [problemText, setProblemText] = useState("");
   const [studentAnswer, setStudentAnswer] = useState("");
   const [standardAnswer, setStandardAnswer] = useState("");
+  const [correctionNotes, setCorrectionNotes] = useState("");
   const [sourceRef, setSourceRef] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
@@ -178,6 +179,7 @@ export default function ImportPage() {
           problem_text: text,
           student_answer: studentAnswer.trim(),
           standard_answer: standardAnswer.trim(),
+          correction_notes: correctionNotes.trim(),
           source_ref: sourceRef.trim(),
         },
       ]);
@@ -185,6 +187,7 @@ export default function ImportPage() {
       setProblemText("");
       setStudentAnswer("");
       setStandardAnswer("");
+      setCorrectionNotes("");
       setSourceRef("");
     } catch (cause) {
       setActionError(errorMessage(cause));
@@ -421,6 +424,15 @@ export default function ImportPage() {
               maxLength={500}
             />
           </Group>
+          <Textarea
+            label="订正笔记（可选，只抄卷面手写）"
+            value={correctionNotes}
+            onChange={(event) => setCorrectionNotes(event.currentTarget.value)}
+            placeholder="卷面上孩子/家长手写的订正批注，没有就留空；不要自己写讲解"
+            minRows={2}
+            autosize
+            maxLength={500}
+          />
           {actionError && (
             <Alert color="red" variant="light">
               {actionError}

@@ -61,6 +61,8 @@ class MistakeVersion(Base):
     problem_images: Mapped[str | None] = mapped_column(Text, nullable=True)
     standard_answer: Mapped[str | None] = mapped_column(Text, nullable=True)
     student_answer: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 卷面手写订正笔记（v2.7 D6）：纯展示，不进判分/排期/掌握度；应用层 ≤500。
+    correction_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_correct: Mapped[bool | None] = mapped_column(
         nullable=True
     )  # NULL = 待确认（P0-1 保守档）

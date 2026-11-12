@@ -36,6 +36,7 @@ from app.services.mistakes import (
     MistakeStateConflict,
     MistakeVersionConflict,
     append_label_version,
+    append_notes_version,
     effective_labels,
     error_cause_label,
     get_latest_version,
@@ -82,6 +83,7 @@ class MistakeDetail(BaseModel):
     problem_text: str | None
     student_answer: str | None
     standard_answer: str | None
+    correction_notes: str | None
     problem_images: list[str] = Field(default_factory=list)
     is_correct: bool | None
     labels: MistakeLabels
@@ -111,6 +113,12 @@ class LabelRequest(BaseModel):
     category_id: str | None = Field(default=None, max_length=64)
     concept_ids: list[int] = Field(default_factory=list, max_length=10)
     error_cause: str | None = Field(default=None, max_length=32)
+    actor: Literal["student", "parent"] = "student"
+
+
+class NotesRequest(BaseModel):
+    base_version: int = Field(ge=1)
+    correction_notes: str | None = Field(default=None, max_length=500)
     actor: Literal["student", "parent"] = "student"
 
 
@@ -173,6 +181,7 @@ def _to_detail(
         problem_text=version.problem_text,
         student_answer=version.student_answer,
         standard_answer=version.standard_answer,
+        correction_notes=version.correction_notes,
         problem_images=load_problem_images(version.problem_images),
         is_correct=version.is_correct,
         labels=MistakeLabels(
@@ -417,6 +426,36 @@ async def update_mistake_labels(
             category_names=category_names,
             concept_map=concept_map,
         )
+
+
+@router.post("/api/mistakes/{mistake_id}/notes", response_model=MistakeDetail)
+async def update_mistake_notes(
+    mistake_id: int,
+    payload: NotesRequest,
+    session: AsyncSession = Depends(get_session),
+) -> MistakeDetail:
+    """孩子区编辑订正笔记（免 PIN，与 /labels、/images 同级）：只追加版本行。
+
+    笔记纯展示，不进判分/排期/掌握度；空 = 不存（NULL）。base_version 乐观锁，
+    绝不改写历史版本行（mistake_versions append-only）。
+    """
+
+    async with session.begin():
+        try:
+            mistake, _version = await append_notes_version(
+                session,
+                mistake_id=mistake_id,
+                base_version=payload.base_version,
+                actor=payload.actor,
+                correction_notes=payload.correction_notes,
+            )
+        except MistakeNotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from None
+        except (MistakeVersionConflict, MistakeStateConflict) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from None
+        except MistakeConflict as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from None
+        return await _render_detail(session, mistake)
 
 
 @router.post("/api/mistakes/{mistake_id}/images", response_model=MistakeDetail)

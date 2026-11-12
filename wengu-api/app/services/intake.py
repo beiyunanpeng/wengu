@@ -276,6 +276,7 @@ async def promote_draft(
     *,
     primary_topic_id: str | None = None,
     standard_answer: str | None = None,
+    correction_notes: str | None = None,
     error_cause: str | None = None,
     concept_ids: tuple[int, ...] = (),
     question_type: str = QUESTION_OBJECTIVE,
@@ -304,6 +305,14 @@ async def promote_draft(
         "缺正答：请先在卷面订正，或在核对页补填正答",
         override=standard_answer,
     )
+
+    # 订正笔记纯展示：空 = 不存（NULL）；含〔?〕不挡转正（闸门只卡题目/作答/正答）。
+    notes_source = (
+        correction_notes
+        if correction_notes is not None
+        else normalized.get("correction_notes")
+    )
+    cleaned_notes = (notes_source or "").strip() or None
 
     cleaned_topic = (primary_topic_id or "").strip() or None
     if cleaned_topic is not None:
@@ -368,6 +377,7 @@ async def promote_draft(
         category_id=cleaned_topic,
         details=ConfirmationDetails(
             standard_answer=confirmed_standard,
+            correction_notes=cleaned_notes,
             primary_topic_id=cleaned_topic,
             suggested_category_id=suggested_topic,
             suggested_concept_ids=None,

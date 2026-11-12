@@ -343,6 +343,7 @@ async def _version_rows(factory: async_sessionmaker) -> list[tuple]:
                 row.confirmed_concept_ids_json,
                 row.confirmed_error_cause,
                 row.confirmed_by,
+                row.correction_notes,
             )
             for row in rows
         ]
@@ -1382,3 +1383,64 @@ async def test_problem_image_upload_reveal_then_backup_contains(tmp_path) -> Non
         entry = next(f for f in manifest["files"] if f["path"] == rel_path)
         assert entry["size_bytes"] == len(png)
         assert entry["sha256"] == hashlib.sha256(png).hexdigest()
+
+
+@pytest.mark.e2e
+async def test_correction_notes_transcribe_confirm_display_edit_appends(
+    tmp_path,
+) -> None:
+    """⑪ 转录带订正笔记 → 确认入本 → 详情显示 → 孩子编辑追加版本，历史逐行不变（P1-17 / v2.7 D6）。"""
+
+    factory = _migrated(tmp_path / "correction-notes.db")
+    _, concept_id = await _seed_topic_and_concept(factory)
+
+    items = _items()
+    items[0]["correction_notes"] = "异号相加取绝对值大的符号，再相减"
+    # 第二题不带笔记：入本后 correction_notes 必须是 NULL（空 = 不存）。
+
+    async with _client(factory) as client:
+        await _unlock(client)
+        confirmations = await _import_and_confirm(
+            client, factory, concept_id=concept_id, items=items
+        )
+        with_notes = confirmations[0]["mistake_id"]
+        without_notes = confirmations[1]["mistake_id"]
+
+        detail_with = await client.get(f"/api/mistakes/{with_notes}")
+        detail_without = await client.get(f"/api/mistakes/{without_notes}")
+        assert (
+            detail_with.json()["correction_notes"]
+            == items[0]["correction_notes"]
+        )
+        assert detail_without.json()["correction_notes"] is None
+
+        versions_before = await _version_rows(factory)
+        events_before = await _event_rows(factory)
+
+        edited = await client.post(
+            f"/api/mistakes/{with_notes}/notes",
+            json={
+                "base_version": 1,
+                "correction_notes": "订正：先定符号再算绝对值",
+                "actor": "student",
+            },
+        )
+        assert edited.status_code == 200, edited.text
+        assert edited.json()["current_version"] == 2
+        assert edited.json()["correction_notes"] == "订正：先定符号再算绝对值"
+
+        detail_after = await client.get(f"/api/mistakes/{with_notes}")
+        assert (
+            detail_after.json()["correction_notes"] == "订正：先定符号再算绝对值"
+        )
+
+    versions_after = await _version_rows(factory)
+    # 历史版本行逐行不变（快照含 correction_notes 列）；只追加一行 v2。
+    assert versions_after[: len(versions_before)] == versions_before
+    assert len(versions_after) == len(versions_before) + 1
+    appended = versions_after[-1]
+    assert appended[1] == with_notes  # mistake_id
+    assert appended[2] == 2  # version
+    assert appended[-1] == "订正：先定符号再算绝对值"  # correction_notes
+    # 笔记纯展示：编辑不追加任何学习事件，不进判分/排期/掌握度链路。
+    assert await _event_rows(factory) == events_before

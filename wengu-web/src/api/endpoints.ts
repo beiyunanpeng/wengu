@@ -128,6 +128,23 @@ export function updateMistakeLabels(
   );
 }
 
+export interface MistakeNotesPayload {
+  base_version: number;
+  correction_notes: string | null;
+  actor?: "student" | "parent";
+}
+
+export function updateMistakeNotes(
+  mistakeId: number,
+  payload: MistakeNotesPayload,
+): Promise<MistakeDetail> {
+  return requestJson<MistakeDetail>(
+    `/api/mistakes/${mistakeId}/notes`,
+    "POST",
+    payload,
+  );
+}
+
 export function voidMistake(
   mistakeId: number,
   payload: { actor?: "student" | "parent"; reason?: string | null } = {},
@@ -355,6 +372,7 @@ export interface TranscribeItem {
   problem_text: string;
   student_answer?: string;
   standard_answer?: string;
+  correction_notes?: string;
   source_ref?: string;
   captured_at?: string;
 }

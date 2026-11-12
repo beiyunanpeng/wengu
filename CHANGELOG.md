@@ -105,6 +105,29 @@
     缩略图消失、磁盘文件删除、再 GET 该序号 → 404。
   - 全量 **571 passed**（unit 363 / integration 198 / e2e 10）；本票文件 `ruff check --no-cache`
     全绿；`npm run lint` / `npm test`（16 passed）/ `npm run build` 绿。
+- **P1-17 订正笔记 `correction_notes`：转录 / 手填 / 确认三径写入 + 详情展示与编辑（v2.7 D6；迁移 0022 + 模板 version 2）**（2026-11-12）：
+  - **迁移 0022（可逆）**：`mistake_versions` 加 `correction_notes` Text 可空（应用层 ≤500 校验，
+    库层不加 CHECK，与 `standard_answer` 同惯例）。用**原生 `ADD/DROP COLUMN`、绝不 batch 重建**
+    ——batch 会连带丢掉 0008 钉死 append-only 的 UPDATE/DELETE 触发器；up/down/up 后 DDL 原文
+    （含两条触发器）逐字节一致。head 推进到 `0022_correction_notes`。
+  - **契约**：`services/ingestion.py` `FIELD_LIMITS` 加 `correction_notes: 500`（缺失/None→`""`、
+    非字符串/超长逐条报错跳过、不静默截断）；转录模板 `docs/templates/doubao_transcribe_v1.md`
+    **version 1→2**、`schema_fields` 加 `correction_notes`、新增铁律「只逐字抄卷面孩子/家长手写、
+    绝不自产讲解」+ 含/不含笔记的 JSON 对照。**笔记纯展示，不进判分/排期/掌握度任何链路**。
+  - **写入三径**：核对页确认 payload（`DraftConfirmRequest`）、`ImportPage` 手填表单、转录 JSON
+    均可带可选 `correction_notes`；`promote_draft` 写入当前版本，**空 = 不存（NULL）**；含 `〔?〕`
+    只标 `has_placeholder` 徽章、**不挡转正**（闸门只卡 `problem_text`/`student_answer`/`standard_answer`）。
+  - **展示与编辑**：`MistakeDetailPage` 与标准答案并排展示（`MathText` 渲染）；新增孩子区免 PIN
+    端点 `POST /api/mistakes/{id}/notes`（`actor ∈ {student, parent}`，与 `/labels`、`/images` 同级），
+    复用唯一版本写入路径 `append_mistake_version` **追加新版本行、绝不改写历史**，`base_version`
+    乐观锁（过期 409）、已作废 409、不存在 404、超长/非法 actor 422；笔记/标签/原题图三路编辑
+    **互相全量透传**，任一路都不丢其他字段。编辑笔记**不记 `learning_event`**（纯展示，非学习事实）。
+  - **测试**：新增 2 迁移（可逆 DDL 逐字节 + 可空/append-only 守卫）+ 3 单测（归一含/不含、超长/坏类型、
+    占位徽章不挡闸门）+ 2 imports 契约 + 5 intake 确认（转录携带/不带 NULL/payload 覆盖/占位不挡/超长 422 不写盘）
+    + 5 notes 编辑集成（追加版本 + 全表快照历史逐行不变、三路透传、孩子区免 PIN、乐观锁/作废/404、超长/空白→NULL/非法 actor）
+    + 1 e2e（转录带笔记→确认→详情显示→孩子编辑→版本追加，历史逐行不变、零新事件）。
+  - 全量 **589 passed**（unit 366 / integration 212 / e2e 11）；`ruff check --no-cache`（除未跟踪 `transcribe/`）
+    全绿；`npm run lint` / `npm test`（16 passed）/ `npm run build` 绿。
 
 ### Fixed
 

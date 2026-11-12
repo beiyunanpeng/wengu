@@ -179,6 +179,7 @@ async def sync_mistake_for_verdict(
     now: datetime | None = None,
     primary_topic_id: str | None = None,
     standard_answer: str | None = None,
+    correction_notes: str | None = None,
     suggested_category_id: str | None = None,
     suggested_concept_ids: Sequence[int] | None = None,
     suggested_error_cause: str | None = None,
@@ -286,6 +287,7 @@ async def sync_mistake_for_verdict(
             grading.standard_answer if standard_answer is None else standard_answer
         ),
         student_answer=grading.student_answer,
+        correction_notes=correction_notes,
         is_correct=False,
         status="confirmed",
         suggested_category_id=suggestions.category_id,
@@ -476,6 +478,7 @@ async def append_label_version(
         problem_images=latest.problem_images,
         standard_answer=latest.standard_answer,
         student_answer=latest.student_answer,
+        correction_notes=latest.correction_notes,
         is_correct=latest.is_correct,
         status=latest.status,
         suggested_category_id=latest.suggested_category_id,
@@ -507,6 +510,60 @@ async def append_label_version(
             "error_cause": cleaned_error_cause,
         },
     )
+    return mistake, version
+
+
+async def append_notes_version(
+    session: AsyncSession,
+    *,
+    mistake_id: int,
+    base_version: int,
+    actor: str,
+    correction_notes: str | None,
+) -> tuple[Mistake, MistakeVersion]:
+    """只改订正笔记并追加版本；base_version 乐观锁，其余内容/标签全量透传。
+
+    笔记纯展示，不进判分/排期/掌握度；空 = 不存（NULL）。与改标签/原题图同构：
+    mistake_versions 是 append-only，绝不原地改写历史版本行。
+    """
+
+    if actor not in ("student", "parent"):
+        raise MistakeConflict("只有 student/parent 可以编辑订正笔记")
+    mistake = await get_mistake(session, mistake_id)
+    if mistake.status != MISTAKE_ACTIVE:
+        raise MistakeStateConflict("已作废错题不能编辑订正笔记")
+    if base_version != mistake.current_version:
+        raise MistakeVersionConflict(
+            f"版本已变化，当前版本 {mistake.current_version}"
+        )
+    latest = await get_latest_version(session, mistake_id)
+    if latest is None:
+        raise MistakeConflict("错题内容版本缺失")
+
+    cleaned_notes = (correction_notes or "").strip() or None
+
+    version = await append_mistake_version(
+        session,
+        mistake.id,
+        problem_text=latest.problem_text,
+        problem_images=latest.problem_images,
+        standard_answer=latest.standard_answer,
+        student_answer=latest.student_answer,
+        correction_notes=cleaned_notes,
+        is_correct=latest.is_correct,
+        status=latest.status,
+        suggested_category_id=latest.suggested_category_id,
+        category_confidence=latest.category_confidence,
+        suggested_concept_ids=load_concept_ids(latest.suggested_concept_ids_json),
+        confirmed_category_id=latest.confirmed_category_id,
+        confirmed_concept_ids=load_concept_ids(latest.confirmed_concept_ids_json),
+        confirmed_by=latest.confirmed_by,
+        suggested_error_cause=latest.suggested_error_cause,
+        confirmed_error_cause=latest.confirmed_error_cause,
+    )
+    mistake.current_version = version.version
+    mistake.updated_at = version.created_at
+    await session.flush()
     return mistake, version
 
 

@@ -126,6 +126,7 @@ async def _append_image_version(
         problem_images=json.dumps(images, ensure_ascii=False),
         standard_answer=latest.standard_answer,
         student_answer=latest.student_answer,
+        correction_notes=latest.correction_notes,
         is_correct=latest.is_correct,
         status=latest.status,
         suggested_category_id=latest.suggested_category_id,

@@ -12,6 +12,7 @@ import {
   Select,
   Stack,
   Text,
+  Textarea,
   TextInput,
   Title,
 } from "@mantine/core";
@@ -31,6 +32,7 @@ import {
   startPractice,
   unvoidMistake,
   updateMistakeLabels,
+  updateMistakeNotes,
   uploadMistakeImage,
   voidMistake,
 } from "../api/endpoints";
@@ -83,6 +85,10 @@ export default function MistakeDetailPage() {
   const [imageBusy, setImageBusy] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
   const [removeIndex, setRemoveIndex] = useState<number | null>(null);
+  const [notesEditing, setNotesEditing] = useState(false);
+  const [notesDraft, setNotesDraft] = useState("");
+  const [notesSaving, setNotesSaving] = useState(false);
+  const [notesError, setNotesError] = useState<string | null>(null);
 
   function applyDetail(next: MistakeDetail) {
     setDetail(next);
@@ -98,6 +104,9 @@ export default function MistakeDetailPage() {
     setErrorCause(
       confirmed ? next.labels.error_cause : next.suggestion.error_cause,
     );
+    setNotesEditing(false);
+    setNotesDraft(next.correction_notes ?? "");
+    setNotesError(null);
   }
 
   async function load(showSpinner = true) {
@@ -339,6 +348,30 @@ export default function MistakeDetailPage() {
     }
   }
 
+  async function saveNotes() {
+    if (!detail || notesSaving) {
+      return;
+    }
+    setNotesSaving(true);
+    setNotesError(null);
+    try {
+      const updated = await updateMistakeNotes(detail.id, {
+        base_version: detail.current_version,
+        correction_notes: notesDraft.trim(),
+      });
+      applyDetail(updated);
+    } catch (cause) {
+      if (cause instanceof ApiError && cause.status === 409) {
+        setNotesError("版本已变化，已刷新为最新内容，请重新编辑");
+        await load(false);
+      } else {
+        setNotesError(errorMessage(cause));
+      }
+    } finally {
+      setNotesSaving(false);
+    }
+  }
+
   async function handleVoid() {
     if (!detail || statusBusy) {
       return;
@@ -521,6 +554,68 @@ export default function MistakeDetailPage() {
               标准答案
             </Text>
             <MathText text={detail.standard_answer || "（未提供）"} />
+          </div>
+          <div>
+            <Group justify="space-between" align="center" mb={4}>
+              <Text size="sm" fw={600}>
+                订正笔记
+              </Text>
+              {detail.status === "active" && !notesEditing && (
+                <Button
+                  size="compact-xs"
+                  variant="light"
+                  onClick={() => {
+                    setNotesDraft(detail.correction_notes ?? "");
+                    setNotesError(null);
+                    setNotesEditing(true);
+                  }}
+                >
+                  编辑笔记
+                </Button>
+              )}
+            </Group>
+            {notesEditing ? (
+              <Stack gap="xs">
+                <Textarea
+                  value={notesDraft}
+                  onChange={(event) => setNotesDraft(event.currentTarget.value)}
+                  placeholder="只抄卷面上孩子/家长手写的订正批注；留空表示无笔记"
+                  maxLength={500}
+                  autosize
+                  minRows={2}
+                />
+                <Text size="xs" c="dimmed">
+                  只转录卷面手写笔记，系统不生成讲解；笔记不影响判分、复习与掌握度。
+                </Text>
+                {notesError && (
+                  <Alert color="red" variant="light">
+                    {notesError}
+                  </Alert>
+                )}
+                <Group gap="xs">
+                  <Button
+                    size="compact-sm"
+                    onClick={() => void saveNotes()}
+                    loading={notesSaving}
+                  >
+                    保存笔记
+                  </Button>
+                  <Button
+                    size="compact-sm"
+                    variant="subtle"
+                    disabled={notesSaving}
+                    onClick={() => {
+                      setNotesEditing(false);
+                      setNotesError(null);
+                    }}
+                  >
+                    取消
+                  </Button>
+                </Group>
+              </Stack>
+            ) : (
+              <MathText text={detail.correction_notes || "（无手写笔记）"} />
+            )}
           </div>
           <div>
             <Text size="sm" fw={600} mb={4}>
