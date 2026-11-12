@@ -9,6 +9,20 @@
 
 ### Added
 
+- **P5-7 转录可选包 T1：`transcribe/` 随仓库分发 + 两处包内修复（v2.8 §19-D；纯新增）**（2026-11-12）：
+  新增 `transcribe/`（SOP README、CONTRACT.md、纯标准库 `validate.py`、机器可读契约
+  `contract/ingestion_v1.json`、通用 Skill `skills/wengu-transcribe/SKILL.md`、脱敏合成 fixtures）。
+  **不进 `wengu-api/requirements.txt`、不进 API 镜像、不进 CI 主链依赖**，后端零模型内核不变。
+  包内修复：① `validate.py` 入口重配置 stdout/stderr 为 UTF-8 + replace，Windows 默认 GBK
+  cmd/PowerShell 下 `selfcheck`/`evals`/`check` 不再抛 `UnicodeEncodeError`、汇总与退出码完整；
+  ② `selfcheck` 新增 **portable Skill 校验**（`template_ref`/`contract_ref` 指向 + 模板
+  `id`/`version`/`channel` 与契约对齐，不一致报 DRIFT，旧 Skill 检查保留）；③ 修 2 处 ruff `UP038`
+  （`isinstance` 元组改 `X | Y`，不用 exclude/noqa 绕过）。契约 `status` 保持 `proposal`、
+  `template.version` 保持 1、`fields` 不动（三方对齐属 P5-8）。实跑：GBK 默认控制台三命令无 traceback、
+  `--strict` 有 DRIFT 退 1 / 无 DRIFT（隔离沙箱）退 0、`evals` 13/13、`py_compile` OK、
+  全仓 `ruff check --no-cache .` 绿；portable 引用可证伪（改坏 `template_ref`→新增 DRIFT，改回→消失）。
+  **转录准确率未验证**（无真值样本），本票只验契约一致性与负例拦截。
+
 - **§19-E 参数定稿 + P4-5 / P4-6 出卡**（2026-11-12）：mastery 窗口 **N=20**（样本 <5 回退全历史，
   毕业判定与 `GRADUATION_STREAK` 不动）；公式题判分**不引入 antlr**，改受限 LaTeX 子集归一 +
   `sympy` 等式判断（白名单、禁 eval），不可判则降级自评并标 `formula_fallback`。

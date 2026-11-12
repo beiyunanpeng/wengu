@@ -1,0 +1,35 @@
+{
+  "_expect": {
+    "envelope_rejected": false,
+    "accepted": 2,
+    "rejected": 0,
+    "placeholder_count": 1,
+    "incomplete_count": 1,
+    "unknown_fields": 1
+  },
+  "channel": "agent_transcribe_v1",
+  "items": [
+    {
+      "subject": "数学",
+      "problem_text": "解方程 2(x-3)+4=3x-5",
+      "student_answer": "x=4",
+      "standard_answer": "x=3",
+      "error_cause_suggestion": "计算失误",
+      "suggested_topic_id": "cnm_042",
+      "source_ref": "练习册 P21 第5题",
+      "captured_at": "2026-11-12",
+      "unexpected_field": "未知字段应被丢弃并计数"
+    },
+    {
+      "subject": "物理",
+      "problem_text": "〔?〕 求物体受到的重力",
+      "student_answer": "",
+      "standard_answer": "〔?〕",
+      "verify": "",
+      "error_cause_suggestion": "",
+      "suggested_topic_id": "",
+      "source_ref": "",
+      "captured_at": ""
+    }
+  ]
+}
