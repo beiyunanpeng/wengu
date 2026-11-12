@@ -1212,3 +1212,99 @@ async def test_list_filters_combine_and_keep_pagination_contract(tmp_path) -> No
     assert page["total"] == 3
     # id 倒序：m4, m2, m1 → offset=1 取 m2
     assert [item["id"] for item in page["items"]] == [m2["mistake_id"]]
+
+
+@pytest.mark.integration
+async def test_voided_trash_list_and_restore_roundtrip(tmp_path) -> None:
+    """P2-10 DoD：回收站走 status=voided 列表；void 退出 due、unvoid 回到 due；
+    未解锁 unvoid/void 403（恢复入口家长专属）。复用 e2e ② 路径，零新端点。"""
+
+    factory = _migrated(tmp_path)
+    await _seed_topic(factory)
+
+    async with _client(factory) as client:
+        body = await _create_mistake(client)
+        mistake_id = body["mistake_id"]
+
+        async with factory() as session:
+            schedule = (
+                await session.execute(
+                    select(ReviewSchedule).where(
+                        ReviewSchedule.mistake_id == mistake_id
+                    )
+                )
+            ).scalar_one()
+        due_day = schedule.due_date.isoformat()
+
+        active_before = await client.get(
+            "/api/mistakes", params={"status": "active"}
+        )
+        voided_before = await client.get(
+            "/api/mistakes", params={"status": "voided"}
+        )
+        due_before = await client.get(
+            "/api/reviews/due", params={"today": due_day}
+        )
+
+        voided = await client.post(
+            f"/api/mistakes/{mistake_id}/void",
+            json={"actor": "parent", "reason": "已当面讲通，暂不复习"},
+        )
+        active_after = await client.get(
+            "/api/mistakes", params={"status": "active"}
+        )
+        voided_after = await client.get(
+            "/api/mistakes", params={"status": "voided"}
+        )
+        due_after = await client.get(
+            "/api/reviews/due", params={"today": due_day}
+        )
+
+        unvoided = await client.post(
+            f"/api/mistakes/{mistake_id}/unvoid", json={"actor": "parent"}
+        )
+        active_restored = await client.get(
+            "/api/mistakes", params={"status": "active"}
+        )
+        voided_restored = await client.get(
+            "/api/mistakes", params={"status": "voided"}
+        )
+        due_restored = await client.get(
+            "/api/reviews/due", params={"today": due_day}
+        )
+
+    # 初始：在本 1 / 回收站 0 / 到期 1
+    assert active_before.json()["total"] == 1
+    assert voided_before.json()["total"] == 0
+    assert due_before.json()["due_total"] == 1
+
+    # 作废后：退出在本与到期队列，进入回收站（status=voided 列表契约）
+    assert voided.status_code == 200, voided.text
+    assert voided.json()["status"] == "voided"
+    assert active_after.json()["total"] == 0
+    assert voided_after.json()["total"] == 1
+    assert _ids(voided_after) == {mistake_id}
+    assert voided_after.json()["items"][0]["status"] == "voided"
+    assert due_after.json()["due_total"] == 0
+
+    # 恢复后：回到在本与到期队列，回收站清空
+    assert unvoided.status_code == 200, unvoided.text
+    assert unvoided.json()["status"] == "active"
+    assert active_restored.json()["total"] == 1
+    assert _ids(active_restored) == {mistake_id}
+    assert voided_restored.json()["total"] == 0
+    assert due_restored.json()["due_total"] == 1
+    assert mistake_id in {
+        item["mistake_id"] for item in due_restored.json()["items"]
+    }
+
+    # 家长专属：未解锁（无会话 cookie）时恢复/作废端点 403，孩子区拿不到操作权。
+    async with _client(factory, unlock=False) as locked:
+        locked_unvoid = await locked.post(
+            f"/api/mistakes/{mistake_id}/unvoid", json={"actor": "parent"}
+        )
+        locked_void = await locked.post(
+            f"/api/mistakes/{mistake_id}/void", json={"actor": "parent"}
+        )
+    assert locked_unvoid.status_code == 403
+    assert locked_void.status_code == 403
