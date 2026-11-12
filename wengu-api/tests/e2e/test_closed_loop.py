@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import re
@@ -1312,3 +1313,72 @@ async def test_bom_prefixed_payload_dedupes_with_plain(tmp_path) -> None:
         assert second_body["duplicate"] is True
         assert second_body["batch_id"] == first_body["batch_id"]
         assert second_body["draft_count"] == 2
+
+
+@pytest.mark.e2e
+async def test_problem_image_upload_reveal_then_backup_contains(tmp_path) -> None:
+    """⑩ 原题图上传 → 读取端点揭示同字节 → 导出备份 zip 含该附件（P1-16 / v2.7 D5）。"""
+
+    settings = Settings(
+        data_dir=tmp_path / "data",
+        db_path=tmp_path / "data" / "wengu.db",
+        seeds_dir=tmp_path / "seeds",
+    )
+    factory = _migrated(settings.db_path)
+    _, concept_id = await _seed_topic_and_concept(factory)
+    png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ"
+        "AAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    )
+
+    async with _client(factory, settings=settings) as client:
+        await _unlock(client)
+        confirmations = await _import_and_confirm(
+            client, factory, concept_id=concept_id
+        )
+        mistake_id = confirmations[0]["mistake_id"]
+
+        uploaded = await client.post(
+            f"/api/mistakes/{mistake_id}/images",
+            files={"file": ("page.png", png, "image/png")},
+        )
+        assert uploaded.status_code == 200, uploaded.text
+        detail = uploaded.json()
+        assert len(detail["problem_images"]) == 1
+        rel_path = detail["problem_images"][0]
+        # 落盘路径 = uploads/<id>/<uuid4>.png，原始文件名 page.png 绝不进路径。
+        assert rel_path.startswith(f"uploads/{mistake_id}/")
+        assert rel_path.endswith(".png")
+        stem = rel_path.rsplit("/", 1)[-1][:-4]
+        assert re.fullmatch(
+            r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+            stem,
+        )
+
+        # 揭示：读取端点返回同字节 + 正确 Content-Type，不缓存。
+        revealed = await client.get(f"/api/mistakes/{mistake_id}/images/0")
+        assert revealed.status_code == 200, revealed.text
+        assert revealed.content == png
+        assert revealed.headers["content-type"] == "image/png"
+        assert revealed.headers["cache-control"] == "no-store"
+
+        # 家长导出备份 → zip 含该附件且字节一致（与 rel_path 同形 arcname）。
+        exported = await client.post("/api/backup/export")
+        assert exported.status_code == 200, exported.text
+        body = exported.json()
+        assert body["manifest"]["file_count"] == 2  # 快照库 + uploads/ 下一张
+        downloaded = await client.get(
+            f"/api/backup/download/{body['filename']}"
+        )
+        assert downloaded.status_code == 200, downloaded.text
+
+    archive_path = tmp_path / body["filename"]
+    archive_path.write_bytes(downloaded.content)
+    with zipfile.ZipFile(archive_path) as zf:
+        names = set(zf.namelist())
+        assert rel_path in names
+        assert zf.read(rel_path) == png
+        manifest = json.loads(zf.read(MANIFEST_NAME))
+        entry = next(f for f in manifest["files"] if f["path"] == rel_path)
+        assert entry["size_bytes"] == len(png)
+        assert entry["sha256"] == hashlib.sha256(png).hexdigest()

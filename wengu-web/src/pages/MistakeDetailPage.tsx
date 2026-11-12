@@ -3,7 +3,9 @@ import {
   Badge,
   Button,
   Card,
+  FileButton,
   Group,
+  Image,
   Loader,
   Modal,
   MultiSelect,
@@ -19,14 +21,17 @@ import { useNavigate, useParams } from "react-router-dom";
 import { ApiError, errorMessage } from "../api/client";
 import {
   createConcept,
+  deleteMistakeImage,
   getMistake,
   getMistakeOptions,
   listConcepts,
   mergeConcepts,
+  mistakeImageUrl,
   previewConceptMerge,
   startPractice,
   unvoidMistake,
   updateMistakeLabels,
+  uploadMistakeImage,
   voidMistake,
 } from "../api/endpoints";
 import type {
@@ -75,6 +80,9 @@ export default function MistakeDetailPage() {
   const [mergePreviewLoading, setMergePreviewLoading] = useState(false);
   const [mergeError, setMergeError] = useState<string | null>(null);
   const [mergeBusy, setMergeBusy] = useState(false);
+  const [imageBusy, setImageBusy] = useState(false);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const [removeIndex, setRemoveIndex] = useState<number | null>(null);
 
   function applyDetail(next: MistakeDetail) {
     setDetail(next);
@@ -383,6 +391,38 @@ export default function MistakeDetailPage() {
     setErrorCause(detail.suggestion.error_cause);
   }
 
+  async function handleUploadImage(file: File | null) {
+    if (!file || !detail || imageBusy) {
+      return;
+    }
+    setImageBusy(true);
+    setImageError(null);
+    try {
+      // 只刷新详情，不重置尚未保存的标签编辑。
+      setDetail(await uploadMistakeImage(detail.id, file));
+    } catch (cause) {
+      setImageError(errorMessage(cause));
+    } finally {
+      setImageBusy(false);
+    }
+  }
+
+  async function handleRemoveImage() {
+    if (!detail || removeIndex === null || imageBusy) {
+      return;
+    }
+    setImageBusy(true);
+    setImageError(null);
+    try {
+      setDetail(await deleteMistakeImage(detail.id, removeIndex));
+      setRemoveIndex(null);
+    } catch (cause) {
+      setImageError(errorMessage(cause));
+    } finally {
+      setImageBusy(false);
+    }
+  }
+
   if (loading) {
     return (
       <Group justify="center" py="xl">
@@ -481,6 +521,71 @@ export default function MistakeDetailPage() {
               标准答案
             </Text>
             <MathText text={detail.standard_answer || "（未提供）"} />
+          </div>
+          <div>
+            <Text size="sm" fw={600} mb={4}>
+              原题图（{detail.problem_images.length}/3）
+            </Text>
+            {detail.problem_images.length > 0 && (
+              <Group gap="sm" wrap="wrap" mb={8}>
+                {detail.problem_images.map((path, index) => (
+                  <Stack key={path} gap={4} align="center">
+                    <Image
+                      src={mistakeImageUrl(detail.id, index)}
+                      alt={`原题图 ${index + 1}`}
+                      w={140}
+                      h={140}
+                      fit="cover"
+                      radius="sm"
+                    />
+                    <Button
+                      size="compact-xs"
+                      color="red"
+                      variant="light"
+                      disabled={imageBusy}
+                      onClick={() => {
+                        setImageError(null);
+                        setRemoveIndex(index);
+                      }}
+                    >
+                      移除
+                    </Button>
+                  </Stack>
+                ))}
+              </Group>
+            )}
+            <Group gap="xs" align="center">
+              <FileButton
+                onChange={(file) => void handleUploadImage(file)}
+                accept="image/png,image/jpeg,image/webp"
+                disabled={imageBusy || detail.problem_images.length >= 3}
+              >
+                {(props) => (
+                  <Button
+                    {...props}
+                    variant="light"
+                    size="compact-sm"
+                    loading={imageBusy}
+                    disabled={imageBusy || detail.problem_images.length >= 3}
+                  >
+                    上传原题图
+                  </Button>
+                )}
+              </FileButton>
+              {detail.problem_images.length >= 3 && (
+                <Text size="xs" c="dimmed">
+                  已达 3 张上限，移除后才能再传
+                </Text>
+              )}
+            </Group>
+            {imageError && removeIndex === null && (
+              <Alert color="red" variant="light" mt={8}>
+                {imageError}
+              </Alert>
+            )}
+            <Text size="xs" c="dimmed" mt={4}>
+              仅支持 JPEG/PNG/WebP，单张 ≤5MB；图片只作附件保存，不做识别。
+            </Text>
           </div>
         </Stack>
       </Card>
@@ -660,6 +765,44 @@ export default function MistakeDetailPage() {
           </Text>
         </Stack>
       </Card>
+
+      <Modal
+        opened={removeIndex !== null}
+        onClose={() => {
+          setRemoveIndex(null);
+          setImageError(null);
+        }}
+        title="移除原题图"
+      >
+        <Stack gap="sm">
+          <Text size="sm">
+            移除后该图片从附件列表删除并删掉磁盘文件，不可恢复；不影响错题文本、标签与复习记录。
+          </Text>
+          {imageError && (
+            <Alert color="red" variant="light">
+              {imageError}
+            </Alert>
+          )}
+          <Group justify="flex-end">
+            <Button
+              variant="subtle"
+              onClick={() => {
+                setRemoveIndex(null);
+                setImageError(null);
+              }}
+            >
+              取消
+            </Button>
+            <Button
+              color="red"
+              onClick={() => void handleRemoveImage()}
+              loading={imageBusy}
+            >
+              确认移除
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
 
       <Modal
         opened={voidOpen}

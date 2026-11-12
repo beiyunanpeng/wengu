@@ -77,6 +77,34 @@
     console 仅既有 `/favicon.ico` 404，无 React 异常。
   - 全量 **565 passed**（unit 363 / integration 193 / e2e 9）；`ruff check --no-cache .`
     全绿；`npm run lint` / `npm test`（16 passed）/ `npm run build` 绿。
+- **P1-16 错题原图附件：上传 / 读取 / 删除写入路径激活（v2.7 D5；零迁移，唯一新依赖 `python-multipart`）**（2026-11-12）：
+  - **后端三个孩子区免 PIN 端点**（与 `/labels` 同级）：`POST /api/mistakes/{id}/images`
+    （multipart 单文件）、`GET /api/mistakes/{id}/images/{index}`（返回 bytes + 正确
+    Content-Type + `Cache-Control: no-store`）、`DELETE /api/mistakes/{id}/images/{index}`。
+    校验 **MIME 白名单（jpeg/png/webp）+ 魔数双校验**（不看扩展名）、单文件 ≤5MB、单题 ≤3 张；
+    落盘 `uploads/<mistake_id>/<uuid4>.<ext>`——**原始文件名绝不进路径**；读取/删除都断言解析
+    结果在 `uploads_dir` 内（前缀断言），**不挂 StaticFiles、不暴露 uploads 之外任何目录**。
+    稳定码 422：`image_too_large` / `image_mime_not_allowed` / `image_magic_mismatch` /
+    `image_limit_reached` / `image_path_invalid`；错题/序号/文件缺失 → 404。
+  - **append-only 合规（关键设计）**：`mistake_versions` 被迁移 0008 的数据库触发器钉死为
+    append-only（UPDATE/DELETE 直接 RAISE），故上传/删除**不原地改**，而是复用唯一版本写入
+    路径 `append_mistake_version` **追加新版本**承载更新后的 `problem_images` JSON 数组、
+    其余内容/标签全量透传并 bump `current_version`——与 `append_label_version` 同构，
+    详情页/检索（按 max version）与乐观锁（`base_version`）口径一致，**不开第二条写入路径**。
+  - `core/config.py` 加 `uploads_dir` property = `data_dir / "uploads"`（与备份打包同名，
+    全仓唯一目录）；`requirements.txt` 加 **`python-multipart`**（FastAPI 收文件前置，本票唯一新依赖）。
+    **零迁移**（head 保持 `0021_pomodoro_sessions`）；不 OCR、不调模型（零模型红线）、不收 SVG/HTML。
+  - **前端**：`MistakeDetailPage` 在标准答案展示块后加「原题图（N/3）」区——缩略图并排
+    （`img` 走读取端点）、上传按钮（≥3 枚置灰 + 上限提示）、移除按钮（确认框：移除后果说明 +
+    取消/确认移除）；上传/移除只刷新详情、不重置尚未保存的标签编辑。
+  - **测试**：新增 5 集成（上传→读取→备份 zip 含该文件→删除；非白名单 MIME/魔数不符/>5MB/第 4 张
+    → 422 稳定码；文件名注入 `../` 不可达、存储路径断言 uuid 形态；孩子区免 PIN；错题/序号缺失 404）
+    + 1 e2e（上传→揭示→备份包含，manifest sha256/size 与 zip 内字节逐一对账）。
+  - **运行态取证（隔离临时库 + 浏览器，未碰生产数据）**：UI 上传 → 缩略图从读取端点解码可见、
+    计数 1/3、磁盘落 `uploads/1/<uuid4>.png`（原文件名不在路径）；UI 确认框移除 → 计数 0/3、
+    缩略图消失、磁盘文件删除、再 GET 该序号 → 404。
+  - 全量 **571 passed**（unit 363 / integration 198 / e2e 10）；本票文件 `ruff check --no-cache`
+    全绿；`npm run lint` / `npm test`（16 passed）/ `npm run build` 绿。
 
 ### Fixed
 

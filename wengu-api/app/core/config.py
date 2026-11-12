@@ -55,6 +55,11 @@ class Settings(BaseSettings):
         return self.inbox_dir if self.inbox_dir is not None else self.data_dir / "inbox"
 
     @property
+    def uploads_dir(self) -> Path:
+        """错题原图附件目录（P1-16）；与备份打包 uploads/ 同名，全仓唯一。"""
+        return self.data_dir / "uploads"
+
+    @property
     def database_url(self) -> str:
         assert self.db_path is not None
         return f"sqlite+aiosqlite:///{self.db_path.as_posix()}"
