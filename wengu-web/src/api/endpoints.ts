@@ -150,6 +150,34 @@ export function unvoidMistake(
   );
 }
 
+export function uploadMistakeImage(
+  mistakeId: number,
+  file: File,
+): Promise<MistakeDetail> {
+  const form = new FormData();
+  form.append("file", file);
+  // 不设 Content-Type：浏览器自动补 multipart boundary。
+  return apiRequest<MistakeDetail>(
+    `/api/mistakes/${mistakeId}/images`,
+    { method: "POST", body: form },
+    60_000,
+  );
+}
+
+export function deleteMistakeImage(
+  mistakeId: number,
+  index: number,
+): Promise<MistakeDetail> {
+  return requestJson<MistakeDetail>(
+    `/api/mistakes/${mistakeId}/images/${index}`,
+    "DELETE",
+  );
+}
+
+export function mistakeImageUrl(mistakeId: number, index: number): string {
+  return `/api/mistakes/${mistakeId}/images/${index}`;
+}
+
 export function searchTopics(
   q: string,
   limit = 20,

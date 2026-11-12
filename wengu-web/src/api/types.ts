@@ -30,6 +30,7 @@ export interface MistakeDetail {
   problem_text: string | null;
   student_answer: string | null;
   standard_answer: string | null;
+  problem_images: string[];
   is_correct: boolean | null;
   labels: MistakeLabels;
   suggestion: MistakeSuggestion;

@@ -9,15 +9,25 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.session import require_parent
+from app.core.config import Settings, get_settings
 from app.core.database import get_session
 from app.models import Concept, KnowledgeSeed, Mistake, MistakeVersion
 from app.services.concepts import CategoryNotFound, ConceptConflict, resolve_concept_map
+from app.services.mistake_images import (
+    MAX_IMAGE_BYTES,
+    ImageError,
+    ImageNotFound,
+    add_image,
+    get_image_for_index,
+    remove_image,
+)
 from app.services.mistakes import (
     ERROR_CAUSES,
     MAX_VOID_REASON_LENGTH,
@@ -32,6 +42,7 @@ from app.services.mistakes import (
     get_mistake,
     list_mistakes,
     load_concept_ids,
+    load_problem_images,
     unvoid_mistake,
     void_mistake,
 )
@@ -71,6 +82,7 @@ class MistakeDetail(BaseModel):
     problem_text: str | None
     student_answer: str | None
     standard_answer: str | None
+    problem_images: list[str] = Field(default_factory=list)
     is_correct: bool | None
     labels: MistakeLabels
     suggestion: MistakeSuggestion
@@ -161,6 +173,7 @@ def _to_detail(
         problem_text=version.problem_text,
         student_answer=version.student_answer,
         standard_answer=version.standard_answer,
+        problem_images=load_problem_images(version.problem_images),
         is_correct=version.is_correct,
         labels=MistakeLabels(
             confirmed=labels.confirmed,
@@ -404,3 +417,90 @@ async def update_mistake_labels(
             category_names=category_names,
             concept_map=concept_map,
         )
+
+
+@router.post("/api/mistakes/{mistake_id}/images", response_model=MistakeDetail)
+async def upload_mistake_image(
+    mistake_id: int,
+    file: UploadFile = File(...),
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+) -> MistakeDetail:
+    """孩子区上传原题图（免 PIN，与 /labels 同级）：multipart 单文件。
+
+    MIME 白名单 + 魔数双校验、≤5MB、单题≤3；落盘 uploads/<id>/<uuid4>.<ext>，
+    原始文件名绝不进路径。校验失败返回 422 稳定码。
+    """
+
+    data = await file.read(MAX_IMAGE_BYTES + 1)
+    async with session.begin():
+        try:
+            await add_image(
+                session,
+                settings,
+                mistake_id,
+                data=data,
+                declared_mime=file.content_type or "",
+            )
+        except MistakeNotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from None
+        except ImageError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail={"message": str(exc), "code": exc.code},
+            ) from None
+        mistake = await get_mistake(session, mistake_id)
+        return await _render_detail(session, mistake)
+
+
+@router.get("/api/mistakes/{mistake_id}/images/{index}")
+async def get_mistake_image(
+    mistake_id: int,
+    index: int,
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+) -> Response:
+    """孩子区读取原题图：只解析 uploads_dir 内文件，返回 bytes + 正确 Content-Type。"""
+
+    async with session.begin():
+        try:
+            data, media_type = await get_image_for_index(
+                session, settings, mistake_id, index
+            )
+        except (MistakeNotFound, ImageNotFound) as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from None
+        except ImageError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail={"message": str(exc), "code": exc.code},
+            ) from None
+    return Response(
+        content=data,
+        media_type=media_type,
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@router.delete(
+    "/api/mistakes/{mistake_id}/images/{index}", response_model=MistakeDetail
+)
+async def delete_mistake_image(
+    mistake_id: int,
+    index: int,
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+) -> MistakeDetail:
+    """孩子区移除原题图：只删列表内本票上传的文件（移除数组项 + 删文件）。"""
+
+    async with session.begin():
+        try:
+            await remove_image(session, settings, mistake_id, index)
+        except (MistakeNotFound, ImageNotFound) as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from None
+        except ImageError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail={"message": str(exc), "code": exc.code},
+            ) from None
+        mistake = await get_mistake(session, mistake_id)
+        return await _render_detail(session, mistake)

@@ -102,6 +102,19 @@ def load_concept_ids(raw: str) -> list[int]:
     ]
 
 
+def load_problem_images(raw: str | None) -> list[str]:
+    """解析 problem_images（JSON 相对路径数组）；空/坏值一律视为无图（P1-16）。"""
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return []
+    if not isinstance(data, list):
+        return []
+    return [item for item in data if isinstance(item, str)]
+
+
 def effective_labels(version: MistakeVersion) -> EffectiveLabels:
     """确认值优先；未确认（confirmed_by 为空）时才回退到确定性建议值。"""
 

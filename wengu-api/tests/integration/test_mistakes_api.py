@@ -6,7 +6,11 @@ v2.5：真实题在系统外批改，错题只经"外部转录 → 核对页确�
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
+import re
+import zipfile
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -16,6 +20,7 @@ from uuid import uuid4
 import pytest
 from alembic import command
 from alembic.config import Config
+from app.core.config import Settings, get_settings
 from app.core.database import create_sqlite_engine, get_session
 from app.main import create_app
 from app.models import (
@@ -30,7 +35,9 @@ from app.models import (
     ProblemBankItem,
     ReviewSchedule,
 )
+from app.services.backup import create_backup
 from app.services.concepts import concept_family_ids, resolve_concepts
+from app.services.mistake_images import MAX_IMAGE_BYTES
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -52,7 +59,10 @@ def _migrated(tmp_path: Path) -> async_sessionmaker:
 
 @asynccontextmanager
 async def _client(
-    factory: async_sessionmaker, *, unlock: bool = True
+    factory: async_sessionmaker,
+    *,
+    unlock: bool = True,
+    settings: Settings | None = None,
 ) -> AsyncIterator[AsyncClient]:
     app = create_app()
 
@@ -61,6 +71,8 @@ async def _client(
             yield session
 
     app.dependency_overrides[get_session] = override_session
+    if settings is not None:
+        app.dependency_overrides[get_settings] = lambda: settings
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test"
     ) as client:
@@ -1308,3 +1320,201 @@ async def test_voided_trash_list_and_restore_roundtrip(tmp_path) -> None:
         )
     assert locked_unvoid.status_code == 403
     assert locked_void.status_code == 403
+
+
+# ---- P1-16 原题图附件（孩子区，零模型，唯一目录 uploads/）----
+
+_PNG_1PX = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+)
+_UUID_RE = re.compile(
+    r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
+)
+
+
+def _image_settings(tmp_path: Path) -> Settings:
+    return Settings(data_dir=tmp_path / "data", db_path=tmp_path / "mistakes.db")
+
+
+async def _upload_image(
+    client: AsyncClient,
+    mistake_id: int,
+    *,
+    data: bytes = _PNG_1PX,
+    mime: str = "image/png",
+    filename: str = "page.png",
+):
+    return await client.post(
+        f"/api/mistakes/{mistake_id}/images",
+        files={"file": (filename, data, mime)},
+    )
+
+
+@pytest.mark.integration
+async def test_problem_image_upload_read_backup_and_delete(tmp_path) -> None:
+    """上传→详情可见→读取字节一致→备份 zip 含该文件→改标签不丢图→删除只删本文件。"""
+
+    factory = _migrated(tmp_path)
+    await _seed_topic(factory)
+    settings = _image_settings(tmp_path)
+
+    async with _client(factory, settings=settings) as client:
+        mistake_id = (await _create_mistake(client))["mistake_id"]
+
+        uploaded = await _upload_image(client, mistake_id)
+        assert uploaded.status_code == 200, uploaded.text
+        images = uploaded.json()["problem_images"]
+        assert len(images) == 1
+        rel = images[0]
+        assert re.fullmatch(rf"uploads/{mistake_id}/[0-9a-f-]{{36}}\.png", rel)
+        # mistake_versions 是 append-only：上传追加 v2 并 bump current_version。
+        assert uploaded.json()["current_version"] == 2
+
+        detail = await client.get(f"/api/mistakes/{mistake_id}")
+        assert detail.json()["problem_images"] == [rel]
+
+        got = await client.get(f"/api/mistakes/{mistake_id}/images/0")
+        assert got.status_code == 200, got.text
+        assert got.content == _PNG_1PX
+        assert got.headers["content-type"] == "image/png"
+        assert got.headers["cache-control"] == "no-store"
+
+        stored = settings.data_dir / rel
+        assert stored.is_file()
+        assert stored.read_bytes() == _PNG_1PX
+        assert stored.resolve().is_relative_to(settings.uploads_dir.resolve())
+
+        # 改标签透传 problem_images：唯一写入路径，不丢图、不新建第二条路径。
+        # 上传已把 current_version 推到 2，乐观锁 base_version 随之取 2。
+        labeled = await client.post(
+            f"/api/mistakes/{mistake_id}/labels",
+            json={"base_version": 2, "error_cause": "careless"},
+        )
+        assert labeled.status_code == 200, labeled.text
+        assert labeled.json()["problem_images"] == [rel]
+
+        result = create_backup(settings)
+        with zipfile.ZipFile(result.path) as zf:
+            assert rel in zf.namelist()
+            assert zf.read(rel) == _PNG_1PX
+            manifest = json.loads(zf.read("manifest.json"))
+            entry = next(f for f in manifest["files"] if f["path"] == rel)
+            assert entry["sha256"] == hashlib.sha256(_PNG_1PX).hexdigest()
+            assert entry["size_bytes"] == len(_PNG_1PX)
+
+        deleted = await client.delete(f"/api/mistakes/{mistake_id}/images/0")
+        assert deleted.status_code == 200, deleted.text
+        assert deleted.json()["problem_images"] == []
+        assert not stored.exists()
+
+
+@pytest.mark.integration
+async def test_problem_image_validation_returns_stable_422_codes(tmp_path) -> None:
+    """非白名单 MIME / 魔数不符 / >5MB / 第 4 张 → 422 稳定码，且校验失败不落盘。"""
+
+    factory = _migrated(tmp_path)
+    await _seed_topic(factory)
+    settings = _image_settings(tmp_path)
+
+    async with _client(factory, settings=settings) as client:
+        mistake_id = (await _create_mistake(client))["mistake_id"]
+
+        svg = await _upload_image(
+            client,
+            mistake_id,
+            data=b"<svg xmlns='http://www.w3.org/2000/svg'></svg>",
+            mime="image/svg+xml",
+            filename="x.svg",
+        )
+        assert svg.status_code == 422, svg.text
+        assert svg.json()["detail"]["code"] == "image_mime_not_allowed"
+
+        mismatch = await _upload_image(
+            client,
+            mistake_id,
+            data=b"\xff\xd8\xff\xe0" + b"\x00" * 64,
+            mime="image/png",
+        )
+        assert mismatch.status_code == 422, mismatch.text
+        assert mismatch.json()["detail"]["code"] == "image_magic_mismatch"
+
+        big = _PNG_1PX + b"\x00" * (MAX_IMAGE_BYTES + 1 - len(_PNG_1PX))
+        too_large = await _upload_image(client, mistake_id, data=big)
+        assert too_large.status_code == 422, too_large.text
+        assert too_large.json()["detail"]["code"] == "image_too_large"
+
+        for _ in range(3):
+            ok = await _upload_image(client, mistake_id)
+            assert ok.status_code == 200, ok.text
+        fourth = await _upload_image(client, mistake_id)
+        assert fourth.status_code == 422, fourth.text
+        assert fourth.json()["detail"]["code"] == "image_limit_reached"
+
+        # 四次失败都没落盘：该题目录下恰好 3 个文件，详情也只有 3 张。
+        assert len(list((settings.uploads_dir / str(mistake_id)).iterdir())) == 3
+        detail = await client.get(f"/api/mistakes/{mistake_id}")
+        assert len(detail.json()["problem_images"]) == 3
+
+
+@pytest.mark.integration
+async def test_problem_image_filename_injection_stays_uuid(tmp_path) -> None:
+    """原始文件名（../）绝不进路径：存储名是 uuid4 形态，限定在 uploads/<id>/。"""
+
+    factory = _migrated(tmp_path)
+    await _seed_topic(factory)
+    settings = _image_settings(tmp_path)
+
+    async with _client(factory, settings=settings) as client:
+        mistake_id = (await _create_mistake(client))["mistake_id"]
+        resp = await _upload_image(
+            client, mistake_id, filename="../../../etc/passwd.png"
+        )
+        assert resp.status_code == 200, resp.text
+        rel = resp.json()["problem_images"][0]
+        stem = rel.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+        assert _UUID_RE.fullmatch(stem), rel
+        assert rel.startswith(f"uploads/{mistake_id}/")
+        assert ".." not in rel and "passwd" not in rel
+        assert len(list((settings.uploads_dir / str(mistake_id)).iterdir())) == 1
+        assert not (tmp_path / "etc").exists()
+
+
+@pytest.mark.integration
+async def test_problem_image_endpoints_are_child_area_no_pin(tmp_path) -> None:
+    """孩子区免 PIN：未解锁会话也能上传/读取/删除（与 /labels 同级）。"""
+
+    factory = _migrated(tmp_path)
+    await _seed_topic(factory)
+    settings = _image_settings(tmp_path)
+
+    async with _client(factory, settings=settings) as client:
+        mistake_id = (await _create_mistake(client))["mistake_id"]
+
+    async with _client(factory, unlock=False, settings=settings) as locked:
+        up = await _upload_image(locked, mistake_id)
+        assert up.status_code == 200, up.text
+        got = await locked.get(f"/api/mistakes/{mistake_id}/images/0")
+        assert got.status_code == 200, got.text
+        rm = await locked.delete(f"/api/mistakes/{mistake_id}/images/0")
+        assert rm.status_code == 200, rm.text
+        assert rm.json()["problem_images"] == []
+
+
+@pytest.mark.integration
+async def test_problem_image_missing_mistake_or_index_404(tmp_path) -> None:
+    factory = _migrated(tmp_path)
+    await _seed_topic(factory)
+    settings = _image_settings(tmp_path)
+
+    async with _client(factory, settings=settings) as client:
+        mistake_id = (await _create_mistake(client))["mistake_id"]
+        await _upload_image(client, mistake_id)
+
+        bad_index = await client.get(f"/api/mistakes/{mistake_id}/images/5")
+        assert bad_index.status_code == 404
+        bad_delete = await client.delete(f"/api/mistakes/{mistake_id}/images/5")
+        assert bad_delete.status_code == 404
+        missing_get = await client.get("/api/mistakes/9999/images/0")
+        assert missing_get.status_code == 404
+        missing_upload = await _upload_image(client, 9999)
+        assert missing_upload.status_code == 404
