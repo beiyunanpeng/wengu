@@ -9,6 +9,32 @@
 
 ### Added
 
+- **P5-8 转录契约收口 T2：三方字段对齐 + 文档口径 + CI + 后端行为锚定（v2.8 §19-D；改现有文件）**（2026-11-13）：
+  把 P5-7 留下的「后端 10 键 / 模板 9 键 / 契约 9 键」三方漂移收口。① **契约对齐**：`contract/ingestion_v1.json`
+  `fields` 补 `correction_notes:500` → **10 键与后端 `FIELD_LIMITS` 完全一致**；`template.version` 1→**2**；
+  `status` proposal→**active**。② **模板不重复升版**：`docs/templates/doubao_transcribe_v1.md` 保持 **v2**——
+  发给模型的指令与 `schema_fields`（9 键）一字未动，只在「给施工方」段补字段口径说明，**无语义变更故不升 v3**。
+  ③ **`verify` 显式声明为题库通道专用**（二选一取「不向转录端暴露」）：`verify` 是 `agent_bank_transcribe_v1`
+  的答案自洽表达式（入库 AST 沙箱核验），转录端只转录不推理、不得生成；契约新增 `template.bank_only_fields=["verify"]`
+  + 理由，`selfcheck` 按「**契约字段 − bank_only_fields == 模板 schema_fields**」判定（含 bank_only ⊆ 契约字段守卫），
+  **不靠忽略项蒙过**。④ **selfcheck 补强**：新增**模板 `id` ↔ 契约 `template.id`** 断言；把原「退役目录是否存在」
+  检查改为「**文档引用的回归目录必须存在**」（`transcribe/evals/` 存在 + 文档引用 live 路径 + 不再出现退役旧路径）。
+  ⑤ **文档口径**：模板「与 wengu 系统的契约」与旧 Skill 的回归目录改指 `transcribe/evals/`；
+  `docs/tooling/wengu-transcribe.md` 加**已迁移横幅**指向便携 `transcribe/skills/wengu-transcribe/SKILL.md`、
+  正文存档为历史草稿（不删历史），删除开发者本机绝对路径、inbox 改仓库相对默认 `./data/inbox`（`WENGU_INBOX_DIR` 覆盖）。
+  ⑥ **后端行为锚定**：新增 `wengu-api/tests/integration/test_transcribe_contract_anchor.py`，直接加载
+  `transcribe/evals/fixtures/*.json`，用后端真实 `validate_envelope`/`validate_and_normalize` 断言与 `_expect` 一致
+  （**不复制校验逻辑、不 import transcribe 包**，13 用例参数化）。⑦ **CI 新增独立 `transcribe` job**：
+  `selfcheck --strict` + `evals` + `py_compile`，**不装任何额外包**、不并入 api job；锚定测试由 api job 的 pytest 覆盖。
+  包内 README §5 / CONTRACT §3·§6 同步为收口后口径。实跑：`selfcheck --strict` **18 OK / 0 DRIFT / 0 WARN 退 0**、
+  `evals` **13/13**、锚定测试 **13 passed** 且**可证伪**（临时把后端长度校验 `limit`→`limit*1000` →
+  `overlong_subject_rejected` 变红 1 failed/12 passed → 还原 → 13 passed，`ingestion.py` diff 归零）；
+  `bank_only` 规则可证伪（清空 `bank_only_fields` → 模板 schema 项 DRIFT 退 1 → 还原 → 0 DRIFT）；
+  全量 **602 passed**、全仓 `ruff check --no-cache .` 绿、`npm run build` 绿。
+  **残留**：`correction_notes` 超长负例由既有单测 `test_normalize_correction_notes_overlong_and_bad_type` 覆盖，
+  不在 13 条 fixtures 内（fixtures 保持 P5-7 原样、未增删）；TICKETS/qoder-build-plan 中作为「问题陈述」引用的退役旧路径
+  属历史文本，未改。**转录准确率仍未验证**（无真值样本），本票只验契约一致性与负例拦截。
+
 - **P5-7 转录可选包 T1：`transcribe/` 随仓库分发 + 两处包内修复（v2.8 §19-D；纯新增）**（2026-11-12）：
   新增 `transcribe/`（SOP README、CONTRACT.md、纯标准库 `validate.py`、机器可读契约
   `contract/ingestion_v1.json`、通用 Skill `skills/wengu-transcribe/SKILL.md`、脱敏合成 fixtures）。

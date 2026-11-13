@@ -1,7 +1,7 @@
 {
   "contract_id": "wengu.ingestion.v1",
   "version": 1,
-  "status": "proposal",
+  "status": "active",
   "owner": "transcribe/",
   "authority": "wengu-api/app/services/ingestion.py",
   "authority_note": "后端常量仍是运行时唯一权威。本文件是给外部转录端用的镜像 + 漂移自检基准，不是第二个真源；selfcheck 负责证明两者一致。",
@@ -22,6 +22,7 @@
     "problem_text": { "max": 2000, "promotion_required": true },
     "student_answer": { "max": 500, "promotion_required": false },
     "standard_answer": { "max": 500, "promotion_required": true },
+    "correction_notes": { "max": 500, "promotion_required": false },
     "verify": { "max": 200, "promotion_required": false },
     "error_cause_suggestion": { "max": 50, "promotion_required": false },
     "suggested_topic_id": { "max": 40, "promotion_required": false },
@@ -30,8 +31,10 @@
   },
   "template": {
     "id": "doubao_transcribe",
-    "version": 1,
-    "path": "docs/templates/doubao_transcribe_v1.md"
+    "version": 2,
+    "path": "docs/templates/doubao_transcribe_v1.md",
+    "bank_only_fields": ["verify"],
+    "bank_only_reason": "verify 是题库通道 agent_bank_transcribe_v1 的答案自洽表达式（入库 AST 沙箱核验用）；转录端只转录不推理、不得生成 verify，故模板 schema_fields 不含它。selfcheck 按「契约字段 − bank_only_fields == 模板 schema_fields」显式判定，不靠忽略项。"
   },
   "skill": {
     "legacy_path": "docs/tooling/wengu-transcribe.md",

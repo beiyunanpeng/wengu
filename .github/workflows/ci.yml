@@ -49,3 +49,19 @@ jobs:
         run: npm test
       - name: Build
         run: npm run build
+
+  transcribe:
+    # 转录可选包：纯标准库，绝不安装任何额外依赖（不 pip install），独立于 api/web。
+    # 后端行为锚定测试（test_transcribe_contract_anchor.py）由 api job 的 pytest 覆盖。
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Selfcheck (strict)
+        run: python transcribe/validate.py selfcheck --strict
+      - name: Evals
+        run: python transcribe/validate.py evals
+      - name: py_compile
+        run: python -m py_compile transcribe/validate.py

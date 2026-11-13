@@ -15,7 +15,7 @@
 
 用法：
   python transcribe/validate.py check data/inbox/transcribe-*.json
-  python transcribe/validate.py check x.json --source-tool doubao_web --template-version 1 --manifest out.json
+  python transcribe/validate.py check x.json --source-tool doubao_web --template-version 2 --manifest out.json
   python transcribe/validate.py selfcheck [--strict]
   python transcribe/validate.py evals
 """
@@ -40,7 +40,7 @@ FIXTURES_DIR = PACKAGE_ROOT / "evals" / "fixtures"
 BACKEND_PATH = REPO_ROOT / "wengu-api" / "app" / "services" / "ingestion.py"
 TEMPLATE_PATH = REPO_ROOT / "docs" / "templates" / "doubao_transcribe_v1.md"
 LEGACY_SKILL_PATH = REPO_ROOT / "docs" / "tooling" / "wengu-transcribe.md"
-LEGACY_EVALS_PATH = REPO_ROOT / "evals" / "transcribe"
+EVALS_REGRESSION_PATH = PACKAGE_ROOT / "evals"
 ENV_EXAMPLE_PATH = REPO_ROOT / "wengu-api" / ".env.example"
 
 _CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
@@ -327,6 +327,8 @@ def cmd_selfcheck(args: argparse.Namespace) -> int:
     backend = parse_backend_constants()
     fm_template = read_frontmatter(TEMPLATE_PATH)
     fm_skill = read_frontmatter(LEGACY_SKILL_PATH)
+    template_text = TEMPLATE_PATH.read_text(encoding="utf-8") if TEMPLATE_PATH.exists() else ""
+    skill_text = LEGACY_SKILL_PATH.read_text(encoding="utf-8") if LEGACY_SKILL_PATH.exists() else ""
 
     records: list[tuple[str, str, str]] = []
 
@@ -366,16 +368,23 @@ def cmd_selfcheck(args: argparse.Namespace) -> int:
         add("OK" if contract["placeholder"] == backend.get("PLACEHOLDER_MARK") else "DRIFT",
             "占位符", f"contract={contract['placeholder']} backend={backend.get('PLACEHOLDER_MARK')}")
 
-    # 模板与契约
+    # 模板与契约：模板 schema_fields 必须 == 契约字段 − bank_only_fields（显式规则，非忽略项）
     tmpl_fields = set(fm_template.get("schema_fields", []))
     c_fields = set(contract["fields"])
-    add("OK" if tmpl_fields == c_fields else "DRIFT", "模板 schema_fields ↔ 契约字段",
-        f"模板 {len(tmpl_fields)} 项 / 契约 {len(c_fields)} 项；契约多出={sorted(c_fields - tmpl_fields) or '无'}；"
-        f"模板多出={sorted(tmpl_fields - c_fields) or '无'}")
+    bank_only = set(contract["template"].get("bank_only_fields", []))
+    expected_tmpl_fields = c_fields - bank_only
+    bank_only_valid = bank_only <= c_fields
+    tmpl_fields_ok = tmpl_fields == expected_tmpl_fields and bank_only_valid
+    add("OK" if tmpl_fields_ok else "DRIFT", "模板 schema_fields ↔ 契约字段",
+        f"模板 {len(tmpl_fields)} 项 / 契约 {len(c_fields)} 项 − bank_only {sorted(bank_only) or '无'} "
+        f"= 期望 {len(expected_tmpl_fields)} 项；差异={sorted(tmpl_fields ^ expected_tmpl_fields) or '无'}"
+        + ("" if bank_only_valid else f"；bank_only 含非契约字段={sorted(bank_only - c_fields)}"))
     add("OK" if fm_template.get("version") == contract["template"]["version"] else "DRIFT",
         "模板 version", f"模板={fm_template.get('version')} 契约={contract['template']['version']}")
     add("OK" if fm_template.get("channel") == contract["channels"]["primary"] else "DRIFT",
         "模板 channel", f"模板={fm_template.get('channel')} 契约={contract['channels']['primary']}")
+    add("OK" if fm_template.get("id") == contract["template"]["id"] else "DRIFT",
+        "模板 id", f"模板={fm_template.get('id')} 契约={contract['template']['id']}")
 
     # 旧 Skill 与模板
     ref = fm_skill.get("template_ref")
@@ -403,13 +412,14 @@ def cmd_selfcheck(args: argparse.Namespace) -> int:
         "portable Skill 模板 channel",
         f"模板={fm_p_template.get('channel')} 契约={contract['channels']['primary']}")
 
-    # 版本纪律是否空转
-    if not LEGACY_EVALS_PATH.exists():
-        add("DRIFT", "版本纪律回归目录",
-            "模板 §'与 wengu 系统的契约' 与 Skill 硬边界均要求跑 evals/transcribe/，但该目录不存在"
-            "（P1-12 已随 model_runs 退役）→ 模板升版目前无回归可跑")
-    else:
-        add("OK", "版本纪律回归目录", f"{LEGACY_EVALS_PATH} 存在")
+    # 版本纪律回归目录：文档引用的回归目录必须存在，且不得再指向已退役的旧路径
+    docs_text = template_text + "\n" + skill_text
+    live_ref = "transcribe/evals/" in docs_text
+    dead_ref = "evals/transcribe/" in docs_text
+    regression_ok = EVALS_REGRESSION_PATH.exists() and live_ref and not dead_ref
+    add("OK" if regression_ok else "DRIFT", "版本纪律回归目录",
+        f"transcribe/evals/ {'存在' if EVALS_REGRESSION_PATH.exists() else '缺失'}；"
+        f"文档引用 live={live_ref} dead={dead_ref}（应 live=True dead=False）")
 
     # inbox 路径可移植性
     env_text = ENV_EXAMPLE_PATH.read_text(encoding="utf-8") if ENV_EXAMPLE_PATH.exists() else ""
@@ -417,7 +427,6 @@ def cmd_selfcheck(args: argparse.Namespace) -> int:
     env_default = m.group(1) if m else ""
     add("OK" if env_default == contract["inbox"]["default_path"] else "DRIFT",
         "inbox 默认路径", f".env.example={env_default} 契约={contract['inbox']['default_path']}")
-    skill_text = LEGACY_SKILL_PATH.read_text(encoding="utf-8") if LEGACY_SKILL_PATH.exists() else ""
     if re.search(r"[A-Za-z]:[\\/]|/d/MyProducts|/Users/", skill_text):
         add("WARN", "Skill 内硬编码个人路径",
             "docs/tooling/wengu-transcribe.md 含开发者本机绝对路径，开源后其他家长不可直接用")
@@ -481,7 +490,7 @@ def main() -> int:
     p_check = sub.add_parser("check", help="校验转录 JSON 并输出批次 manifest")
     p_check.add_argument("files", nargs="+")
     p_check.add_argument("--source-tool", default="unknown", help="转录工具标识，写进 manifest")
-    p_check.add_argument("--template-version", type=int, default=1, help="模板版本，写进 manifest")
+    p_check.add_argument("--template-version", type=int, default=2, help="模板版本，写进 manifest")
     p_check.add_argument("--manifest", help="manifest 输出路径（不写则只打印）")
     p_check.set_defaults(func=cmd_check)
 
