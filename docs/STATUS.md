@@ -1,9 +1,9 @@
 # STATUS.md — 开发计划与完成情况
 
-> 快照日期：2026-11-13（**P4-4 后端健壮性与可观测性小修**，待评审；main 已含 P5-8 / PR #50）
-> 基线：`main` = `30785d0`（P5-8 / PR #50 已合并）；P4-4 在分支 `feat/p4-4-robustness`，待评审
-> 全量测试：**610 passed**（2026-11-13 施工方实跑，unit 369 / integration 230 / **e2e 11**）；`ruff check --no-cache .` 全绿；`npm run lint`（tsc --noEmit）/ `npm test`（20：16 基线 + 4 新增 seedBanner 纯函数单测）/ `npm run build`（6.05s）绿
-> Alembic head：`0023_learning_events_occurred_at`；业务表 **22 张**（0022 加 `correction_notes` 列、0023 加 `occurred_at` 索引，均不新增表）
+> 快照日期：2026-11-13（**P4-5 掌握度改近期窗口**，待评审；main 已含 P4-4 / PR #51）
+> 基线：`main` = `cb6ab4c`（P4-4 / PR #51 已合并）；P4-5 在分支 `feat/p4-5-mastery-window`，待评审
+> 全量测试：**618 passed**（2026-11-13 施工方实跑，unit 377 / integration 230 / **e2e 11**）；`ruff check --no-cache .` 全绿；P4-5 纯后端零前端改动，`npm test`（20）/ `npm run build` 沿用 P4-4 基线（未重跑）
+> Alembic head：`0023_learning_events_occurred_at`；业务表 **22 张**（P4-5 零迁移、零新依赖）
 
 本文件是**状态快照**，不替代以下事实源；冲突时以它们为准：
 
@@ -221,6 +221,16 @@
   RED→GREEN（改坏 0023 downgrade 索引名、`logger.error`→`exception` 各让对应用例变红再改回变绿）。
   **残留**：`occurred_at` 索引为前瞻性——dashboard 仍 `ORDER BY id` 全量加载 + Python 排序，查询计划未变、
   未重构 dashboard（按禁止）；`to_thread` 暴露的模块级锁跨循环脆弱性已用 conftest 每测试换锁隔离（仅测试）。
+- **P4-5 掌握度改近期窗口已交付（待评审）**（2026-11-13，分支 `feat/p4-5-mastery-window`，设计文档 §5.4 / §19-E）：
+  `recompute.mastery()` 从「该 concept 全历史正确率」收敛为「**最近 `MASTERY_WINDOW_SIZE`=20 次计入作答**正确率」——
+  按 concept 过滤 + 双来源（`student_self`/`system_quiz`，缺 source 旧事件按历史自评）+ 申诉去重（同一 grading 只计最高版本），
+  按 `occurred_at + repr` 稳定排序取末尾 20；**样本 < `MASTERY_MIN_SAMPLE`=5 回退全历史**。两常量模块级、不做运行时可配。
+  **修的是**：旧实现下「很久以前答对多次、最近连错」的孩子 mastery 仍高，经 `review_interval` 的 `×(1+mastery×4)` 反把复习间隔拉长。
+  **影响面**：`review._mastery_for`（多 concept 取最小）、`dashboard._concept_mastery`/`_mastery_curve` 三处消费方
+  **仅当 concept ≥20 条计入事件时值才变**，**复习间隔可能整体缩短属预期**；启发式窗口非时间衰减、仍可整体重算。
+  **一字未改**：`GRADUATION_STREAK`=3 / `is_graduated` / `stats` / `review_interval` 公式形状 / 多 concept 取最小。
+  实跑 **618 passed**（unit 377 / integration 230 / e2e 11，+8 条 DoD 单测）、`ruff check --no-cache .` 绿；零迁移、零新依赖、前端零改动。
+  **残留**：N=20>MIN_SAMPLE=5 时回退对 n<20 与 `[-20:]` 同效（按工单显式实现的冷启动守卫）；≥20 条真实存量数据尚未观测（无生产复跑）。
 - **P0-5 两处 Windows 本地噪音已合并**（2026-11-05，PR#42 squash → main `629d6d7`）：
   ① `conftest.py` 新增 `pytest_configure` 钩子（仅 win32、未给 `--basetemp` 时生效），先移除被 ACL 锁死的
   死 `pytest-current` 链接（`os.rmdir` 是目录符号链接的正确原语），删不动时把整个临时根**改名保留现场**
@@ -1126,6 +1136,7 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
 | P4-2 | 未开始 | 可移植部署：镜像原样上云，SQLite 文件 + 挂载卷；Postgres 仅可选 |
 | P4-3 | 未开始 | 可选本地模型层：若回退模型决策，另行评审，不默认引入 |
 | P4-4 | 已完成 | **后端健壮性与可观测性小修（2026-11-13，待评审，设计文档 §19-E）**：seed 装载失败显式降级（进程内状态 + 安全错误类别 `format/json/io/unknown`，`GET /api/setup/status` 增 `seed_loaded`/`seed_error`，前端 `seed_loaded===false` 红色横幅；服务不崩溃、错误明细不含题目/路径/堆栈）；迁移 0023 给 `learning_events.occurred_at` 建索引（可逆、纯加索引不碰 0008 触发器）；`save_config` 写盘改 `asyncio.to_thread`（原子写 + 文件锁语义不变）；backup-restore 补 0013/0019「逻辑可逆·数据不可回退」节。实跑 610 passed、ruff/build 绿、两次可证伪 RED→GREEN |
+| P4-5 | 已完成 | **掌握度改近期窗口（2026-11-13，待评审，设计文档 §5.4 / §19-E）**：`recompute.mastery()` 从全历史正确率收敛为最近 `MASTERY_WINDOW_SIZE`=20 次计入作答正确率（concept 过滤 + 双来源 + 申诉去重 + `occurred_at` 稳定排序取末尾 20；样本 <`MASTERY_MIN_SAMPLE`=5 回退全历史；常量模块级不可运行时配）；修「久会近错」孩子 mastery 仍高、复习间隔反被拉长。影响 review 取最小 + dashboard 概念/曲线三处（仅 concept ≥20 条时值变，间隔可能整体缩短属预期）；`GRADUATION_STREAK`/`is_graduated`/`review_interval` 公式一字未改。实跑 618 passed、ruff 绿；零迁移零新依赖 |
 
 ### Phase 5 — 开源分发与打包
 
