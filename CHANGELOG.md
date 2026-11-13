@@ -219,6 +219,34 @@
   - 全量 **589 passed**（unit 366 / integration 212 / e2e 11）；`ruff check --no-cache`（除未跟踪 `transcribe/`）
     全绿；`npm run lint` / `npm test`（16 passed）/ `npm run build` 绿。
 
+### Changed
+
+- **P4-5 掌握度改近期窗口：mastery 从全历史正确率收敛为最近 20 次（v2.8 §19-E；改现有语义）**（2026-11-13）：
+  - **语义变更**：`recompute.mastery()` 原是该 concept **全部历史**作答正确率（docstring 自述"确定性占位实现"），
+    与 `review_policy.review_interval()` 的 `基础档 × (1 + mastery × 4)` 叠加后，**很久以前答对多次、最近连错的孩子
+    mastery 仍高、复习间隔反被拉长**——与复习目的相反。现改为**最近 `MASTERY_WINDOW_SIZE`=20 次计入作答**的正确率：
+    按 concept 过滤 + 沿用 `_counts_toward_mastery`（source ∈ {student_self, system_quiz}，缺 source 旧事件按历史自评计入）
+    + `_dedupe_grading_versions`（同一 grading 只计最高版本），按 `occurred_at + repr` 稳定排序取末尾 20 条；
+    **样本 < `MASTERY_MIN_SAMPLE`=5 回退全历史**避免冷启动抖动。两常量模块级、**不做运行时可配、不进 app-config**。
+  - **影响面（值变、形状不变）**：消费 `mastery()` 契约的三处——`review._mastery_for`（多 concept 取最小）、
+    `dashboard._concept_mastery`（逐 concept + 均值）、`dashboard._mastery_curve`（逐日前缀回放）——
+    **仅当某 concept ≥20 条计入事件时数值才变**；**复习间隔可能整体缩短，属预期**（最近表现差→mastery 降→间隔不再被历史拉高）。
+    这是**启发式窗口、不是时间衰减模型**，仍是事实推导值、可整体重算。
+  - **一字未改**：`GRADUATION_STREAK`=3 与 `is_graduated`（毕业仍看 mistake 尾部连对、全历史）、`stats`、
+    `review_policy.review_interval` 公式形状（`×(1+mastery×4)` 与 `times_wrong>1` 折半）、多 concept 取最小契约。
+    **不引入 FSRS / 时间衰减 / 外部依赖，不把 mastery 存成列或缓存。零迁移、零新依赖。**
+  - **测试**：`tests/unit/test_recompute.py` 新增 8 条 DoD（窗口全对→1.0、窗口全错+历史全对→压到 0、
+    样本<5 回退、恰好 20/21 边界、窗口内申诉只计最高 `grading_version`、多 concept 取最小、
+    毕业不受窗口影响、同序列两次重算相等 + 输入序无关）；既有断言一字未改。
+  - **可证伪（RED→GREEN 已留痕）**：临时把窗口截断改回全历史（`window = selected`）→ ①②④⑦ 4 条 DoD 变红
+    （4 failed / 13 passed）→ 还原 → `test_recompute.py` 17 passed；证明窗口断言非空过。
+  - **实跑**：全量 **618 passed**（unit 377 / integration 230 / e2e 11，较 P4-4 的 610 增 8 条 DoD 单测）；
+    全仓 `ruff check --no-cache .` 绿。
+  - **残留 / 审核方需复核**：① 参数 N=20 > MIN_SAMPLE=5 时，`n<5 回退全历史` 与 `[-20:]` 对 n<20 同效
+    （回退是按工单显式实现的冷启动守卫，在当前参数下不改变结果，非 bug）；② 窗口仅在 concept ≥20 条计入事件时截断，
+    现有集成测试均 <5 条走回退故全绿，**≥20 条的真实存量数据尚未观测**（无生产数据复跑）；
+    ③ dashboard 曲线逐日前缀回放仍 O(天×事件)，本票未重构（按禁止条款）。
+
 ### Fixed
 
 - **P2-2b 专注计时：进行中轮次服务端续走 + 时长可设（v2.7 D7，缺陷修复）**（2026-11-11）：

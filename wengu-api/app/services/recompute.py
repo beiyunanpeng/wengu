@@ -22,6 +22,12 @@ RECITATION_REVIEWED = "recitation_reviewed"
 # manual（手工补录）与旧批改建议不进掌握度。缺失 source 的旧事件按历史自评计入。
 MASTERY_SOURCES = frozenset({"student_self", "system_quiz"})
 
+# 掌握度近期窗口（设计文档 §5.4 / §19-E，P4-5）：只取每个 concept 最近 N 次计入作答，
+# 让"很久以前会、最近连错"的孩子 mastery 及时下降、复习间隔不被拉长。
+# 样本 < MIN_SAMPLE 回退全历史，避免冷启动抖动。常量、不做运行时可配。
+MASTERY_WINDOW_SIZE = 20
+MASTERY_MIN_SAMPLE = 5
+
 
 def _counts_toward_mastery(payload: Mapping[str, Any]) -> bool:
     source = payload.get("source")
@@ -96,16 +102,19 @@ def _dedupe_grading_versions(
 
 
 def mastery(events: Sequence[Event | Mapping[str, Any]], concept_id: str | int) -> float:
-    """单个 concept 的掌握度 = 该知识点下历史作答的正确率，无信号 = 0.0。
+    """单个 concept 的掌握度 = 最近 MASTERY_WINDOW_SIZE 次计入作答的正确率，无信号 = 0.0。
 
     只计入 source ∈ {student_self, system_quiz} 的作答（各计 1 次、暂不加权），
-    manual/旧批改建议不计；缺失 source 的旧事件按历史自评计入，保证可整体重放。
+    manual/旧批改建议不计；缺失 source 的旧事件按历史自评计入。同一 grading 只计最高版本
+    （_dedupe_grading_versions）。按 occurred_at + repr 稳定排序后取末尾窗口；
+    样本 < MASTERY_MIN_SAMPLE 时回退全历史，避免冷启动抖动。
+    这是【启发式】窗口而非理论模型：不做时间衰减、不引入 FSRS，仍是事实推导值、可整体重算。
     注：`(1 + mastery × 4)` 是 review_interval 用 mastery 算间隔的公式（见 review_policy），
     不是 mastery 本身的定义。多 concept 错题排期时取【最小 mastery】（设计文档 §5.4）。
-    后续可升级为近期加权正确率；调用方只依赖"输入事件 → 输出 [0,1] 数值"的契约。
+    调用方只依赖"输入事件 → 输出 [0,1] 数值"的契约。
     """
 
-    correct = wrong = 0
+    selected: list[Event | Mapping[str, Any]] = []
     for event in _dedupe_grading_versions(events):
         event_type = event.type if isinstance(event, Event) else event.get("type")
         if event_type not in (ATTEMPT_CORRECT, ATTEMPT_WRONG):
@@ -115,14 +124,19 @@ def mastery(events: Sequence[Event | Mapping[str, Any]], concept_id: str | int) 
             continue
         if not _counts_toward_mastery(payload):
             continue
-        if event_type == ATTEMPT_CORRECT:
-            correct += 1
-        else:
-            wrong += 1
-    total = correct + wrong
-    if total == 0:
+        selected.append(event)
+    selected.sort(
+        key=lambda e: (e.occurred_at if isinstance(e, Event) else e.get("occurred_at"), repr(e)),
+    )
+    window = selected if len(selected) < MASTERY_MIN_SAMPLE else selected[-MASTERY_WINDOW_SIZE:]
+    if not window:
         return 0.0
-    return correct / total
+    correct = sum(
+        1
+        for event in window
+        if (event.type if isinstance(event, Event) else event.get("type")) == ATTEMPT_CORRECT
+    )
+    return correct / len(window)
 
 
 def is_graduated(events: Sequence[Event | Mapping[str, Any]], mistake_id: int) -> bool:
