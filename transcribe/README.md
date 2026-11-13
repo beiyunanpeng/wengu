@@ -41,7 +41,7 @@
 | 1 | **过 §0 合规 checklist**，裁图、擦除 PII | 一张只含题目/作答/红笔痕迹的图 |
 | 2 | **取模板**：读 `docs/templates/doubao_transcribe_v1.md` 中「===[ 发给模型的指令 ]===」到结束标记之间的整段；核对其 frontmatter `version` 与 `contract/ingestion_v1.json` 的 `template.version` 一致 | 指令正文（**不要改写、不要内嵌进 Skill**） |
 | 3 | **转录**：把「指令 + 图」交给 AI 工具，拿到 `{channel, items}` JSON | 原始 JSON；只转录被红笔判错的题 |
-| 4 | **自检**：`python transcribe/validate.py check <file.json> --source-tool <工具名> --template-version 1 --manifest <batch>.manifest.json` | `accepted / rejected / placeholder / incomplete / unknown_fields` 逐项报告 + 批次 manifest |
+| 4 | **自检**：`python transcribe/validate.py check <file.json> --source-tool <工具名> --template-version 2 --manifest <batch>.manifest.json` | `accepted / rejected / placeholder / incomplete / unknown_fields` 逐项报告 + 批次 manifest |
 | 5 | **人工看回执**：`rejected > 0` 要回头补转录；`placeholder / incomplete` 高的批次要预期核对页工作量 | 你知道「这摞卷子丢了几道题」——**漏转录不再静默** |
 | 6 | **投递**：把 JSON 放进 `./data/inbox/`（可用 `WENGU_INBOX_DIR` 覆盖）。服务没起也没关系，起来后会自动补扫；处理完归档到 `.processed/` | `ingestion_drafts` 草稿 |
 | 7 | **核对页人工确认转正**：题目 / 错答 / 正答三栏并排，确认主考点与错因 | 唯一写入路径建错题 + 首排复习 |
@@ -60,7 +60,7 @@ python transcribe/validate.py evals
 
 # 校验一批转录产物
 python transcribe/validate.py check data/inbox/transcribe-20261112-01.json \
-  --source-tool doubao_web --template-version 1 \
+  --source-tool doubao_web --template-version 2 \
   --manifest data/inbox/transcribe-20261112-01.manifest.json
 ```
 
@@ -71,7 +71,7 @@ python transcribe/validate.py check data/inbox/transcribe-20261112-01.json \
 | 工具 | 做法 |
 |---|---|
 | 豆包网页 / App | 手动复制模板指令 + 上传图 → 复制返回 JSON 存成 `.json` |
-| 千问办公 | 用 `docs/tooling/wengu-transcribe.md` 的旧配方（注意：含开发者本机路径，见 §5） |
+| 千问办公 | 用 `transcribe/skills/wengu-transcribe/SKILL.md` 便携配方（旧 `docs/tooling/wengu-transcribe.md` 已存档为历史草稿、不再维护，见 §5） |
 | WorkBuddy / Claude Code | 安装 `transcribe/skills/wengu-transcribe/`（通用版，无硬编码路径） |
 | 任意 OpenAI 兼容视觉模型 | 把模板指令作 system prompt、图作 image 输入、要求 `response_format` 为 JSON；产出仍须过 `validate.py check` |
 
@@ -91,10 +91,10 @@ python transcribe/validate.py check data/inbox/transcribe-20261112-01.json \
 
 ---
 
-## 5. 当前已知漂移（P5-7 收口后 `selfcheck` 实跑结果）
+## 5. 契约收口状态（P5-8 收口后 `selfcheck --strict` 实跑结果）
 
 ```
-12 OK / 5 DRIFT / 1 WARN
+18 OK / 0 DRIFT / 0 WARN
 ```
 
 P5-7 起 `selfcheck` 除旧 Skill 外**也校验真正随包分发的 portable Skill**
@@ -104,17 +104,20 @@ P5-7 起 `selfcheck` 除旧 Skill 外**也校验真正随包分发的 portable S
 `UnicodeEncodeError`**（纯 GBK 代码页下中文显示为 UTF-8 字节、可能花屏，但汇总完整、退出码正确；
 `chcp 65001` 后显示正常）。
 
-| 状态 | 项 | 说明 |
-|---|---|---|
-| DRIFT | 字段集合 | 契约 9 项 / 后端 10 项：后端 `FIELD_LIMITS` 含 `correction_notes`（P1-17），契约镜像未含 → P5-8 收口 |
-| DRIFT | 模板 `schema_fields` ↔ 契约字段 | 模板含 `correction_notes` 缺 `verify`；契约含 `verify` 缺 `correction_notes` → P5-8 二选一收口 |
-| DRIFT | 模板 version | 模板 v2（P1-17 升）/ 契约 `template.version` 1 → P5-8 对齐 |
-| DRIFT | portable Skill 模板 version | 经 `template_ref` 读到的模板 v2 / 契约 1，同上 → P5-8 对齐 |
-| DRIFT | 版本纪律回归目录 | 模板 §「与 wengu 系统的契约」与旧 Skill 都要求跑 `evals/transcribe/`，但该目录随 P1-12 退役后**并不存在** → P5-8 改指 `transcribe/evals/` |
-| WARN | 旧 Skill 硬编码个人路径 | `docs/tooling/wengu-transcribe.md` 写了 `D:\MyProducts\StudyDesk\...`，开源后其他家长不可直接用 → P5-8 改指新 Skill |
+P5-8 把 P5-7 留下的三方字段漂移全部收口（改现有文件、需人审；P5-7 只做纯新增 + 包内两处修复 + UP038）：
 
-**本包不自动修这些** —— 按项目「一张 ticket = 一个可跑增量 = 一个 PR」的纪律，上述 drift 的修复属
-**P5-8**（改现有文件），需人审；P5-7 只做纯新增 + 包内两处修复（编码 / portable 校验）+ UP038。
+| 项 | P5-7 状态 | P5-8 收口 |
+|---|---|---|
+| 字段集合 | DRIFT：契约 9 / 后端 10 | 契约补 `correction_notes:500` → **10 键与后端一致** |
+| 模板 `schema_fields` ↔ 契约字段 | DRIFT：模板缺 `verify`、契约缺 `correction_notes` | 契约补 `correction_notes`；`verify` 声明为题库通道专用（`template.bank_only_fields`），selfcheck 按「契约字段 − bank_only == 模板 schema_fields」**显式判定** |
+| 模板 version | DRIFT：模板 v2 / 契约 1 | 契约 `template.version` → **2**（模板不重复升版） |
+| 版本纪律回归目录 | DRIFT：文档要求跑已退役的旧目录 | 模板与旧 Skill 改指 `transcribe/evals/`；selfcheck 改判「文档引用的回归目录必须存在、且不再指向退役旧路径」 |
+| 旧 Skill 硬编码个人路径 | WARN：含开发者本机绝对路径 | 改指便携 Skill，inbox 改仓库相对默认 `./data/inbox`，绝对路径删除 |
+
+`selfcheck` 另增**模板 `id` ↔ 契约 `template.id`** 断言。后端新增行为锚定测试
+`wengu-api/tests/integration/test_transcribe_contract_anchor.py` 直接消费本包 `evals/fixtures/*.json`，
+用后端真实 `validate_envelope` / `validate_and_normalize` 断言与 `_expect` 一致（**不复制校验逻辑、不 import 本包**）；
+CI 新增独立 `transcribe` job（`selfcheck --strict` + `evals` + `py_compile`，**不装任何额外包**）。
 
 ---
 

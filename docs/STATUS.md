@@ -1117,6 +1117,8 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
 | P5-4 | 未开始 | 教材 seed 包机制：多教材可安装可切换（mappings 机制已有，安装 UI 未做） |
 | P5-5 | 部分完成 | **已在盘上**：LICENSE / 中文 README / CHANGELOG / `wengu-api/.env.example` / 第三方署名（`THIRD-PARTY-NOTICES.md`）/ 两法点名（README §安全与合规）。**仍缺**：**英文 README**（此前本行写"中英 README 已就位"属过实，2026-11-02 审计修正）、**独立隐私声明文档**、发布打包 |
 | P5-6 | 部分完成 | 交付口径与盘上一致性清理（v2.6 审计新增）。**已完成孤儿表切片**：迁移 0019 DROP `problem_extractions`/`photo_capture_items`/`photo_captures`（可逆、含备份说明、不留悬空 FK）、删 ORM 类与备份表计数，业务表 22 → 19，见 §4.18。**剩余**：Phase 5 行与 §7 表格的进一步口径复核；见 `docs/audit/pr1-24-retrospective.md` |
+| P5-7 | 已完成 | **转录可选包 T1（2026-11-12，PR #49 已合）**：`transcribe/` 随仓库分发（SOP README + CONTRACT + 纯标准库 `validate.py` + 契约镜像 + 通用 Skill + 13 条脱敏 fixtures）；不进 requirements/镜像/CI 主链依赖。包内修复：GBK 控制台编码、selfcheck 增 portable Skill 校验、2 处 UP038。三方字段对齐留 P5-8 |
+| P5-8 | 已完成 | **转录契约收口 T2（2026-11-13，待评审）**：契约 `fields` 补 `correction_notes:500`→10 键与后端一致、`template.version`→2、`status`→active；模板保持 v2（只补施工方口径、未改模型指令/schema_fields，故不升 v3）；`verify` 声明题库专用（`bank_only_fields`），selfcheck 按「契约字段−bank_only==模板 schema_fields」显式判定 + 模板 id 断言 + 回归目录存在检查；模板/旧 Skill 回归目录改指 `transcribe/evals/`、旧 Skill 存档迁移并删本机绝对路径；后端新增行为锚定测试消费同一批 fixtures（可证伪）；CI 增独立 transcribe job（不装额外包）。实跑 selfcheck 18 OK/0 DRIFT/0 WARN、evals 13/13、全量 602 passed、ruff/build 绿 |
 
 ## 11. 维护约定
 

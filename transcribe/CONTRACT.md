@@ -34,13 +34,16 @@ transcribe/skills/*/SKILL.md          ← 执行配方
 | `problem_text` | 2000 | 题干原文，逐字；看不清用 `〔?〕` | **必填非空** |
 | `student_answer` | 500 | 孩子最初写、被红笔判错的答案 | 可空（空 = 走人工） |
 | `standard_answer` | 500 | **卷面订正后的正答**；无订正填 `〔?〕`，**禁止模型自行解题生成** | **必填非空** |
-| `verify` | 200 | 可选答案自洽表达式（题库入库核验用） | — |
+| `correction_notes` | 500 | 可选纯展示笔记，只抄卷面孩子/家长手写订正批注；**agent 不得自产讲解**（v2.7 D6 / P1-17） | — |
+| `verify` | 200 | 可选答案自洽表达式（**仅题库通道** `agent_bank_transcribe_v1` 入库核验用；转录端不生成、模板 `schema_fields` 不含） | — |
 | `error_cause_suggestion` | 50 | **AI 建议值**，7 类错因之一或空 | 只是建议 |
 | `suggested_topic_id` | 40 | **AI 建议值**，`cnm_*/cne_*/cnp_*` 之一或空 | 只是建议 |
 | `source_ref` | 200 | 卷面出处 | — |
 | `captured_at` | 30 | `YYYY-MM-DD` | — |
 
 **建议值 vs 确认值**：`error_cause_suggestion` / `suggested_topic_id` 入 `ingestion_drafts` 后，须在核对页由家长/孩子确认才转为确认值（来源 `ai → parent/student`），冲突不静默覆盖。
+
+**字段口径（10 vs 9）**：后端 `FIELD_LIMITS` 与本契约 `fields` 各 **10 键**；转录模板 `schema_fields` 只 **9 键**，差的正是 `verify`——它是题库通道专用字段，转录端只转录不推理、不得生成。契约用 `template.bank_only_fields=["verify"]` 显式声明，`selfcheck` 按「契约字段 − `bank_only_fields` == 模板 `schema_fields`」判定，**不靠忽略项蒙过**。
 
 ## 4. 三条铁律（转录端）
 
@@ -66,7 +69,7 @@ transcribe/skills/*/SKILL.md          ← 执行配方
 | 改字段/上限/通道 | 先改后端 `ingestion.py` → 同步 `contract/ingestion_v1.json` 并升版 → `selfcheck --strict` 必须 0 DRIFT → 更新模板 `schema_fields` → `evals` |
 | 换外部 agent / 换模型 | 不必改契约，但须重跑 `evals`，并用同一批脱敏样本比对 `accepted / placeholder / incomplete` 三项指标 |
 
-> **历史欠账**：模板 §「与 wengu 系统的契约」和 `docs/tooling/wengu-transcribe.md` 都写着「跑 `evals/transcribe/` 回归」，但该目录随 P1-12 退役后已不存在。也就是说 v2.5 之后**版本纪律是空转的**。本包 `evals/` 是替代实现，`selfcheck` 会把这条列为 DRIFT，直到文档口径接通为止。
+> **历史欠账（P5-8 已收口）**：模板 §「与 wengu 系统的契约」和 `docs/tooling/wengu-transcribe.md` 曾写着「跑已退役的旧回归目录」，v2.5 之后版本纪律一度空转。P5-8 已把两处文档改指本包 `transcribe/evals/`，`selfcheck` 的「版本纪律回归目录」项转为 OK（判定规则：文档引用的回归目录必须存在、且不再指向退役旧路径）。本包 `evals/` 是替代实现，后端另有行为锚定测试 `test_transcribe_contract_anchor.py` 消费同一批 fixtures。
 
 ## 7. 覆盖边界
 
