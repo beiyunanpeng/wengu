@@ -43,6 +43,23 @@ class SeedFormatError(ValueError):
     """seed 包或教材包 JSON 结构非法（导入即不可信输入，fail-fast）。"""
 
 
+def classify_seed_error(exc: BaseException) -> str:
+    """把装载异常映射成安全错误类别（P4-4）。
+
+    只回固定类别常量，绝不回传 str(exc)/绝对路径/题目文本/堆栈——
+    SeedFormatError 的消息含 raw repr（可能带题目/PII），JSONDecodeError 含路径，
+    一律不得透出给前端或写进日志（AGENTS §5/§9）。
+    """
+
+    if isinstance(exc, SeedFormatError):
+        return "format"
+    if isinstance(exc, json.JSONDecodeError):
+        return "json"
+    if isinstance(exc, OSError):
+        return "io"
+    return "unknown"
+
+
 @dataclass
 class SeedIndex:
     """内存索引：运行时按 id 取知识点、沿先修边回溯。"""

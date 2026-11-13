@@ -196,7 +196,12 @@ async def test_setup_status_is_public_and_follows_completion(
     async with _client(factory, settings, unlock=False) as client:
         initial = await client.get("/api/setup/status")
         assert initial.status_code == 200, initial.text
-        assert initial.json() == {"setup_completed": False}
+        # 该测试 app 不跑 lifespan，seed 未装载 → 默认 False（见 test_seed_status.py）
+        assert initial.json() == {
+            "setup_completed": False,
+            "seed_loaded": False,
+            "seed_error": None,
+        }
         assert (
             await client.put("/api/config", json={"setup_completed": True})
         ).status_code == 403
@@ -214,7 +219,11 @@ async def test_setup_status_is_public_and_follows_completion(
 
         status = await client.get("/api/setup/status")
         assert status.status_code == 200, status.text
-        assert status.json() == {"setup_completed": True}
+        assert status.json() == {
+            "setup_completed": True,
+            "seed_loaded": False,
+            "seed_error": None,
+        }
 
         due = await client.get("/api/reviews/due")
         assert due.status_code == 200, due.text

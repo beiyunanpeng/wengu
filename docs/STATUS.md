@@ -1,9 +1,9 @@
 # STATUS.md — 开发计划与完成情况
 
-> 快照日期：2026-11-12（**P2-10 回收站视图**；v2.7 第一批四票 P2-8/P2-2b/P2-9/P2-10 全部合并）
-> 基线：`main` = `40fc70a`（P2-10 / PR #46 已合并）
-> 全量测试：**565 passed**（2026-11-12 审核方实跑，unit 363 / integration 193 / **e2e 9**）；`ruff check --no-cache .` 全绿；`npm run lint` / `npm test`（16）/ `npm run build` 绿
-> Alembic head：`0021_pomodoro_sessions`；业务表 **22 张**（0021 新增 `pomodoro_sessions`）
+> 快照日期：2026-11-13（**P4-4 后端健壮性与可观测性小修**，待评审；main 已含 P5-8 / PR #50）
+> 基线：`main` = `30785d0`（P5-8 / PR #50 已合并）；P4-4 在分支 `feat/p4-4-robustness`，待评审
+> 全量测试：**610 passed**（2026-11-13 施工方实跑，unit 369 / integration 230 / **e2e 11**）；`ruff check --no-cache .` 全绿；`npm run lint`（tsc --noEmit）/ `npm test`（20：16 基线 + 4 新增 seedBanner 纯函数单测）/ `npm run build`（6.05s）绿
+> Alembic head：`0023_learning_events_occurred_at`；业务表 **22 张**（0022 加 `correction_notes` 列、0023 加 `occurred_at` 索引，均不新增表）
 
 本文件是**状态快照**，不替代以下事实源；冲突时以它们为准：
 
@@ -202,6 +202,25 @@
   `0011/mistakes=2` 与 `0012/mistakes=3` 两份平行库之间正确切换、缺库退出码 1；两组证伪（忽略
   `--data-dir`、让 dry-run 落盘）都能让新用例变红。审核方另修掉一处文档缺陷：§2.1 第一条命令照抄
   跑不通（缺 `cd wengu-api`、`--data-dir` 基准错）。零迁移、零新依赖。
+- **P4-4 后端健壮性与可观测性小修已交付（待评审）**（2026-11-13，分支 `feat/p4-4-robustness`，设计文档 §19-E）：
+  ① **seed 装载失败显式降级**——新增进程内状态 `app/seed/state.py` + `loader.classify_seed_error()`
+  把异常映射成安全类别（`format/json/io/unknown`，绝不回传 `str(exc)`/绝对路径/题目/堆栈）；
+  `main.py` lifespan 改 `logger.error(类别)` + `set_seed_status`（**不用 `logger.exception`**，其堆栈含
+  题目 repr 与路径会泄漏 PII），服务**仍以空 seed 继续启动**（不崩溃、不静默）。公开只读
+  `GET /api/setup/status` 增 `seed_loaded`/`seed_error`，前端 `AppLayout` 在 `seed_loaded===false`
+  渲染红色横幅「学科 seed 未装载：检查 seeds/data/*.json」。② **迁移 0023（可逆）**给
+  `learning_events.occurred_at` 建 `ix_learning_events_occurred_at`（`sa.inspect` 守卫幂等 up/down、
+  纯加索引不碰 0008 append-only 触发器、不 batch 重建），head→`0023`。③ **同步 IO 收口**：
+  `save_config` 写盘改 `await asyncio.to_thread(_write_json, …)`（含 `os.fsync`），与 `backup.py` 一致，
+  原子写 + `asyncio.Lock` 文件锁语义不变。④ `docs/deploy/backup-restore.md` 补 §8「0013/0019 逻辑可逆·
+  数据不可回退，升级前备份硬前置」（未改历史迁移内容）。实跑 **610 passed**（unit 369 / integration 230 /
+  e2e 11）、`ruff check --no-cache .` 绿、`npm run lint`/`test`(20：16 基线 + 4 新增 seedBanner 纯函数单测)/`build`(6.05s) 绿；
+  横幅显隐逻辑抽为 `wengu-web/src/setup/seedBanner.ts` 纯函数 `shouldShowSeedBanner` + 4 条 Node 单测承担 durable 回归保护
+  （浏览器截图因环境不支持未做，原 DOM 取证记录保留为历史事实）；浏览器取证坏 seed→
+  横幅出现、修复→横幅消失（in-app 浏览器隐藏态截图不可用，改 DOM 断言 + 无障碍快照）；两次可证伪
+  RED→GREEN（改坏 0023 downgrade 索引名、`logger.error`→`exception` 各让对应用例变红再改回变绿）。
+  **残留**：`occurred_at` 索引为前瞻性——dashboard 仍 `ORDER BY id` 全量加载 + Python 排序，查询计划未变、
+  未重构 dashboard（按禁止）；`to_thread` 暴露的模块级锁跨循环脆弱性已用 conftest 每测试换锁隔离（仅测试）。
 - **P0-5 两处 Windows 本地噪音已合并**（2026-11-05，PR#42 squash → main `629d6d7`）：
   ① `conftest.py` 新增 `pytest_configure` 钩子（仅 win32、未给 `--basetemp` 时生效），先移除被 ACL 锁死的
   死 `pytest-current` 链接（`os.rmdir` 是目录符号链接的正确原语），删不动时把整个临时根**改名保留现场**
@@ -231,7 +250,7 @@
 | Phase 1 | 核心闭环 | 进行中 | P1-0～P1-13b 完成（模型在环旧链路已退役，含 P1-3e 投递入口、P1-3f BOM 归一、P1-13 归并 UI、P1-13b 归并弹窗不预选）；仅剩 P1-7b，P1-7c 阻塞 |
 | Phase 2 | 每日任务 + 家长看板 | 进行中 | P2-5 家长看板、P2-4 两角色 + 本地 PIN、P2-6 极简打卡、P2-1 日队列（本轮仅到期复习/考核）、P2-3 课表/日历约束层、P2-2 番茄钟执行、P2-7 打印导出已完成；背诵铺底已随 P3-3a 以独立到期端点 + 复习页入口交付；P2-8 导航 sidebar、P2-9 搜索/掌握态、P2-10 回收站已完成（v2.7）；作业 deadline 与硬事件抬权重未开始 |
 | Phase 3 | 内容与扩展 | 进行中 | P3-1 家长录题（真题入库审核流水线）+ P3-1b 家长题接入检索池 + P3-1c 题库修订/软作废 + P3-2 主动加练变式 + **P3-3a 家长手填英语背诵** + **P3-3b 词表批量导入** + **P3-3c 从错题抽词**已完成；P3-5 前置（语文/化学家长自建章级 seed）已交付；听力默写、语文客观题、信奥、长期计划未开始 |
-| Phase 4 | 基础设施演进 | 进行中 | **P4-1 Tailscale 可达性 + 默认只绑回环已合并**（PR#39；两项待试用机实测：`tailscale serve` CLI 形式、sidecar 路径 A 运行时验证）；**P4-1b 部署面命令体检已合并**（PR#40 → `6f6c4cf`；死 `make backup`/`.PHONY restore` 删除、`make dev-api` 默认回环、`make lint --no-cache`、`seeds/README.md --src` 层级、`docs/manuals` 空骨架清理）；P4-1c 命令行备份入口已合并（PR#41 → `8bbef94`；CLI 只调 `create_backup`，与 UI 同目录同命名同 10 份轮转、无 PIN、Windows 计划任务示例已实测）；P4-2 可移植部署、P4-3 可选本地模型未开始 |
+| Phase 4 | 基础设施演进 | 进行中 | **P4-1 Tailscale 可达性 + 默认只绑回环已合并**（PR#39；两项待试用机实测：`tailscale serve` CLI 形式、sidecar 路径 A 运行时验证）；**P4-1b 部署面命令体检已合并**（PR#40 → `6f6c4cf`；死 `make backup`/`.PHONY restore` 删除、`make dev-api` 默认回环、`make lint --no-cache`、`seeds/README.md --src` 层级、`docs/manuals` 空骨架清理）；P4-1c 命令行备份入口已合并（PR#41 → `8bbef94`；CLI 只调 `create_backup`，与 UI 同目录同命名同 10 份轮转、无 PIN、Windows 计划任务示例已实测）；**P4-4 后端健壮性与可观测性小修已交付**（2026-11-13，待评审；seed 显式降级 + 迁移 0023 `occurred_at` 索引 + `save_config` 改 `to_thread` + 0013/0019 回退说明）；P4-2 可移植部署、P4-3 可选本地模型未开始 |
 | Phase 5 | 开源分发与打包 | 部分完成 | LICENSE / README / CHANGELOG / `.env.example` / 第三方署名已就位；P5-2 备份 v1（导出一致性快照 + 停机恢复脚本）已交付；首次运行向导、在线恢复、云备份 / 清空级联、鉴权开关、教材包安装器未做 |
 
 ## 3. Phase 1 工单完成情况（v2.5 收口后）
@@ -372,7 +391,7 @@
 
 - `learning_events` 只追加 + UNIQUE 幂等键 + UPDATE/DELETE 触发器。
 - 掌握度 / 毕业 / 统计由事实确定性重算；同源改判只取最高版本。
-- SQLite WAL + Alembic（head 0019）；迁移含备份/回退说明与迁移测试。
+- SQLite WAL + Alembic（head 0023）；迁移含备份/回退说明与迁移测试。
 - 日志/事件 payload 不落题目全文、答案、文件 URL、PII；`attempts.answer_text` 恒 NULL。
 
 ### 4.9 课表 / 日历约束层（P2-3）
@@ -843,7 +862,7 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
 
 ### 5.2 数据库与 seed
 
-- Alembic head `0021_pomodoro_sessions`；**22 张业务表**（0021 新增 `pomodoro_sessions`，
+- Alembic head `0023_learning_events_occurred_at`；**22 张业务表**（0023 加 `learning_events.occurred_at` 索引、0022 加 `mistake_versions.correction_notes` 列，均不新增表；0021 新增 `pomodoro_sessions`，
   可逆迁移；0020 新增 `recitation_items` /
   `recitation_reviews`，可逆迁移；0016 新增 `bank_drafts`，
   `problem_bank` 补 `topic_id` FK + `question_type/difficulty/choices_json/figure/hide_choice_text/percent`；
@@ -1106,6 +1125,7 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
 | P4-1 | 已完成 | Tailscale 可达性 + 端口默认只绑回环；分平台接入与只读自检（2026-11-04，待评审） |
 | P4-2 | 未开始 | 可移植部署：镜像原样上云，SQLite 文件 + 挂载卷；Postgres 仅可选 |
 | P4-3 | 未开始 | 可选本地模型层：若回退模型决策，另行评审，不默认引入 |
+| P4-4 | 已完成 | **后端健壮性与可观测性小修（2026-11-13，待评审，设计文档 §19-E）**：seed 装载失败显式降级（进程内状态 + 安全错误类别 `format/json/io/unknown`，`GET /api/setup/status` 增 `seed_loaded`/`seed_error`，前端 `seed_loaded===false` 红色横幅；服务不崩溃、错误明细不含题目/路径/堆栈）；迁移 0023 给 `learning_events.occurred_at` 建索引（可逆、纯加索引不碰 0008 触发器）；`save_config` 写盘改 `asyncio.to_thread`（原子写 + 文件锁语义不变）；backup-restore 补 0013/0019「逻辑可逆·数据不可回退」节。实跑 610 passed、ruff/build 绿、两次可证伪 RED→GREEN |
 
 ### Phase 5 — 开源分发与打包
 

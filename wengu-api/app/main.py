@@ -32,7 +32,8 @@ from app.api.seed import router as seed_router
 from app.api.session import router as session_router
 from app.core.config import get_settings
 from app.core.database import get_session_factory
-from app.seed.loader import load_seed
+from app.seed.loader import classify_seed_error, load_seed
+from app.seed.state import set_seed_status
 from app.services.inbox import inbox_watcher
 
 logger = logging.getLogger(__name__)
@@ -49,8 +50,16 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
     try:
         async with get_session_factory()() as session:
             await load_seed(session)
-    except Exception:
-        logger.exception("seed 装载失败，以空 seed 继续（检查 seeds/data/*.json）")
+    except Exception as exc:
+        # 显式降级而非静默：记进程内状态供 /api/setup/status 与前端横幅消费。
+        # 只记错误类别，绝不记 str(exc)/堆栈/路径（含题目 repr 与 PII，AGENTS §5/§9）。
+        category = classify_seed_error(exc)
+        set_seed_status(loaded=False, error=category)
+        logger.error(
+            "seed 装载失败，以空 seed 继续（类别=%s，检查 seeds/data/*.json）", category
+        )
+    else:
+        set_seed_status(loaded=True, error=None)
 
     settings = get_settings()
     stop_event = asyncio.Event()

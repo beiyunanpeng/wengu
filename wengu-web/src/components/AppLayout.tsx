@@ -17,6 +17,7 @@ import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import ParentGate from "./ParentGate";
 import { groupNavItems, isNavActive, NAV, type NavGroup } from "../lib/nav";
 import { useParentSession } from "../parent/ParentSession";
+import { shouldShowSeedBanner } from "../setup/seedBanner";
 import { useSetupStatus } from "../setup/SetupStatus";
 
 const NAVBAR_WIDTH = 220;
@@ -65,7 +66,7 @@ export default function AppLayout() {
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const { unlocked } = useParentSession();
-  const { completed } = useSetupStatus();
+  const { completed, seedLoaded } = useSetupStatus();
   const [navOpened, { toggle, close }] = useDisclosure(false);
   const groups = groupNavItems(NAV, unlocked);
 
@@ -119,6 +120,17 @@ export default function AppLayout() {
         <NavSections groups={groups} pathname={pathname} onNavigate={close} />
       </Drawer>
       <AppShell.Main>
+        {shouldShowSeedBanner(seedLoaded) && (
+          <Alert
+            color="red"
+            variant="light"
+            radius={0}
+            py="xs"
+            aria-label="学科 seed 未装载警告"
+          >
+            <Text size="sm">学科 seed 未装载：检查 seeds/data/*.json</Text>
+          </Alert>
+        )}
         {completed === false && (
           <Alert
             color="blue"

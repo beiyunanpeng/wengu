@@ -895,5 +895,7 @@ export interface ConfigUpdate {
 
 export interface SetupStatus {
   setup_completed: boolean;
+  seed_loaded: boolean;
+  seed_error: string | null;
 }
 

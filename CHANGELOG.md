@@ -9,6 +9,56 @@
 
 ### Added
 
+- **P4-4 后端健壮性与可观测性小修：seed 显式降级 + `occurred_at` 索引 + 同步 IO 收口 + 迁移回退说明（设计文档 §19-E）**（2026-11-13）：
+  - **seed 装载失败显式可观测（不崩溃、不静默）**：新增进程内状态 `app/seed/state.py`
+    （`SeedStatus` 冻结数据类 + `set/get/reset_seed_status` 单例，纯模块无 app 依赖）；
+    `app/seed/loader.py` 加 `classify_seed_error()` 把异常映射成**安全错误类别**
+    （`format`/`json`/`io`/`unknown`，**绝不回传 `str(exc)`/绝对路径/题目文本/堆栈**）。
+    `main.py` lifespan 的 `except` 改 `logger.error("…类别=%s…", category)` + `set_seed_status(loaded=False, error=category)`
+    ——**不用 `logger.exception`**（其堆栈含 `SeedFormatError` 的题目 repr 与路径，会泄漏 PII，AGENTS §5/§9）；
+    成功分支 `set_seed_status(loaded=True, error=None)`。服务**仍以空 seed 继续启动**（家庭可用性优先，显式降级而非静默）。
+  - **公开只读端点**：`GET /api/setup/status`（`public_router`，**不挂 `require_parent`**）增
+    `seed_loaded: bool` + `seed_error: string | null`（只给类别）。前端 `SetupStatus` 增 `seedLoaded`
+    状态（`null` 默认，fetch 失败留 `null` 不误报），`AppLayout` 在 `seedLoaded === false` 时渲染红色
+    `Alert`（`aria-label="学科 seed 未装载警告"`，文本「学科 seed 未装载：检查 seeds/data/*.json」）。
+  - **迁移 0023（可逆）**：给 `learning_events.occurred_at` 建索引 `ix_learning_events_occurred_at`
+    （`services/dashboard.py` 掌握度曲线按 `occurred_at` 排序过滤的消费方）；`LearningEvent.__table_args__`
+    同步三索引。用 `sa.inspect(...).get_indexes()` 守卫的幂等 up/down，**纯加索引、不碰 0008 触发器、不 batch 重建**。
+    head 推进到 `0023_learning_events_occurred_at`。
+  - **同步 IO 收口**：`runtime_config.save_config` 的写盘改 `await asyncio.to_thread(_write_json, …)`
+    （内含 `os.fsync`），与同仓 `services/backup.py` 一致；**原子写（同目录 tmp + `os.replace`）与
+    `asyncio.Lock` 文件锁语义不变**，不在 async 路由里保留同步 fsync。
+  - **文档**：`docs/deploy/backup-restore.md` 补 §8「破坏性迁移与数据回退（0013 / 0019）」——
+    二者 upgrade 直接 `drop_table`、downgrade 只重建空表，**逻辑可逆、数据不可逆**，升级前备份是硬前置。
+    **未改 0013/0019 已合并历史迁移内容**（只补文档）。
+  - **测试**：新增 `tests/integration/test_seed_status.py`（4 条**真跑 lifespan** 集成：坏 JSON 降级服务仍起、
+    坏结构降级 + **PII 守卫**（`_LogCollector` 直挂 `app.main` logger，断言题目标记/`tmp_path` 绝对路径不出现在
+    status 与日志、`format` 类别在日志、`Traceback` 不在日志）、不可读文件 `io` 类别、修复后重启翻转 `loaded=true`）
+    + `tests/unit/test_seed_state.py`（3 条：分类映射、分类不泄漏、单例往返）+ 迁移 0023 DDL 原文守卫
+    （up/down/up 逐字节一致、索引与 ORM `CreateIndex` 编译一致）。`test_config_api.py` / `test_closed_loop.py`
+    的 setup status 断言扩 `seed_loaded`/`seed_error`。
+  - **可证伪（两次 RED→GREEN 已留痕）**：① 临时改坏 0023 downgrade 的索引名 → 迁移守卫变红 → 改回 → 绿；
+    ② 临时把 lifespan `logger.error` 改回 `logger.exception` → PII 守卫变红（堆栈泄漏题目 repr）→ 改回 → 绿。
+  - **conftest 锁隔离（回归根因修复）**：`to_thread` 让出后并发写会把模块级 `asyncio.Lock` 绑到首个竞争循环，
+    跨测试函数级循环触发「bound to a different event loop」。新增 autouse `_reset_config_file_lock`
+    每测试前后换新锁（**仅测试隔离**，生产单循环不受影响、文件锁语义不变）。已用「同步写反证」定位根因
+    （改回同步写两并发测试全绿、还原 `to_thread` 复现），非纸面绕过。
+  - **实跑**：全量 **610 passed**；全仓 `ruff check --no-cache .` 绿；`npm test` **20**（16 基线 + 4 新增 `seedBanner` 纯函数单测）；`npm run build` 绿（6.38s）。
+    **浏览器取证（隔离临时库 + vite 代理回环 8080，未碰生产数据）**：坏 seed 启动 → `/health` ok、
+    `/api/setup/status` `seed_loaded=false`/`seed_error=json`、前端红色横幅出现（DOM 断言 `aria-label`/文本/红色 +
+    无障碍快照）；修复 `topics.json` → 重启后端 → 刷新前端 → 横幅消失、`seed_loaded=true`/`seed_error=null`。
+    **截图因 in-app 浏览器隐藏态（`NATIVE_BROWSER_VIEWPORT_UNAVAILABLE`）不可用**，改用 `evaluate_script`
+    DOM 断言 + `take_snapshot` 无障碍树取证（两态均留痕）。
+  - **横幅显隐回归保护（返工补强）**：显隐条件抽为 `wengu-web/src/setup/seedBanner.ts` 纯函数
+    `shouldShowSeedBanner`（仅 `seedLoaded === false` 返回 `true`）+ `tests/seedBanner.test.ts` 4 条 Node 单测
+    （`false→true`/`true→false`/`null→false`/`undefined→false`），承担 durable 回归保护；`AppLayout` 改调用该函数，
+    渲染/样式/文案/位置逐字不变。**浏览器截图因环境不支持未做**，原 DOM 取证记录保留为历史事实。
+  - **残留 / 审核方需复核**：① `occurred_at` 索引是**前瞻性**的——`dashboard._load_events` 仍 `ORDER BY id`
+    全量加载、`_mastery_curve` 在 Python 排序过滤，**查询计划未变、未重构 dashboard**（按本票禁止条款）；
+    ② `logger.error` 无堆栈（防 PII 必需），排障只给类别；③ alembic `fileConfig` 在测试进程内会禁用
+    `app.main` logger（`disable_existing_loggers`），PII 守卫已用直挂 handler + `monkeypatch disabled=False`
+    规避，**生产单独跑 alembic 不受影响**；④ `to_thread` 暴露的模块级锁跨循环脆弱性已用 conftest 每测试换锁隔离。
+
 - **P5-8 转录契约收口 T2：三方字段对齐 + 文档口径 + CI + 后端行为锚定（v2.8 §19-D；改现有文件）**（2026-11-13）：
   把 P5-7 留下的「后端 10 键 / 模板 9 键 / 契约 9 键」三方漂移收口。① **契约对齐**：`contract/ingestion_v1.json`
   `fields` 补 `correction_notes:500` → **10 键与后端 `FIELD_LIMITS` 完全一致**；`template.version` 1→**2**；

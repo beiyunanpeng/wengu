@@ -261,7 +261,7 @@ async def save_config(
         location = app_config_location(settings, project_root=project_root, env=env)
         merged = _read_mapping(location.read_path)
         merged.update(validated)
-        _write_json(location.write_path, merged)
+        await asyncio.to_thread(_write_json, location.write_path, merged)
     return describe_config(settings, project_root=project_root, env=env)
 
 

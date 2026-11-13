@@ -28,6 +28,7 @@ class LearningEvent(Base):
     __table_args__ = (
         Index("ix_learning_events_mistake_id", "mistake_id"),
         Index("ix_learning_events_type", "type"),
+        Index("ix_learning_events_occurred_at", "occurred_at"),
     )
 
 

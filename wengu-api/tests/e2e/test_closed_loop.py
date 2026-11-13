@@ -1140,7 +1140,12 @@ async def test_setup_wizard_completes_and_limit_takes_effect(
     async with _client(factory) as client:
         status = await client.get("/api/setup/status")
         assert status.status_code == 200, status.text
-        assert status.json() == {"setup_completed": False}
+        # _client 不跑 lifespan，seed 未装载 → 默认 False
+        assert status.json() == {
+            "setup_completed": False,
+            "seed_loaded": False,
+            "seed_error": None,
+        }
 
         # 未完成也不劫持路由：复习队列照常可读，上限仍是默认值。
         due = await client.get("/api/reviews/due")
@@ -1167,7 +1172,11 @@ async def test_setup_wizard_completes_and_limit_takes_effect(
         assert put.json()["values"]["setup_completed"] is True
 
         after = await client.get("/api/setup/status")
-        assert after.json() == {"setup_completed": True}
+        assert after.json() == {
+            "setup_completed": True,
+            "seed_loaded": False,
+            "seed_error": None,
+        }
         due_after = await client.get("/api/reviews/due")
         assert due_after.status_code == 200, due_after.text
         assert due_after.json()["daily_limit"] == 3

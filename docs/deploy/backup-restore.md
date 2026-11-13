@@ -226,3 +226,25 @@ docker compose up -d api
   它们是全量数据副本；确认恢复无误后请手工删掉旧副本，别攒满磁盘。
 - 导出若中途崩溃，`data/backups_tmp/` 可能残留 `snapshot-*` 临时目录，可手工清空
   （正常导出的临时目录会在结束时自动删除）。
+
+## 8. 破坏性迁移与数据回退（0013 / 0019）
+
+多数迁移是可逆的：加列 / 加索引，downgrade 只删新增对象，数据原样保留
+（例如 `0023_learning_events_occurred_at` 只加 / 删一个索引，无数据损失）。
+但有两张迁移属于 **"结构可逆、数据不可回退"**，升级前必须想清楚：
+
+| 迁移 | upgrade 动作 | downgrade 动作 |
+| --- | --- | --- |
+| `0013_drop_model_tables` | `DROP TABLE model_runs / ai_jobs`（v2.5 退役模型调用层） | 按原定义重建**空表**，不回填历史 |
+| `0019_drop_orphan_photo_tables` | `DROP TABLE problem_extractions / photo_capture_items / photo_captures`（退役视觉栈遗留孤儿表） | 按 0004/0005/0006 原定义重建**三张空表**（含 UNIQUE/FK/索引），不回填历史照片 / 切图 / 提取记录 |
+
+含义钉死：
+
+- **升级前备份是硬前置**。这两张迁移一旦 upgrade，被删表里的历史数据（模型运行记录、
+  照片采集 / 切图 / 提取行）即从库中消失；`alembic downgrade` 只把**表结构**建回来，
+  **不会**把数据变回来。想找回数据，唯一途径是恢复升级前的整库备份（§3）。
+- `0019` 只删数据库行，**不动 `uploads/` 目录里的旧图片文件**；但指向这些图片的
+  `photo_captures.stored_path` 等行已随表删除，降级重建空表后也不会自动重新关联。
+- 因此执行 `docker compose up` / `run-trial.ps1`（启动即跑 `alembic upgrade head`）前，
+  务必先用 §2.1 的命令行备份留一份快照——服务停着的时候正好备份，再升级。
+- 这两张迁移的历史行为**已合并、不再改动**；本节只补充说明，不修改迁移本身。
