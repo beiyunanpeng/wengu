@@ -5,12 +5,15 @@
 - 每个测试前后清空 PIN 解锁限流的内存计数（进程内状态，否则会串测）。
 - 每个测试前后清空题库缓存：`get_runtime_bank` 会合并当次临时库的
   `problem_bank` 行，缓存跨测试复用会读到上一个库的家长题。
+- 每个测试前后重置 seed 装载状态（进程内单例，否则会串测）。
+- 每个测试前后重置 save_config 文件锁：避免模块级 asyncio.Lock 跨测试循环绑定。
 - 每个测试结束前释放它创建的数据库引擎：aiosqlite 的工作线程若在
   事件循环关闭后才收尾，会抛 `RuntimeError: Event loop is closed`。
 """
 
 from __future__ import annotations
 
+import asyncio
 import getpass
 import os
 import sys
@@ -21,11 +24,13 @@ from pathlib import Path
 from typing import Any
 
 import app.core.database as database
+import app.core.runtime_config as runtime_config
 import pytest
 import sqlalchemy
 
 os.environ.setdefault("WENGU_SESSION_SECRET", "pytest-session-secret")
 
+from app.seed.state import reset_seed_status
 from app.services.bank import reset_bank_cache
 from app.services.session import reset_all
 
@@ -132,3 +137,18 @@ def _reset_bank_cache() -> None:
     reset_bank_cache()
     yield
     reset_bank_cache()
+
+
+@pytest.fixture(autouse=True)
+def _reset_seed_status() -> None:
+    reset_seed_status()
+    yield
+    reset_seed_status()
+
+
+@pytest.fixture(autouse=True)
+def _reset_config_file_lock() -> None:
+    # to_thread 让出后并发写会把模块级锁绑到首个竞争循环，跨测试须换新锁避免串循环。
+    runtime_config._FILE_LOCK = asyncio.Lock()
+    yield
+    runtime_config._FILE_LOCK = asyncio.Lock()

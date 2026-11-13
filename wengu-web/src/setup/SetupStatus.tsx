@@ -12,6 +12,7 @@ import { getSetupStatus as fetchSetupStatus } from "../api/endpoints";
 
 interface SetupStatusValue {
   completed: boolean | null;
+  seedLoaded: boolean | null;
   refresh: () => Promise<void>;
   markCompleted: () => void;
 }
@@ -20,11 +21,13 @@ const SetupStatusContext = createContext<SetupStatusValue | null>(null);
 
 export function SetupStatusProvider({ children }: { children: ReactNode }) {
   const [completed, setCompleted] = useState<boolean | null>(null);
+  const [seedLoaded, setSeedLoaded] = useState<boolean | null>(null);
 
   const refresh = useCallback(async () => {
     try {
       const status = await fetchSetupStatus();
       setCompleted(status.setup_completed);
+      setSeedLoaded(status.seed_loaded);
     } catch {
       // 后端不可用时不弹横幅，避免把网络故障误报成"未完成"
     }
@@ -39,8 +42,8 @@ export function SetupStatusProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ completed, refresh, markCompleted }),
-    [completed, refresh, markCompleted],
+    () => ({ completed, seedLoaded, refresh, markCompleted }),
+    [completed, seedLoaded, refresh, markCompleted],
   );
 
   return (

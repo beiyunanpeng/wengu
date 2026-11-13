@@ -8,7 +8,7 @@ import pytest
 import sqlalchemy.exc
 from alembic import command
 from alembic.config import Config
-from app.models import PomodoroSession, RecitationItem, RecitationReview
+from app.models import LearningEvent, PomodoroSession, RecitationItem, RecitationReview
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.schema import CreateIndex, CreateTable
 
@@ -1612,6 +1612,63 @@ def test_p2_2b_pomodoro_sessions_reversible_ddl_is_byte_identical(tmp_path) -> N
 
     mismatches = _ddl_mismatches(before, after)
     assert not mismatches, "0021 回退再升级后的 DDL 与首次升级不一致：\n" + "\n".join(
+        mismatches
+    )
+
+
+@pytest.mark.integration
+def test_p4_4_learning_events_occurred_at_index_reversible_ddl_is_byte_identical(
+    tmp_path,
+) -> None:
+    """0023 只加一个索引：up/down/up 后表 + 2 触发器 + 3 索引逐字一致，索引与 ORM 一致。
+
+    沿用 P0-3 守卫风格：downgrade 必须把 append-only 触发器原样保住（证明没走 batch
+    重建），且只删 occurred_at 索引。表 DDL 不与 ORM 比——0002 的 server_default /
+    具名 UNIQUE 与模型本就有差异，非本票范围；三个索引与 ORM CreateIndex 逐字比。
+    """
+
+    db_path = tmp_path / "learning-events-occurred-at-ddl.db"
+    config = _alembic_config(db_path)
+    involved = {"learning_events"}
+
+    command.upgrade(config, "0022_correction_notes")
+    before = _master_ddl(db_path, involved)
+    assert set(before) == {
+        "table:learning_events",
+        "index:ix_learning_events_mistake_id",
+        "index:ix_learning_events_type",
+        "trigger:learning_events_DELETE_guard",
+        "trigger:learning_events_UPDATE_guard",
+    }
+    assert "index:ix_learning_events_occurred_at" not in before
+
+    command.upgrade(config, "head")
+    after = _master_ddl(db_path, involved)
+    assert set(after) == set(before) | {"index:ix_learning_events_occurred_at"}
+
+    model_engine = create_engine("sqlite://")
+    try:
+        indexes = {index.name: index for index in LearningEvent.__table__.indexes}
+        assert set(indexes) == {
+            "ix_learning_events_mistake_id",
+            "ix_learning_events_type",
+            "ix_learning_events_occurred_at",
+        }
+        for name, index in indexes.items():
+            assert after[f"index:{name}"] == str(
+                CreateIndex(index).compile(model_engine)
+            ).strip(), name
+    finally:
+        model_engine.dispose()
+
+    command.downgrade(config, "0022_correction_notes")
+    # 逐字回到升级前：append-only 触发器原样保住，occurred_at 索引被删。
+    assert _master_ddl(db_path, involved) == before
+
+    command.upgrade(config, "head")
+    again = _master_ddl(db_path, involved)
+    mismatches = _ddl_mismatches(after, again)
+    assert not mismatches, "0023 回退再升级后的 DDL 与首次升级不一致：\n" + "\n".join(
         mismatches
     )
 

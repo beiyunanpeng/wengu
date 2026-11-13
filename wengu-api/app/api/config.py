@@ -19,6 +19,7 @@ from app.core.runtime_config import (
     save_config,
     setup_completed,
 )
+from app.seed.state import get_seed_status
 
 router = APIRouter(tags=["config"], dependencies=[Depends(require_parent)])
 
@@ -57,6 +58,8 @@ class ConfigResponse(BaseModel):
 
 class SetupStatus(BaseModel):
     setup_completed: bool
+    seed_loaded: bool
+    seed_error: str | None
 
 
 def _view(payload: dict[str, Any]) -> ConfigResponse:
@@ -74,7 +77,12 @@ async def get_config(
 async def get_setup_status(
     settings: Settings = Depends(get_settings),
 ) -> SetupStatus:
-    return SetupStatus(setup_completed=setup_completed(settings))
+    seed = get_seed_status()
+    return SetupStatus(
+        setup_completed=setup_completed(settings),
+        seed_loaded=seed.loaded,
+        seed_error=seed.error,
+    )
 
 
 @router.put("/api/config", response_model=ConfigResponse)
