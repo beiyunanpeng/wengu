@@ -369,6 +369,11 @@
   借本票引入任何 AI 生成路径；把 `correction_notes` 做成必填（会挡掉整类入本）。
 
 ### P1-18 主考点可设定与更正（v2.8 §19-I；零迁移；改根表 + 事件审计）
+- **状态：已合并（2026-11-14，PR#55 squash → main `1c1a951`；原分支 `feat/p1-18-primary-topic` 已删）**。
+  验收：749 passed / `ruff --no-cache` 绿 / `npm test` 32 / CI 三 job 全绿 / CDP 真机三态取证；
+  变异（从幂等键里拿掉 `to_topic_id`）→ 2 测红 → 还原复绿。
+  ⚠️ **残留边界见 §19-J，已另开 P1-18b**：卡里钉的幂等键把恒定不变的 `base_version` 当唯一性维度，
+  `A→B→A→B` 循环回改会吞掉第 3、4 次审计事件（数据正确、审计不完整）。**责任在审核方写卡，非施工偏差。**
 - **现状（2026-11-14 读盘）**：
   - `primary_topic_id` 只在**根表** `mistakes`（`models/mistakes.py:41`，索引 `:50`）；全仓唯一写入点
     `services/mistakes.py:256`（核对页确认经 `api/imports.py:244`）。`/labels`（`api/mistakes.py:376`、
@@ -411,6 +416,51 @@
   把主考点写进 `mistake_versions` 或为此 bump `current_version`；让主考点参与 `mastery`/排期算法/streak
   （`streak.LEARNING_EVENT_TYPES` **不收**新 type）；更新或删除历史事件；改核对页交互与转正闸门语义；
   给该端点加 `require_parent`（与同级标签端点不一致，要改须先改设计口径）。
+
+### P1-18b 审计事件幂等键的"往返维度"纠偏（v2.8 §19-J；零迁移；同类三处调用点）
+- **现状（2026-11-14 读盘 main `1c1a951`）**：
+  - `_insert_or_fetch`（`services/events.py:25-39`）同 `idempotency_key` 撞 UNIQUE → 回滚 savepoint、
+    取回旧行、`created=False`：**静默吞事件**，不报错、不追加。
+  - `UNIQUE(idempotency_key)`（`models/events.py:26`，Text，迁移 0002:47-48），**无长度 CHECK → 加长键零迁移**。
+  - 键里含**恒定不变维度**的三处调用点（同一错误类，不止 P1-18）：
+    `mistakes.py:561-564` `mistake:{id}:primary-topic:{base_version}:{to}` —— 本端点**不 bump `current_version`**，
+    `base_version` 恒定，区分度只剩 `to` → `A→B→A→B` 塌成 2 条；
+    `mistakes.py:377` `mistake:{id}:void` 与 `:412` `mistake:{id}:reactivate` —— 完全无变化维度
+    → `作废→撤销→再作废` 的第二次作废事件被吞。
+  - **后果不止审计**：`dashboard.py:508-509` 的 `void_events`/`reactivate_events` 与
+    `recompute.stats()`（`recompute.py:155-163`）的 `event_stats.by_type` 都**按事件行数计数**
+    → 看板的"作废/恢复次数"与事件分布会**少计**（掌握度/排期/streak 不读这几个 type，不受影响）。
+  - **为什么幂等键在这里其实是第二道闸**：三个函数都先做**状态级早退**
+    （`set_primary_topic:549` 同值 `return mistake`；`void_mistake:365`、`unvoid_mistake:400` 状态已是目标值 `return mistake`），
+    同值重试**根本走不到 `record_event`**。→ 给键加区分度，**不会**把"重复提交"变成"重复事件"。
+- 交付（口径唯一，键的每个组成部分必须在真实调用序列里真的会变）：
+  ① 三处键各补一个**单调序号维度** `n`：`n` = 该 mistake 下同 type 已有事件行数（
+     `select func.count()` 于同事务内取），键形如
+     `mistake:{id}:primary-topic:{base_version}:{n}:{to|null}`、`mistake:{id}:void:{n}`、`mistake:{id}:reactivate:{n}`；
+  ② **不引入随机 UUID、不引入时钟桶、不关掉去重**（§5 可确定性重放纪律；序号是事实推导值，与 `v{version}` 同构）；
+  ③ 既有事件**一字不动**（append-only，绝不回填/改写历史键或 payload）；旧键与新键天然不撞，历史链不回溯补齐；
+  ④ 不动 payload、不动根表写入语义、不动 409/422/乐观锁、不动版本表与 `current_version`。
+  ⑤ **既有 7 处字面键断言按新格式逐条更新、只紧不松**：`test_mistakes_api.py:409/:415/:1959-1960/:2002-2003/
+     :2019-2020/:2076-2077` + `e2e/test_closed_loop.py:708-711`；严禁改成 startswith/宽松匹配/删断言。
+     另：`test_mistakes_api.py:2033` 的 docstring 说"去掉 `to_topic_id` 会塌成 1 条"，**加了 n 之后这句话失效**
+     （断言仍为绿，但防线移到 n 维度）——**docstring 必须同步改口径**，不许留与代码相反的历史叙述。
+- DoD（每条都要能变异证伪）：
+  - **往返锚点**：`A→B→A→B` 恰 **4 条** `mistake_primary_topic_set`，`from/to` 逐条正确（现有锚点
+    `tests/integration/test_mistakes_api.py:2033` 只钉 `A→B`，**保留不弱化**）；
+    `作废→撤销→作废→撤销` 恰 2 条 `mistake_voided` + 2 条 `mistake_reactivated`。
+  - **重试仍不增行**：同值重复提交 / 已作废再作废 → 事件数 0 增、`updated_at` 不变（钉住"序号不是重复计数器"）。
+  - **看板计数对齐**：上述往返序列后，`void_events`/`reactivate_events` 与 `event_stats.by_type`
+    的读数 == 现场实际事件行数（独立重算双向对齐，不许写死期望值迁就实现）。
+  - **不变量**：`mistake_versions` 行数与 `current_version` 全程不变；`streak.LEARNING_EVENT_TYPES` 不收新 type；
+    主考点不参与 mastery/排期（沿用 P1-18 的既有断言，不得删）。
+  - **零迁移**：键是应用层字符串；`git diff` 不得出现 `migrations/`。
+  - 全量 `pytest -q` + `ruff check --no-cache` + `npm run lint/test/build` 绿；前端无改动（纯服务层）。
+- 禁止：为凑断言去改历史事件/回填旧键；把去重整个删掉；给键加 `uuid4` 或 `datetime.now()`（不可重放、且并发下无意义）；
+  顺手扩到 `review.py:557` `review:schedule:{id}:init`（**init 每错题恰一次是有意设计，本票不动**）、
+  `recitation.py:602`（按日粒度为既有产品口径）、`grading.py:217`/`mistakes.py:505`（已含 `v{version}` 变化维度，本就正确）。
+- ⚠️ **本卡修订记录（审核方自我纠正）**：§19-J 初稿推荐"秒级时间戳桶"，读盘确认三处都有状态级早退闸后
+  **改为事件序号 `n`**——时钟桶会让同秒内的真实往返仍然塌缩、且测试须注入时钟；序号确定性可重放、可断言。
+  现有代码与本卡不符时以实际代码为准，先读再改，不一致上报不要硬凑。
 
 ---
 

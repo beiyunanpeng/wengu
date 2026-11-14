@@ -2062,3 +2062,94 @@ UI 取证；不一致上报不硬凑）。
 - 更新或删除历史 `learning_events`；改核对页既有交互与转正闸门语义；
 - 给该端点加 `require_parent`（与同级标签端点不一致；要改须先改设计口径并单独开票）。
 ```
+
+## P1-18b —— 审计事件幂等键的"往返维度"纠偏（v2.8 §19-J；零迁移，纯服务层）
+
+```
+你在 wengu 仓库工作。开工前完整读：AGENTS.md §5（事实源 + 幂等 + 确定性重算；learning_events 只追加、
+UNIQUE 防重复；后台任务/重试/重启不得产生重复事件）
++ 设计文档 §19-I 与 §19-J（本票的成因与边界记录，含"为什么不用时钟桶、不用 uuid"）
++ wengu-api/app/services/events.py（_insert_or_fetch 25-39 撞 UNIQUE 即静默取回旧行、created=False；
+  record_event 42-66）
++ wengu-api/app/models/events.py:26（idempotency_key = Text UNIQUE，**无长度 CHECK → 加长键零迁移**）
++ wengu-api/app/services/mistakes.py（三处待改键：primary-topic 561-564、void 377、reactivate 412；
+  三处状态级早退：set_primary_topic 549、void_mistake 365、unvoid_mistake 400；17 行已 import func）
++ wengu-api/app/services/dashboard.py（508-509 void_events/reactivate_events 按事件行数计数）
+  + app/services/recompute.py（stats 155-163 的 event_stats.by_type 同样按行计数）
++ wengu-api/tests/integration/test_mistakes_api.py（既有锚点 2033 只钉 A→B，**保留不得弱化**；
+  回收站/往返相关测试见 P2-10 用例）
++ TICKETS.md 的 P1-18、P1-18b、P2-10。
+
+【投单纪律】1) 从最新 main 切分支：git fetch origin; git switch -c feat/p1-18b-audit-key-nonce origin/main
+2) 一票一 PR，分支冻结；提交前 `git diff --cached --name-only` 核对并贴清单（本票只应碰 services/mistakes.py
+   + 相应测试文件；**migrations/ 不得出现任何改动**）。
+3) 中文 commit message 用 `git commit -F <仓库外 UTF-8 文件>`；lint 用 `ruff check --no-cache`。
+4) 交付给"你自己实跑"的数字 + 单列「审核方需复核的点」；本票无 UI 改动，不需要前端取证。
+5) 代码与本卡不符时以实际代码为准，先读再改，不一致上报不要硬凑。
+
+【为什么这是审核方的错、以及为什么修键不修去重】
+P1-18 的卡把幂等键写死成 `mistake:{id}:primary-topic:{base_version}:{to_topic_id}`，但本端点**不 bump
+current_version**（那是 §19-I 的正确设计），于是 `base_version` 在这里恒定，键的区分度只剩 to_topic_id：
+`A→B→A→B` 的第 3、4 次会撞上第 1、2 次的键 → _insert_or_fetch 静默吞事件，四次动作只落 2 条审计。
+`mistake:{id}:void` / `:reactivate` 同样问题更彻底（连变化维度都没有）→ `作废→撤销→作废` 的第二次作废被吞。
+后果**不只是审计链**：dashboard 的 void_events/reactivate_events 与 event_stats.by_type 都是按事件行数计数，会少计。
+但**绝不能因此关掉去重**——三个函数都已先做状态级早退（同值/同态直接 return，走不到 record_event），
+所以给键加区分度不会把"重复提交"变成"重复事件"；这一点必须用测试钉住（见 DoD 第 2 条）。
+
+【任务】
+1. 三处键各补一个**单调序号维度 n** = 同 mistake 下同 type 已有 `learning_events` 行数，同事务内取
+   （`select func.count()`；mistakes.py:17 已 import func）：
+   - `mistake:{id}:primary-topic:{base_version}:{n}:{to_topic_id 或 "null"}`
+   - `mistake:{id}:void:{n}`
+   - `mistake:{id}:reactivate:{n}`
+2. **禁止**用 `uuid4`、`datetime.now()`/时间戳桶、随机数当 n（不可确定性重放；§5 红线）。
+3. 既有历史事件**一字不动**：不回填旧键、不改 payload、不删行（append-only 触发器 0002:55 也拦着）。
+   新旧键不冲突，历史链不回溯补齐——这是有意的，交付说明里写清。
+4. 键之外一字不改：payload 字段、根表写入语义、409/422/乐观锁、版本表与 current_version、
+   状态级早退、streak 事件类型白名单，全部保持现状。
+5. 测试补三组往返锚点（现有 A→B 锚点保留）：A→B→A→B；作废→撤销→作废→撤销；同值/同态重复提交。
+
+【必须同步更新的既有"字面键"断言（盘上逐条核过，共 7 处）】
+键格式一改，这些**精确字符串相等**断言会立刻变红。改法是**按新格式补全字面量**（n=0 的首个事件形如
+`mistake:{id}:void:0`），**严禁**改成 startswith / 宽松匹配 / 删断言蒙过去：
+- tests/integration/test_mistakes_api.py:409（`mistake:{id}:void`）、:415（`mistake:{id}:reactivate`）
+  —— 同一测试还断言事件顺序与 payload，别顺手改它们；
+- tests/integration/test_mistakes_api.py:1959-1960、:2002-2003、:2019-2020（`primary-topic:1:{to|null}`）、
+  :2076-2077（两元素 key 集合）；
+- tests/e2e/test_closed_loop.py:708-711（`row[6]` 的 void/reactivate 字面键）。
+  该 e2e 测试的 `assert len(after_events) == len(before_events) + 2`（:714）**加了 n 仍然成立**
+  —— 它的重复请求是被状态级早退挡住的，不走键；不要因此以为"键改动不影响它"。
+
+【关于 P1-18 那个可证伪锚点的诚实交代】
+`test_primary_topic_idempotency_key_includes_to_topic`（test_mistakes_api.py:2033）的 docstring 现在写着
+"若把 to_topic_id 从键里拿掉，第二次会被 UNIQUE 去重 → 只剩 1 条，本断言变红"。
+**加了 n 之后这句话会失效**（n=0/n=1 本来就不撞，去掉 to_topic_id 也还是 2 条）。
+处置：断言本身（恰 2 条）**保留且继续为绿**，但 **docstring 与测试内注释必须改口径**——
+说明 to_topic_id 的包含现在由 :2076-2077 的字面键相等断言钉住，而"往返塌缩"的防线已移到 n 维度。
+不许留一段和代码相反的历史叙述。
+
+【DoD】
+- **往返锚点**：`A→B→A→B` 恰 **4 条** `mistake_primary_topic_set`，逐条 `from_topic_id/to_topic_id` 正确；
+  `作废→撤销→作废→撤销` 恰 **2 条** `mistake_voided` + **2 条** `mistake_reactivated`。
+- **重试仍不增行**：同值重复提交主考点、对已作废错题再 void、对 active 再 unvoid
+  → 事件数 **0 增**、`updated_at` 不变（钉住"n 不是重复计数器"）。
+- **看板计数对齐**：上述往返序列之后，`void_events`/`reactivate_events` 与 `event_stats.by_type`
+  的读数 == 现场实际事件行数（独立重算双向对齐，**不许写死期望值迁就实现**）。
+- **不变量回归**：`mistake_versions` 行数与 `current_version` 全程不变；`streak.LEARNING_EVENT_TYPES`
+  不收新 type；P1-18 既有的"主考点不参与 mastery/排期"断言**不得删改**。
+- **可证伪**：临时把 n 维度从 primary-topic 键里拿掉 → 4 条断言必须变红；还原 → 绿。
+  再把 void 键的 n 拿掉 → 2+2 断言变红；还原 → 绿。四次输出贴交付。
+- **零迁移**：`git diff --name-only` 不含 `migrations/`；alembic head 不变（当前 0023）。
+- **断言只紧不松**：7 处字面键断言按新格式逐条更新；`git diff` 里这些测试**不得出现 startswith/正则/删断言**，
+  也不得删 P1-18 的任何既有断言（版本表不变、mastery 不受影响、key 集合含 to_topic_id）。
+- 全量 `pytest -q` 绿、`ruff check --no-cache` 绿、`npm run lint/test/build` 绿（前端应零改动）。
+
+【禁止】
+- 关掉/放宽 UNIQUE 去重，或把 `record_event` 的冲突分支改成抛错；
+- 用时钟或 UUID 制造"看起来每次不同"的键；回填、改写、删除历史事件的键或 payload；
+- 顺手扩到 `review.py:557`（`review:schedule:{id}:init` 每错题恰一次是有意设计）、
+  `recitation.py:602`（按日粒度是既有产品口径）、`grading.py:217` 与 `mistakes.py:505`
+  （已含 `v{version}` 变化维度，本就正确）——**都别动**；
+- 为凑断言去改 dashboard 的计数口径（那是另一张票的事，会动用户面指标）；
+- 把本票和 P2-11/P2-12/P2-14 挤进同一个 PR。
+```

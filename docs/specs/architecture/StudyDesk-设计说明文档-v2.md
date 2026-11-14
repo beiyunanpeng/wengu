@@ -536,3 +536,36 @@ X 深挖确认 v2.2 三条决定全部成立、可更具体。追加以下补丁
   正确口径 = **写根表 + 追加一条 `learning_events` 审计事件**，不 bump `current_version`、不追加版本行。
 - **P2-13b 打印导出接 `subject`**：`/print/mistakes` 只支持 `category_id`/`error_cause`，
   学科筛选态下导出会丢失该过滤（P2-13 按【禁止改全站】未扩）。
+
+### J. P1-18 交付后暴露的幂等键维度错误（2026-11-14，追加）
+
+> 来源：P1-18（PR#55 → main `1c1a951`）验收时实跑发现。**责任在审核方出的卡，不在施工方**——
+> 卡里逐字写死了这个键，施工方按键实现、并按卡要求交付了可证伪锚点。裁定：P1-18 照常合并，
+> 边界由审核方另开票修（P1-18b），不打回、不改历史事件。
+
+- **事实链**：主考点变更**不 bump `current_version`**（§19-I 的正确设计——版本表存不了这列）。
+  于是卡里钉的键 `mistake:{id}:primary-topic:{base_version}:{to_topic_id}`
+  （实现在 `services/mistakes.py:561-564`）的两个维度里，`base_version` 对该端点**恒定不变**，
+  键的实际区分度**只剩 `to_topic_id`**。
+- **后果**：循环回改 `A→B→A→B` 时，第 3、4 次提交分别撞上第 1、2 次的键，
+  `_insert_or_fetch`（`services/events.py:25-39`）捕获 `IntegrityError` 后回滚 savepoint、
+  **静默返回旧行且 `created=False`** → 四次用户动作只落 **2 条**审计事件。
+  根表列值仍然正确（最终 = B）、`updated_at` 照常推进，被丢弃的只是**中间那次往返的事件行与其 payload**。
+  定性：**数据不错，审计链不完整**——不是正确性缺陷，是可追溯性缺陷。
+- **为什么绿色基线没抓住**：现有测试只钉 `A→B`（`tests/integration/test_mistakes_api.py:2033`，
+  断言"两次不同目标共 2 条"），**没有 `A→B→A` 用例**。可证伪锚点验证的是"键含 `to_topic_id`"，
+  恰好验证不到"往返"这一维。→ 教训第 11 类：**写卡钉幂等键前，先问"这个键的每个组成部分在真实调用序列里到底变不变"**；
+  把恒定不变的列当唯一性维度，等于自欺。
+- **修复方向（P1-18b）**：给键补一个**随每次变更递增**的维度 `n`（= 同 mistake 下同 type 已有事件行数，同事务内 `count`），
+  DoD = `A→B→A→B` 恰 4 条事件 + `作废→撤销→作废→撤销` 恰 2+2 条 + **同值重试仍 0 增**。
+  ⚠️ **审核方在本节初稿里先写了"秒级时间戳桶"，读盘后自我纠正**：三个函数都已先做**状态级早退**
+  （`set_primary_topic:549` 同值直接 `return`、`void_mistake:365` / `unvoid_mistake:400` 状态已是目标值直接 `return`），
+  同值重试根本走不到 `record_event` —— 幂等键在这个端点只是第二道闸；而时钟桶会让**同一秒内的真实往返仍然塌缩**、
+  测试还得注入时钟。**序号是事实推导值、可确定性重放**（与既有的 `v{version}` 维度同构），故选序号不选时钟，
+  且**禁止**改用 `uuid4`（不可重放）。
+- **同类调用点一并纠**：`mistake:{id}:void`（`mistakes.py:377`）与 `mistake:{id}:reactivate`（`:412`）连"变化维度"都没有，
+  第二次作废事件同样被吞——而 `dashboard.py:508-509` 的 `void_events`/`reactivate_events` 与
+  `recompute.stats()` 的 `event_stats.by_type`（`recompute.py:158-163`）都是**按事件行数计数**，
+  所以这条边界的后果**不止审计链，看板次数也会少计**（掌握度/排期/streak 不读这些 type，不受影响）。
+- **明确不动的三处**（防"顺手统一"扩大战线）：`review:schedule:{id}:init`（每错题恰一次是有意设计）、
+  `recitation` 的按日粒度（既有产品口径）、`grading:v{n}` 与 `mistake:v{n}`（本就含变化维度、正确）。
