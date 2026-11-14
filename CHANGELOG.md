@@ -9,6 +9,18 @@
 
 ### Added
 
+- **TICKETS 新增 P1-18「主考点可设定与更正」卡**（2026-11-14，出卡前读盘核四处机制）：新端点
+  `POST /api/mistakes/{id}/primary-topic`（孩子区免 PIN，与 `/labels`、`/notes`、`/images` 同级），
+  **写根表 `mistakes.primary_topic_id` + 追加 `learning_events` 新 type `mistake_primary_topic_set` 做审计**，
+  不 bump `current_version`、不追加版本行；`MistakeDetail` 补 `primary_topic_id`/`primary_topic_subject`，
+  详情页加「设定/更正主考点」控件（复用 `CategoryPicker`）。DoD 四条硬断言：掌握度全等不变、
+  排期行数与 `due_date` 不变、改后 due 自动出 quiz、学科卡从「未挂考点」归位且 `unassigned_active` 减一。
+  本票解锁 P1-10/P1-11 同类题考核与 P2-13 学科卡在真实数据上的价值（生产库 3 条错题主考点全 NULL）。
+- **§19-I 口径纠正（审核方第 10 次写错，改卡不由 agent 背）**：原写 P1-18「走追加版本、不改历史」不成立——
+  `primary_topic_id` 在根表 `mistakes`（`models/mistakes.py:41`），`append_mistake_version`
+  （`services/events.py:90-147`）参数里没有该列、版本表也存不了；append-only 触发器只钉
+  `mistake_versions`（0008:115）与 `learning_events`（0002:55），**根表未被钉**（void/unvoid 本就就地翻 status）。
+  正确口径 = 改根表 + 追加事件审计。
 - **P2-13 看板信息层级：主 CTA + 各科入口卡（v2.7 D2；零迁移、零新依赖）**（2026-11-14）：
   - **新增 `app/services/subjects.py` = 学科归并唯一口径**：`primary_topic_id → knowledge_seed.subject`，
     查不到 seed（含未挂主考点）落 `未挂考点`。看板学科分布与错题本 `subject` 筛选**共用同一把尺**

@@ -368,6 +368,50 @@
 - 禁止：agent 自产讲解文本入契约（违规打回）；把笔记接入判分/排期链路；改写历史版本行；
   借本票引入任何 AI 生成路径；把 `correction_notes` 做成必填（会挡掉整类入本）。
 
+### P1-18 主考点可设定与更正（v2.8 §19-I；零迁移；改根表 + 事件审计）
+- **现状（2026-11-14 读盘）**：
+  - `primary_topic_id` 只在**根表** `mistakes`（`models/mistakes.py:41`，索引 `:50`）；全仓唯一写入点
+    `services/mistakes.py:256`（核对页确认经 `api/imports.py:244`）。`/labels`（`api/mistakes.py:376`、
+    `LabelRequest:111`）与 `append_label_version`（`services/mistakes.py:418-514`）**全程不碰它**。
+  - ⚠️ **口径纠正（§19-I 原写"走追加版本"是审核方错误，本卡改对）**：`append_mistake_version`
+    （`services/events.py:90-147`）参数里**没有 `primary_topic_id`**，版本表也无此列——追加版本承载不了主考点变更。
+    append-only 触发器只钉 `mistake_versions`（0008:115）与 `learning_events`（0002:55），
+    **根表 `mistakes` 未被钉**（void/unvoid 本就就地翻 `status/updated_at`）。
+    → 正确做法：**写根表 + 追加一条事件做审计**，**不 bump `current_version`、不追加版本行**。
+  - 下游现状（都是好消息，无需额外重算）：`bank.find_same_type`（`bank.py:395`）对 `None` → `topic_id=""`
+    → 空池 → `coverage="gap"` 不抛错；`due_queue`（`review.py:988`）每次**现算** quiz/self_eval/redo，
+    无落库 kind、无缓存 → 设值后下一次 due 自动出 quiz；学科卡读根表（`list_mistakes:633 → subjects.subject_for_topic`）
+    → 设值后自动归位；`MistakeDetail` 响应（`api/mistakes.py:78-213`）**不含** `primary_topic_id`，详情页也不展示。
+- 交付：
+  ① 新端点 `POST /api/mistakes/{id}/primary-topic`，请求体 `{primary_topic_id: str | null, actor ∈ {student, parent}, base_version: int}`；
+     **孩子区免 PIN**（与 `/labels`、`/notes`、`/images` 同级同口径）；
+  ② 语义：`base_version != current_version` → 409（乐观锁，同 `append_label_version:435`）；`voided` → 409（同 `:433`）；
+     目标值与现值**相同 → 幂等 no-op**（不写事件、不改 `updated_at`，返回当前详情）；
+     `primary_topic_id = null` **允许**（撤销误设）；非空值必须存在于 `knowledge_seed`，否则 422 稳定码；
+  ③ 写 `mistakes.primary_topic_id` + `updated_at`；追加一条 `learning_events`，新 type
+     `mistake_primary_topic_set`，payload 只含 `from_topic_id / to_topic_id / actor / base_version`
+     （**不含题干、答案、路径**），幂等键
+     `mistake:{id}:primary-topic:{base_version}:{to_topic_id 或 "null"}`（同请求重放不产生第二条）；
+  ④ `MistakeDetail` 补 `primary_topic_id` 与 `primary_topic_subject`（复用 `services/subjects.subject_for_topic`，
+     **前端不得另建 topic→subject 映射**）；
+  ⑤ 前端 `MistakeDetailPage`：展示主考点（含「未挂考点」态）+「设定/更正主考点」控件，
+     复用 `CategoryPicker`（与 `IntakePage.tsx:241-256` 同款），支持清除；核对页交互与转正闸门一字不改。
+- DoD：
+  - **审计与不变量**：改一次恰新增 1 条 `mistake_primary_topic_set`；同值重复提交 0 新增；
+    `mistake_versions` 行数与 `current_version` **保持不变**（专门断言，防有人误走版本表）；不改动任何历史事件。
+  - **掌握度不受影响**：改主考点前后对全部 concept 跑 `recompute.mastery()` 结果全等（钉住"主考点不参与掌握度"）。
+  - **排期不被抹掉**：既有 `review_schedules` 行数与 `due_date` 不变；改后同一 `today` 的 due 中该题
+    `kind` 由 redo/self_eval 变 quiz（题库有题时），题库无题则 `bank_gap=true` 且不报错。
+  - **学科卡归位**：该题从「未挂考点」移到真实学科，`inventory.unassigned_active` 相应减 1（与 P2-13 算式自洽）。
+  - 权限与错误：未解锁可用；`base_version` 过期 409；voided 409；未知 topic 422；清除为 null 生效。
+  - `dashboard.event_stats` 若为精确按类型断言，**按新增 type 补键值**，不得为省事改成宽松匹配。
+  - 前端取证：设定 / 更正 / 清除三态 + 360/412 无横向溢出（截图 + report.json 存档路径）。
+  - 全量 `pytest -q` + `ruff check --no-cache` + `npm run lint/test/build` 绿；**零迁移**（列与索引已存在）。
+- 禁止：自动推断或模型建议主考点（零模型 + "不猜"红线）；批量"一键补全"脚本（无真值即猜测）；
+  把主考点写进 `mistake_versions` 或为此 bump `current_version`；让主考点参与 `mastery`/排期算法/streak
+  （`streak.LEARNING_EVENT_TYPES` **不收**新 type）；更新或删除历史事件；改核对页交互与转正闸门语义；
+  给该端点加 `require_parent`（与同级标签端点不一致，要改须先改设计口径）。
+
 ---
 
 ## Phase 2 —— 每日任务 + 收口看板

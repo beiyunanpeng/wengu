@@ -1994,3 +1994,71 @@ UI 取证；不一致上报不硬凑）。
 【禁止】把主题写进 app-config 或数据库；用 localStorage 存任何业务/学习数据；为暗色引入新 UI 依赖；
 改打印内容结构（只允许配色豁免）；借主题之名重构页面布局或换全站配色。
 ```
+
+## P1-18 —— 主考点可设定与更正（v2.8 §19-I；零迁移，改根表 + 事件审计）
+
+```
+你在 wengu 仓库工作。开工前完整读：AGENTS.md §5（事实源 + 幂等 + 确定性重算；AI 建议值 vs 确认值分离；
+事件与日志不落题目全文）与 §6（错题唯一写入路径 = 核对页确认）
++ 设计文档 §16.C/D、§19-I + wengu-api/app/models/mistakes.py（primary_topic_id 41、索引 50）
++ app/services/mistakes.py（写入点 256、append_label_version 418-514、乐观锁 435、voided 拒绝 433）
++ app/services/events.py（append_mistake_version 90-147 —— 注意其参数没有 primary_topic_id）
++ app/services/bank.py（find_same_type 395 对 None 的处理）、app/services/review.py（due_queue 988 现算 kind）
++ app/services/subjects.py（学科归并唯一口径）+ app/api/mistakes.py（/labels 376、LabelRequest 111、
+  MistakeDetail 78-213）+ app/api/imports.py（244 确认时写主考点）
++ wengu-web/src/pages/MistakeDetailPage.tsx、components/CategoryPicker.tsx、pages/IntakePage.tsx（241-256）
++ migrations/versions/0002_p1_1_core_schema.py（55 钉 learning_events）与 0008_mistakes_practice.py（115 钉 mistake_versions）
++ TICKETS.md 的 P1-18、P1-6、P2-13。
+
+【投单纪律】1) 从最新 main 切分支：git fetch origin; git switch -c feat/p1-18-primary-topic origin/main
+2) 一票一 PR，分支冻结；提交前 `git diff --cached --name-only` 核对并贴清单。
+3) 中文 commit message 用 `git commit -F <仓库外 UTF-8 文件>`；lint 用 `ruff check --no-cache`。
+4) 交付给"你自己实跑"的数字 + 单列「审核方需复核的点」；UI 改动带 CDP/真机取证截图存档路径。
+5) 代码与本卡不符时以实际代码为准，先读再改，不一致上报不要硬凑。
+
+【必须先读的口径纠正（审核方原写"走追加版本"是错的，本卡已改对，勿再走回头路）】
+`primary_topic_id` 存在**根表 `mistakes`**（models/mistakes.py:41），**不在** `mistake_versions`；
+`append_mistake_version`（services/events.py:90-147）的参数里根本没有这一列，版本表也存不了它，
+所以"追加版本行"承载不了主考点变更。append-only 触发器只钉 `mistake_versions`（0008:115）与
+`learning_events`（0002:55），**根表 `mistakes` 未被钉**（void/unvoid 本就就地翻 status/updated_at）。
+→ 正确做法：**写根表 + 追加一条 learning_events 审计事件**；**不 bump current_version、不追加版本行**。
+若你发现必须动版本表才能自洽，停下来上报，**不要顺手把列加到版本表**。
+
+【任务】
+1. 新端点 `POST /api/mistakes/{id}/primary-topic`，请求体
+   `{primary_topic_id: str | null, actor ∈ {student, parent}, base_version: int}`；**孩子区免 PIN**
+   （与 /labels、/notes、/images 同级同口径，不要单独加 require_parent）。
+2. 语义（逐条要有断言）：
+   - `base_version != current_version` → 409（同 append_label_version:435 口径）；
+   - 错题 `status=voided` → 409（同 :433）；
+   - 目标值与现值相同 → **幂等 no-op**：不写事件、不改 `updated_at`、返回当前详情；
+   - `primary_topic_id = null` → 允许（撤销误设），落库 NULL；
+   - 非空值必须存在于 `knowledge_seed`，否则 422 稳定码（不含题干）。
+3. 写 `mistakes.primary_topic_id` + `updated_at`；追加 `learning_events` 新 type
+   `mistake_primary_topic_set`，payload 只含 `from_topic_id / to_topic_id / actor / base_version`；
+   幂等键 `mistake:{id}:primary-topic:{base_version}:{to_topic_id 或 "null"}`。
+4. `MistakeDetail` 响应补 `primary_topic_id` 与 `primary_topic_subject`（复用 services/subjects.subject_for_topic；
+   前端**禁止**再建一套 topic→subject 映射）。
+5. 前端 `MistakeDetailPage`：展示主考点（含「未挂考点」态）+「设定/更正主考点」控件，
+   复用 CategoryPicker（与 IntakePage.tsx:241-256 同款），支持清除；核对页交互与转正闸门一字不改。
+
+【DoD】
+- 审计与不变量：改一次恰新增 1 条 `mistake_primary_topic_set`；同值重复提交 0 新增；
+  `mistake_versions` 行数与 `current_version` **不变**（专门断言，防有人误走版本表）；历史事件零改动。
+- **掌握度不受影响**：改主考点前后对全部 concept 跑 `recompute.mastery()` 结果全等。
+- **排期不被抹掉**：`review_schedules` 行数与 `due_date` 不变；改后同一 today 的 due 中该题 kind 由
+  redo/self_eval 变 quiz（题库有题时）；题库无题则 `bank_gap=true` 且不抛错。
+- **学科卡归位**：该题从「未挂考点」移到真实学科，`inventory.unassigned_active` 相应减 1（与 P2-13 算式自洽）。
+- 权限与错误：未解锁可用；base_version 过期 409；voided 409；未知 topic 422；清除为 null 生效。
+- **可证伪**：临时把幂等键里的 `to_topic_id` 拿掉 → 重复提交断言必须变红；还原 → 绿。两次输出贴交付。
+- `dashboard.event_stats` 若为精确按类型断言，按新增 type 补键值，**不得改成宽松匹配**蒙过。
+- 前端取证：设定 / 更正 / 清除三态截图 + 360/412 `scrollWidth === clientWidth` + report.json 存档路径。
+- 全量 `pytest -q` 绿、`ruff check --no-cache` 绿、`npm run lint/test/build` 绿；**零迁移**（列与索引已存在）。
+
+【禁止】
+- 自动推断或模型建议主考点（零模型 + "不猜"红线）；批量"一键补全"脚本（无真值即猜测）；
+- 把 `primary_topic_id` 写进 `mistake_versions`，或为它 bump `current_version`；
+- 让主考点参与 `mastery`、排期算法或 streak（`streak.LEARNING_EVENT_TYPES` **不收**新 type）；
+- 更新或删除历史 `learning_events`；改核对页既有交互与转正闸门语义；
+- 给该端点加 `require_parent`（与同级标签端点不一致；要改须先改设计口径并单独开票）。
+```

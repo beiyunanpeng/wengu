@@ -528,7 +528,11 @@ X 深挖确认 v2.2 三条决定全部成立、可更具体。追加以下补丁
 - **P1-18 主考点可设定与更正**：`primary_topic_id` 全仓**只在核对页确认时写**（`api/imports.py:244`），
   `/labels` 不碰它。后果链是真实的：生产库 3 条错题 `primary_topic_id` 全为 NULL →
   ① `bank.py` 只按主考点检索，**同类题考核永不触发**；② 学科卡只会显示一张「未挂考点」，P2-13 的
-  价值在真实数据上落空。→ 需要给核对页/详情页提供主考点的**事后设定与更正**能力
-  （走追加版本、不改历史；与 `subjects.py` 同口径生效）。
+  价值在真实数据上落空。→ 需要给详情页提供主考点的**事后设定与更正**能力。
+  ⚠️ **本条原写"走追加版本、不改历史"是审核方错误（第 10 次），P1-18 出卡时已按盘上事实纠正**：
+  `primary_topic_id` 在**根表 `mistakes`**（`models/mistakes.py:41`），`append_mistake_version`
+  （`services/events.py:90-147`）参数里根本没有该列，版本表也存不了它；append-only 触发器只钉
+  `mistake_versions`（0008:115）与 `learning_events`（0002:55），**根表未被钉**（void/unvoid 本就就地翻 `status`）。
+  正确口径 = **写根表 + 追加一条 `learning_events` 审计事件**，不 bump `current_version`、不追加版本行。
 - **P2-13b 打印导出接 `subject`**：`/print/mistakes` 只支持 `category_id`/`error_cause`，
   学科筛选态下导出会丢失该过滤（P2-13 按【禁止改全站】未扩）。
