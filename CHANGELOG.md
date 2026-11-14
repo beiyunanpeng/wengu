@@ -9,6 +9,18 @@
 
 ### Added
 
+- **TICKETS 第四批四卡**（2026-11-14，出卡前逐条读盘核端点/字段/行号）：**P2-13** 看板主 CTA + 各科入口卡
+  （`subjects` 现算 `active/graduated/total`，并为卡片提供真实消费方新增 `GET /api/mistakes?subject=`）、
+  **P2-11** 错因聚合卡（计数走 `effective_labels` 优先级，未填错因单列 `unlabeled`、不塞进 `other`）、
+  **P2-12** 复习日历只读投影（新 `GET /api/reviews/calendar?from&to` + `/review-calendar` 路由与 NAV 第 12 项）、
+  **P2-14** 主题切换（偏好存 localStorage 不进 app-config、打印视图豁免深色）。
+  四卡同步合订进 `docs/tooling/qoder-build-plan.md`（含内联投单纪律，可整段复制投单）。
+- **设计文档新增 §19-H（出卡时的读盘纠正）**：`category_id` 是 `knowledge_seed.id`（粗粒度知识点）**不是学科**，
+  学科在 `KnowledgeSeed.subject`；「已掌握」在盘上有 `recompute.is_graduated()`（attempt 事件尾部连对）与
+  `review_policy.mastery_state()`（review 事件重放）**两个语义不同入口**，第四批统一取 `is_graduated`、
+  禁止第三套，若两口径对同一数据集给出不同数字须单独开票而非各票自行挑选；
+  `learning_events` **不存在** `mistake_confirmed` 类型（测试夹具里的该字符串属误导），真实类型 8 个且无统一枚举，
+  日历/看板类投影必须用显式类型白名单常量。
 - **P4-6 公式题判分：受限 LaTeX 子集 + `sympy` 等值判断，不可判降级自评（v2.8 §19-E；零迁移、零新依赖）**（2026-11-13）：
   - **路径（审核方 2026-11-12 定死）**：**不引入 antlr**（`sympy.parsing.latex` 需 antlr4-python3-runtime，属新重依赖，本票拒绝）。
     改**确定性字符串规则**把受限 LaTeX 子集归一为 sympy 可解析式，再做等式判断；超出子集或不可判 → **降级孩子卷面自评**并标

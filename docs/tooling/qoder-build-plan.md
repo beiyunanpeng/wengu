@@ -1819,3 +1819,174 @@ MASTERY_SOURCES / GRADUATION_STREAK）+ app/services/review_policy.py（review_i
 - 对依赖图形的题（`figure` / `【依赖图形】`）启用公式判分；
 - 改动 `judgeAnswer` 既有非公式路径的行为与既有断言；把公式判分接进真实作业链路（真实题不在系统内判）。
 ```
+
+## P2-13 —— 看板信息层级：主 CTA + 各科入口卡（v2.7 D2；零迁移）
+
+```
+你在 wengu 仓库工作。开工前完整读：AGENTS.md §5（事实源+确定性重算、不存易变字段）与 §6（家长看板=观察复盘型）
++ 设计文档 §18 D2、§19-C + wengu-api/app/api/dashboard.py（DashboardResponse 118-134、SubjectWeaknessView 34-36）
++ app/services/dashboard.py（_weak_distribution 312-342、UNASSIGNED_SUBJECT 68、build_dashboard 434-470）
++ app/services/recompute.py（is_graduated 142、GRADUATION_STREAK 15）
++ app/services/review_policy.py（mastery_state 62）与 app/services/review.py（derive_review_state 495）
++ app/services/mistakes.py（list_mistakes 500-640、effective_labels 118-141）
++ wengu-web/src/pages/DashboardPage.tsx 与 pages/MistakesPage.tsx + app/api/mistakes.py（列表参数 246-258）
++ TICKETS.md 的 P2-13 与 P2-9（筛选契约先例）。
+
+【投单纪律】1) 从最新 main 切分支：git fetch origin; git switch -c feat/p2-13-dashboard-hierarchy origin/main
+2) 一票一 PR，分支冻结；提交前 `git diff --cached --name-only` 核对并贴清单。
+3) 中文 commit message 用 `git commit -F <仓库外 UTF-8 文件>`；lint 用 `ruff check --no-cache`。
+4) 交付给"你自己实跑"的数字 + 单列「审核方需复核的点」；UI 改动必须带 CDP/真机取证截图存档路径。
+5) 代码与本卡不符时以实际代码为准，先读再改，不一致上报不要硬凑。
+
+【两条必须先看的读盘纠正（审核方原设想在此踩空，勿重犯）】
+① `category_id` **不是学科**：它是 `knowledge_seed.id`（粗粒度知识点）。学科在 `KnowledgeSeed.subject`，
+   看板学科由 `_weak_distribution` 用 topic_id 反查 seed 得到，查不到落 `未挂考点`。
+   → 「点学科卡进该科列表」不能复用 `category_id`，必须走新的 `subject` 参数并**复用同一套 topic→subject 映射**。
+② 「已掌握」盘上有两个语义不同入口：`recompute.is_graduated()`（attempt 事件尾部连对 ≥3，看板
+   `graduated_total` 用它）与 `review_policy.mastery_state()`（经 `derive_review_state` 重放 review 事件，
+   P2-9 错题本筛选用它）。**本票唯一口径 = `is_graduated`**。若你发现两者对同一数据集给出不同数字，
+   停下来上报，不要自行折中或再造第三套。
+
+【任务】
+1. `GET /api/dashboard` 新增 `subjects: [{subject, active, graduated, total}]`：
+   `active`=该学科在册未掌握数、`graduated`=该学科 `is_graduated` 数、`total = active + graduated`；
+   **voided 不计入任何一项**；全部现算，不新增列、不建派生表。
+2. 主 CTA「开始今日复习」跳 `/review`（`DashboardPage` 首次引入 `useNavigate`）；`due.total === 0` 时
+   文案改「今天没有到期复习」但**仍可点击**（不做禁用态）。
+3. 各科入口卡：收录 / 已掌握 + 进度条，点击跳 `/mistakes?subject=<学科>`。
+4. `GET /api/mistakes` 新增可选 `subject` 参数（经 seed 归并，复用 `_weak_distribution` 的映射口径）；
+   `MistakesPage` 从 URL 读 `subject`、渲染为可清除筛选项，并纳入「清除筛选」覆盖范围（四项 → 五项）。
+5. 既有 9 张 MetricCard、掌握度曲线、薄弱分布、事件事实**一律不删不改语义**（只新增）。
+
+【DoD】
+- 集成断言 `sum(subjects[].graduated) == graduated_total`；`sum(subjects[].active) == inventory.active`
+  （证明 voided 没串进来）。
+- `subject` 与 `q`/`category_id`/`error_cause`/`mastery_state` 可组合；分页 `total` 为过滤后总数；
+  未知学科名返回空集不报错；`/mistakes?subject=` 深链进入即已筛选。
+- CTA 跳转有断言或取证；360/412 两档无横向溢出（`scrollWidth === clientWidth`）+ 截图存档。
+- 全量 `pytest -q` 绿、`ruff check --no-cache` 绿、`npm run lint`/`test`/`build` 绿；**零迁移、零新依赖**。
+
+【禁止】新建第三套「已掌握」口径；用 `category_id` 冒充学科；为卡片存易变列或缓存；
+删改既有看板区块语义；把 dashboard 变成写路径；卡片点击后还要再选一次的中间步骤。
+```
+
+## P2-11 —— 错因聚合卡（v2.7 D9；只读聚合、零新增状态）
+
+```
+你在 wengu 仓库工作。开工前完整读：AGENTS.md §5（AI 建议值 vs 确认值分离、不存易变字段）+ 设计文档 §18 D9
++ wengu-api/app/services/mistakes.py（ERROR_CAUSES 50-58、effective_labels 118-141、list_mistakes 500-640）
++ app/api/dashboard.py 与 app/services/dashboard.py（_mistake_rows 213-217 只读根表这一事实）
++ app/models/mistakes.py（suggested_error_cause 80 / confirmed_error_cause 81）
++ app/services/intake.py（SUGGESTED_ERROR_CAUSES 50、map_suggested_error_cause 101-107，理解建议值来源）
++ wengu-web/src/pages/DashboardPage.tsx（薄弱分布卡风格照它）+ TICKETS.md 的 P2-11 与 P2-13（口径同源）。
+
+【投单纪律】同 P2-13（最新 main 切 feat/p2-11-error-cause-card；一票一 PR；核对暂存清单；
+commit -F 仓库外 UTF-8；ruff --no-cache；UI 改动带取证；不一致上报不硬凑）。
+
+【事实（2026-11-14 读盘）】
+- 7 个错因键原文：`prerequisite_gap / concept_unclear / method_missing / calculation / careless / expression / other`。
+- 错因两列都在 `mistake_versions`；**取值优先级唯一入口是 `effective_labels()`**
+  （`confirmed_by is not None` → 用确认值，否则用建议值）。
+- `services/dashboard.py` 目前**没有任何错因聚合**；且 `_mistake_rows` 只读 `mistakes` 根表、
+  不加载 `MistakeVersion`——本票要扩到版本列，但**不得绕过 `effective_labels` 自己拼优先级**。
+
+【任务】
+1. `GET /api/dashboard` 新增 `error_cause_distribution: [{cause, label, count}]`：
+   口径 = **在册未掌握**（`status=active` 且非 `is_graduated`，与 P2-13 同一把尺）按
+   `effective_labels().error_cause` 计数；**未填错因单列 `unlabeled`，不塞进 `other`**。
+2. 前端看板新增一张横向条卡（与薄弱分布同风格、同区域），点击某条跳 `/mistakes?error_cause=<键>`
+   （复用 P2-9 既有筛选，不新增端点）。
+
+【DoD】
+- 造 confirmed/suggested 混合 fixture：断言计数走 `effective_labels` 优先级，且改判后数字随之变化、不重复计。
+- 自洽断言：`sum(error_cause_distribution 各项) == 未掌握总数`，且与 P2-13 学科卡的 active 之和一致。
+- `other` 与 `unlabeled` 分列各有断言（防"没标"被读成"其他原因"）。
+- 零新增列、零迁移；360/412 不破版 + 截图；全量 pytest + ruff + build 绿。
+
+【禁止】引入模型/AI 归类错因（零模型红线）；把 `suggested_*` 当确认值统计；新建第三套未掌握口径；
+为聚合结果存列或建缓存表；用 `other` 兜底空值；新增后端端点（复用既有筛选）。
+```
+
+## P2-12 —— 复习日历（v2.7 D9；只读投影，非自动排课）
+
+```
+你在 wengu 仓库工作。开工前完整读：AGENTS.md §2.3（已砍"时间块自动排课式日程"，不得加回）与 §5（事实源/不存易变字段）
++ 设计文档 §18 D9、§6（规划=日队列+番茄钟、课表为约束层）
++ wengu-api/app/models/review.py（全部列 16-47；无 status；开放行=completed_at IS NULL；ix_review_schedules_due_date 35）
++ app/services/review.py（due_queue 915-1019 逾期判定 949-953 与排序 977-979；complete_attempt 715-862；
+  schedule_initial 503-605；derive_review_state 495）
++ app/api/reviews.py（due 端点 159-172，注意它只返回过去/今日、无区间端点）
++ app/models/events.py（occurred_at 与三索引）+ app/services/dashboard.py（按日归属 160-184）
++ app/services/streak.py（LEARNING_EVENT_TYPES 31-33、日归属 64-79）
++ wengu-web/src/pages/SchedulePage.tsx（周课表 217-313、硬事件 315-427、PIN 门 195-199）
++ src/lib/nav.ts（NAV 11 项 15-27、groupNavItems 34-47）与 src/App.tsx（路由 28-46）+ TICKETS.md 的 P2-12。
+
+【投单纪律】同 P2-13（分支 feat/p2-12-review-calendar；一票一 PR；核对清单；commit -F；ruff --no-cache；
+UI 取证；不一致上报不硬凑）。
+
+【事实与一条必须避开的坑】
+- `review_schedules` **没有 status 列**：「下一次排期」= `completed_at IS NULL` 的行（部分唯一索引保证唯一），
+  历史行 = `completed_at IS NOT NULL`。按日期投影可直接用已有的 `ix_review_schedules_due_date`。
+- `GET /api/reviews/due` 只覆盖过去/今日，**没有区间端点**，日历需要新的只读查询端点。
+- ⚠️ 事件 type **盘上不存在 `mistake_confirmed`**（测试夹具里出现过该字符串，属误导）。真实写入的 type 全集：
+  `attempt_correct`、`attempt_wrong`、`recitation_reviewed`、`pomodoro_completed`、`review_scheduled`、
+  `mistake_labeled`、`mistake_voided`、`mistake_reactivated`（分散在四个 services 文件定义，无统一枚举）。
+
+【任务】
+1. 新只读端点 `GET /api/reviews/calendar?from=&to=`（默认 `today-7` 至 `today+30`；跨度 >92 天 → 422）：
+   返回按日 `{date, planned: [{mistake_id, due_date, kind, overdue, completed}], done: [{date, type, mistake_id?}]}`；
+   `planned` 取该日 `due_date` 的排期行（含历史行，用 `completed_at` 判完成态），
+   `kind`（quiz/redo）**必须沿用 `due_queue` 的判定**，不得另建一套。
+2. `done` 来自 `learning_events`，按日归属沿用 `dashboard.py:160-184` / `streak.py:64-79` 的口径
+   （payload `completed_on` 优先、回退 `occurred_at`）；**展示类型白名单写成显式常量**，只收上面列出的真实 type。
+3. 新路由 `/review-calendar` + `nav.ts` 追加 `{to:"/review-calendar", label:"复习日历"}`
+   （插在 `/schedule` 之后、`parentOnly` 三项之前）；月视图每天标「N 道计划」，点某天看清单并可跳 `/review`。
+
+【DoD】
+- 造 3 条不同 `due_date`（含 1 条已完成、1 条逾期）：断言按日归属正确、逾期标记正确、同一排期不重复计。
+- 投影今日数字与 `due_queue` 一致（同一把尺的集成断言）。
+- 跨度 >92 天 → 422；`from > to` → 422；与 `/schedule` 硬事件互不混入。
+- **只读**：本票不得新增任何写端点或状态列；零迁移。
+- 360/412 月视图不破版（CDP 或真机截图存档 + report.json）；全量 pytest + ruff + build 绿。
+
+【禁止】自动排课/时间块日程（§12 已砍，加回即打回）；为日历存状态列或建派生表；前端 localStorage 当数据源；
+臆造不存在的 event type；把 PIN 写操作混进只读页；另建第二套逾期/kind 判定。
+```
+
+## P2-14 —— 主题切换（v2.7 D10；纯前端，后端零改动）
+
+```
+你在 wengu 仓库工作。开工前完整读：AGENTS.md §3（前端栈已定，勿加新 UI 依赖）与 §5（数据只在服务端）
++ 设计文档 §18 D10 + wengu-web/src/main.tsx（17 行 defaultColorScheme="light"）
++ src/print.css（5-6 / 21-22 / 73 / 251-306 全篇硬编码浅色，@media print 强制白底）
++ src/pages/PrintMistakesPage.tsx:9 与 PrintPaperPage.tsx:14,145（打印页在 AppLayout 之外，App.tsx:28-29）
++ src/pages/DashboardPage.tsx 的 4 处硬编码色（100 / 108 / 111 / 201）
++ wengu-api/app/core/runtime_config.py（_ALLOWED_KEYS 225 只有 4 键）与 app/api/config.py（PUT 挂 require_parent 24）
++ package.json（@mantine/hooks 8.3.18 已在依赖 15 行）+ TICKETS.md 的 P2-14。
+
+【投单纪律】同 P2-13（分支 feat/p2-14-theme-toggle；一票一 PR；核对清单；commit -F；ruff --no-cache；
+UI 取证；不一致上报不硬凑）。
+
+【主题存哪里——已定，不要改】
+存 **localStorage（Mantine 内置 colorScheme storage）**，不进 app-config、不进数据库。理由必须写进代码注释：
+主题是**每设备的呈现偏好、不是学习数据**；app-config 的 `PUT /api/config` 整挂 `require_parent`，
+放进去等于孩子连自己设备的外观都改不了，且把 UI 偏好伪装成业务配置。
+（本票是"localStorage 只准存呈现偏好、不准存业务数据"的边界样本，别把它当成放宽数据入库的先例。）
+
+【任务】
+1. `createTheme` + `useMantineColorScheme`；头部加浅色/深色切换按钮（孩子区与家长区都可见，解锁与否都能切）。
+2. 把 `DashboardPage` 4 处硬编码色改为 Mantine 语义色 / `var(--mantine-color-*)`；其它页面若发现硬编码色，
+   只在深色下确实不可读时才改，并逐处说明（不要顺手全站换色）。
+3. **打印豁免**：`.print-shell` 与 `@media print` 在深色下仍保持浅色底；打印页工具栏若用 Mantine 组件，
+   固定 light，避免深色模式下打印预览变黑底。
+
+【DoD】
+- 切换后刷新保持；**切换不触发任何数据请求**（网络面板取证或断言）。
+- 深色下桌面 + 360/412 三档取证截图（文字对比度、掌握度曲线、徽标、表格、复习页计时器）+ report.json。
+- 打印预览仍白底（深色模式下截图取证）。
+- localStorage 中**只有主题键**（断言不含任何题目/答案/学习数据）。
+- `npm run lint` / `npm test` / `npm run build` 绿；**后端零改动**（`git diff` 证明 wengu-api 为空）。
+
+【禁止】把主题写进 app-config 或数据库；用 localStorage 存任何业务/学习数据；为暗色引入新 UI 依赖；
+改打印内容结构（只允许配色豁免）；借主题之名重构页面布局或换全站配色。
+```

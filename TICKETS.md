@@ -460,6 +460,104 @@
   void → 退出 due → unvoid → 回到 due；零迁移、零新端点；全量绿 + `ruff check --no-cache` + build。
 - 禁止：新写恢复端点；物理删除；把回收站暴露给孩子区；顺手改 void/unvoid 权限。
 
+### P2-13 看板信息层级：主 CTA + 各科入口卡（v2.7 D2；零迁移）
+- **现状（2026-11-14 读盘）**：`DashboardResponse`（`api/dashboard.py:118-134`）里
+  `weak_subjects` = `SubjectWeaknessView`（`:34-36`）**只有 `subject` + `active_mistakes` 两键**，
+  不含掌握度与收录总数；`DashboardPage.tsx:306-498` 是"标题 → ScheduleBrief → StreakCard →
+  9 张 MetricCard → 曲线+知识点表 → 薄弱分布+题库缺口 → 事件事实"，**没有任何主 CTA、也没 import react-router**；
+  硬编码色在 `:100/:108/:111/:201`。
+- ⚠️ **两条读盘纠正（§18 D2 原设想踩空的点）**：
+  ① **`category_id` 不是学科**——它是 `knowledge_seed.id`（粗粒度知识点，`Concept.category_id`、
+  `mistake_versions.confirmed/suggested_category_id` 都指它）；学科在 `KnowledgeSeed.subject`（`models/knowledge.py:20`），
+  看板学科是 `_weak_distribution`（`services/dashboard.py:312-342`）用 topic_id 反查 seed 得到、
+  查不到落 `UNASSIGNED_SUBJECT="未挂考点"`（`:68`）。所以"点学科卡进该科列表"**不能复用 `category_id`**。
+  ② **"已掌握"在盘上有两个语义不同的入口**：`recompute.is_graduated()`（`:142`，按 mistake 的
+  `attempt_correct/wrong` 全事件尾部连对 ≥ `GRADUATION_STREAK`，看板 `graduated_total` 用它）vs
+  `review_policy.mastery_state()`（`:62`，经 `review.py:495 derive_review_state` 重放 `review_scheduled`+review 事件，
+  错题本筛选 P2-9 用它）。**本票口径唯一 = `is_graduated`**（与看板既有 `graduated_total` 同源）；
+  若实现中发现两口径对同一数据集给不同数，**上报不要自行折中**。
+- 交付：
+  ① `GET /api/dashboard` 新增 `subjects: [{subject, active, graduated, total}]`——`active`=该学科在册未掌握数、
+     `graduated`=该学科 `is_graduated` 数、`total = active + graduated`（**voided 不计入任何一项**）；全部现算、不存列；
+  ② 主 CTA「开始今日复习」→ 跳 `/review`（`DashboardPage` 首次引入 `useNavigate`）；`due.total === 0` 时
+     CTA 文案改「今天没有到期复习」并仍可见（不做禁用态，避免孩子以为坏了）；
+  ③ 各科入口卡（收录 / 已掌握 + 进度条），点击跳 `/mistakes?subject=<学科>`；
+  ④ 为让卡片有真实消费方，`GET /api/mistakes` 新增可选 `subject` 参数（经 seed 反查归并到学科，
+     **必须复用 `_weak_distribution` 同一映射**，不得另建第二套 topic→subject 逻辑）；
+     `MistakesPage` 从 URL 读 `subject`、显示为可清除筛选项，并计入「清除筛选」覆盖范围（四项 → **五项**）；
+  ⑤ 既有 9 张 MetricCard、曲线、薄弱分布**不删不改语义**（只新增）。
+- DoD：`sum(subjects[].graduated) == graduated_total` 集成断言（口径自洽钉死）；`subjects[].active` 之和
+  == `inventory.active`（voided 不串入）；`subject` 参数与既有 `q`/`category_id`/`error_cause`/`mastery_state`
+  可组合、分页 `total` 为过滤后总数；未知学科名返回空集不报错；`/mistakes?subject=` 深链进入即已筛选；
+  CTA 跳转有测试或取证；360/412 无横向溢出（取证截图）；全量 `pytest -q` + `ruff --no-cache` + build 绿；**零迁移**。
+- 禁止：新建第三套"已掌握"口径；用 `category_id` 冒充学科；为卡片存易变列；删改既有看板区块语义；
+  把 dashboard 变成写路径；给卡片加"点击后还要再选一次"的中间步骤。
+
+### P2-11 错因聚合卡（v2.7 D9；只读聚合、零新增状态）
+- **现状（2026-11-14 读盘）**：`ERROR_CAUSES` 在 `services/mistakes.py:50-58`，7 键原文
+  `prerequisite_gap / concept_unclear / method_missing / calculation / careless / expression / other`；
+  错因两列都在 `mistake_versions`（`suggested_error_cause:80`、`confirmed_error_cause:81`），
+  **取值优先级唯一入口是 `effective_labels()`（`:118-141`）**：`confirmed_by is not None` 用确认值、否则用建议值；
+  `services/dashboard.py` **零处错因聚合**（grep 无命中），且 `_mistake_rows`（`:213-217`）只读根表、
+  不加载 `MistakeVersion`——本票要扩到版本列，但**不得绕过 `effective_labels` 自己拼优先级**。
+- 交付：`GET /api/dashboard` 新增 `error_cause_distribution: [{cause, label, count}]`——
+  口径 = **在册未掌握**（`active` 且非 `is_graduated`，与 P2-13 同一把尺）按 `effective_labels().error_cause` 计数；
+  **未填错因单列 `unlabeled`**（不塞进 `other`，否则会把"没标"误读成"其他原因"）；
+  前端看板加一张横向条卡（与薄弱分布同风格），点击某条跳 `/mistakes?error_cause=<键>`（复用 P2-9 既有筛选）。
+- DoD：造 confirmed/suggested 混合 fixture，断言计数走 `effective_labels` 优先级（改判后数字随之变、不重复计）；
+  `sum(error_cause_distribution) + unlabeled == 未掌握总数`（与 P2-13 学科卡自洽）；
+  `other` 与 `unlabeled` 分列断言；零新增列/零迁移；360/412 不破版；全量绿 + ruff + build。
+- 禁止：引入模型/AI 归类错因（零模型红线）；把 `suggested_*` 当确认值统计；新建第三套未掌握口径；
+  为聚合结果存列或建缓存表；用 `other` 兜底空值。
+
+### P2-12 复习日历（v2.7 D9；只读投影，非自动排课）
+- **现状（2026-11-14 读盘）**：`review_schedules` 列（`models/review.py:16-47`）为
+  `id / mistake_id / rung / base_interval_days / due_date(NOT NULL) / source_event_id(FK, unique) /
+  completed_attempt_id / completed_at / created_at`——**没有 status 列**；"下一次排期" =
+  `completed_at IS NULL` 的那一行（部分唯一索引 `uq_review_schedules_open_mistake:41-46`）；
+  `ix_review_schedules_due_date:35` 已存在，按日期扫表可直接用。
+  `due_queue()`（`services/review.py:915-1019`）逾期判定 = `due_date <= today` 且未完成（`:949-953`）、
+  排序逾期在前（`:977-979`）；`GET /api/reviews/due`（`api/reviews.py:159-172`）**只返回过去/今日、无区间端点**，
+  全仓没有其它 ReviewSchedule 查询端点。`SchedulePage.tsx` 是周课表（`:217-313`）+ 未来 30 天硬事件
+  （`:315-427`）且写操作挂 PIN（`:195-199`）。NAV 11 项（`src/lib/nav.ts:15-27`）、路由在 `App.tsx:28-46`。
+- 交付：
+  ① 新只读端点 `GET /api/reviews/calendar?from=&to=`（默认 `today-7` 至 `today+30`，跨度 >92 天 → 422）：
+     返回按日 `{date, planned: [{mistake_id, due_date, kind, overdue}], done: [{date, type, mistake_id?}]}`；
+     `planned` 取该日 `due_date` 的排期行（含历史已完成行，用 `completed_at` 判是否已完成）、
+     `kind` 沿用 `due_queue` 的 quiz/redo 判定，**不得另建判定**；
+  ② `done` 来自 `learning_events` 按日归属（payload `completed_on` 优先、回退 `occurred_at`，
+     与 `dashboard.py:160-184` / `streak.py:64-79` 同一口径）；**事件类型白名单必须是显式常量**，
+     只收真实存在的 type：`attempt_correct`、`attempt_wrong`、`recitation_reviewed`、
+     `pomodoro_completed`、`review_scheduled`、`mistake_labeled`、`mistake_voided`、`mistake_reactivated`
+     （⚠️ 盘上**不存在** `mistake_confirmed`，测试夹具里出现过该字符串属误导，不得当事实写进实现）；
+  ③ 新路由 `/review-calendar` + NAV 追加 `{to:"/review-calendar", label:"复习日历"}`
+     （插在 `/schedule` 之后、`parentOnly` 三项之前；`groupNavItems`/`isNavActive` 自动生效）；
+     月视图每天标「N 道计划」，点某天看清单并可跳 `/review`。
+- DoD：造 3 条不同 `due_date`（含 1 条已完成、1 条逾期）断言按日归属与逾期标记正确、且不重复计；
+  投影数字与 `due_queue` 在今日一致（同一把尺）；跨度 >92 天 → 422；与 `/schedule` 硬事件互不混入；
+  只读——**任何写操作都不新增**；360/412 月视图不破版（CDP/真机取证截图）；全量绿 + ruff + build；**零迁移**。
+- 禁止：自动排课/时间块式日程（§12 已砍）；为日历存状态列或建派生表；前端 localStorage 当数据源；
+  臆造不存在的 event type；把 PIN 写操作混进只读页；用 `due_queue` 之外的第二套逾期/kind 判定。
+
+### P2-14 主题切换（v2.7 D10；纯前端，零后端改动）
+- **现状（2026-11-14 读盘）**：`main.tsx:17` 写死 `<MantineProvider defaultColorScheme="light">`，
+  全仓**无 `createTheme`、无 theme 文件**；`src/print.css` 通篇硬编码浅色（`.print-shell:5-6`、
+  `.print-toolbar:21-22`、`.print-sheet:73`、`@media print:251-306` 强制 `background:#fff !important`），
+  两个打印页各自 import 它且路由挂在 `AppLayout` 之外（`App.tsx:28-29`）；
+  `DashboardPage` 有 4 处硬编码色（`:100/:108/:111/:201`）；前端**完全没用过 localStorage**；
+  `@mantine/hooks@8.3.18` 已在依赖（`package.json:15`）；后端 app-config 白名单只有 4 键
+  （`runtime_config.py:225`）且 `PUT /api/config` 整挂 `require_parent`（`api/config.py:24`）。
+- 交付：`createTheme` + `useMantineColorScheme`，头部加浅色/深色切换按钮（孩子区与家长区都可见，
+  解锁与否都能切）；偏好存 **localStorage（Mantine 内置 storage key）**——理由写进代码注释：
+  主题是**每设备的呈现偏好、不是学习数据**，因此不进 app-config（那会被 PIN 挡住，孩子改不了自己设备外观），
+  也不进数据库；把 `DashboardPage` 4 处硬编码色改为 Mantine 语义色 / `var(--mantine-color-*)`；
+  **打印豁免**：`.print-shell` 与 `@media print` 在深色下仍保持浅色底，打印页工具栏若用 Mantine 组件需固定 light。
+- DoD：切换后刷新保持、且**不触发任何数据请求**（网络断言或取证）；深色下桌面 + 360/412 三档取证截图
+  （文字对比度、掌握度曲线、徽标、表格）；打印预览仍白底（截图取证）；localStorage 中**只有主题键**
+  （断言不含任何题目/学习数据）；`npm run lint`/`test`/`build` 绿；**后端零改动**。
+- 禁止：把主题写进 app-config 或数据库；用 localStorage 存任何业务/学习数据；为暗色引入新 UI 依赖；
+  改打印内容结构（只允许配色豁免）；借主题之名重构页面布局。
+
 ---
 
 ## Phase 3 —— 内容扩展（按 ROI）
