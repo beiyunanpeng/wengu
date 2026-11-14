@@ -1859,8 +1859,12 @@ MASTERY_SOURCES / GRADUATION_STREAK）+ app/services/review_policy.py（review_i
 5. 既有 9 张 MetricCard、掌握度曲线、薄弱分布、事件事实**一律不删不改语义**（只新增）。
 
 【DoD】
-- 集成断言 `sum(subjects[].graduated) == graduated_total`；`sum(subjects[].active) == inventory.active`
-  （证明 voided 没串进来）。
+- 集成断言（交付时修正，原卡两条算式互斥）：`sum(subjects[].total) == inventory.active`；
+  独立重算 `expected_graduated`（对 active_ids 跑 `is_graduated`）与卡片值双向对齐；
+  `graduated_total - sum(subjects[].graduated) == 已作废且已毕业数`，并做撤销作废往返断言
+  （`graduated_total` 全程不变、卡片归位）。
+  ⚠️ 原卡写的 `sum(graduated)==graduated_total` 与 `sum(active)==inventory.active` 不能同时成立：
+  `graduated_total` 不按 status 过滤，而学科卡排除 voided——这是审核方措辞错误，已改，不由施工方背。
 - `subject` 与 `q`/`category_id`/`error_cause`/`mastery_state` 可组合；分页 `total` 为过滤后总数；
   未知学科名返回空集不报错；`/mistakes?subject=` 深链进入即已筛选。
 - CTA 跳转有断言或取证；360/412 两档无横向溢出（`scrollWidth === clientWidth`）+ 截图存档。

@@ -474,7 +474,9 @@
   ② **"已掌握"在盘上有两个语义不同的入口**：`recompute.is_graduated()`（`:142`，按 mistake 的
   `attempt_correct/wrong` 全事件尾部连对 ≥ `GRADUATION_STREAK`，看板 `graduated_total` 用它）vs
   `review_policy.mastery_state()`（`:62`，经 `review.py:495 derive_review_state` 重放 `review_scheduled`+review 事件，
-  错题本筛选 P2-9 用它）。**本票口径唯一 = `is_graduated`**（与看板既有 `graduated_total` 同源）；
+  错题本筛选 P2-9 用它）。**本票口径唯一 = `is_graduated`**；⚠️ 但它与看板 `graduated_total` **不同源**——
+  后者沿用旧口径、**不按 status 过滤**（含"已作废但曾毕业"），所以 `sum(subjects[].graduated) == graduated_total`
+  数学上不成立（原卡据此写断言是审核方错误，交付时已修正为下方可证伪的三条）；
   若实现中发现两口径对同一数据集给不同数，**上报不要自行折中**。
 - 交付：
   ① `GET /api/dashboard` 新增 `subjects: [{subject, active, graduated, total}]`——`active`=该学科在册未掌握数、
@@ -486,9 +488,12 @@
      **必须复用 `_weak_distribution` 同一映射**，不得另建第二套 topic→subject 逻辑）；
      `MistakesPage` 从 URL 读 `subject`、显示为可清除筛选项，并计入「清除筛选」覆盖范围（四项 → **五项**）；
   ⑤ 既有 9 张 MetricCard、曲线、薄弱分布**不删不改语义**（只新增）。
-- DoD：`sum(subjects[].graduated) == graduated_total` 集成断言（口径自洽钉死）；`subjects[].active` 之和
-  == `inventory.active`（voided 不串入）；`subject` 参数与既有 `q`/`category_id`/`error_cause`/`mastery_state`
-  可组合、分页 `total` 为过滤后总数；未知学科名返回空集不报错；`/mistakes?subject=` 深链进入即已筛选；
+- DoD（交付时由施工方反驳、审核方确认并修正——原卡两条算式互斥）：
+  ① `sum(subjects[].total) == inventory.active`；② 独立重算 `expected_graduated`（对 active_ids 跑
+  `is_graduated`）与卡片 `sum(graduated)` 双向对齐；③ `graduated_total - sum(subjects[].graduated) ==
+  已作废且已毕业数`，并做撤销作废往返断言（`graduated_total` 不变、卡片归位）；
+  `subject` 参数与既有 `q`/`category_id`/`error_cause`/`mastery_state` 可组合、分页 `total` 为过滤后总数；
+  未知学科名返回空集不报错；`/mistakes?subject=` 深链进入即已筛选；
   CTA 跳转有测试或取证；360/412 无横向溢出（取证截图）；全量 `pytest -q` + `ruff --no-cache` + build 绿；**零迁移**。
 - 禁止：新建第三套"已掌握"口径；用 `category_id` 冒充学科；为卡片存易变列；删改既有看板区块语义；
   把 dashboard 变成写路径；给卡片加"点击后还要再选一次"的中间步骤。
