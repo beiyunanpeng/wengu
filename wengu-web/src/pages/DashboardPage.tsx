@@ -1,6 +1,7 @@
 import {
   Alert,
   Box,
+  Button,
   Card,
   Group,
   Loader,
@@ -12,15 +13,18 @@ import {
   Title,
 } from "@mantine/core";
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import { errorMessage } from "../api/client";
 import { getDashboard } from "../api/endpoints";
 import ScheduleBrief from "../components/ScheduleBrief";
+import { mistakesSubjectHref, reviewCta } from "../lib/dashboard";
 import type {
   DashboardConceptMastery,
   DashboardCurvePoint,
   DashboardResponse,
   DashboardStreak,
+  DashboardSubjectInventory,
 } from "../api/types";
 
 const percent = (value: number) => `${Math.round(value * 100)}%`;
@@ -257,7 +261,52 @@ function StreakCard({ streak }: { streak: DashboardStreak }) {
   );
 }
 
+function SubjectEntryCard({
+  item,
+  onOpen,
+}: {
+  item: DashboardSubjectInventory;
+  onOpen: () => void;
+}) {
+  const ratio = item.graduated / item.total;
+  return (
+    <Card
+      withBorder
+      padding="md"
+      component="button"
+      type="button"
+      onClick={onOpen}
+      aria-label={`${item.subject}：收录 ${item.total} 道，已掌握 ${item.graduated} 道，进入该科错题本`}
+      style={{ cursor: "pointer", textAlign: "left" }}
+    >
+      <Stack gap="xs">
+        <Group justify="space-between" wrap="nowrap">
+          <Text fw={600}>{item.subject}</Text>
+          <Text size="xs" c="dimmed">
+            未掌握 {item.active}
+          </Text>
+        </Group>
+        <Group gap="xs" wrap="nowrap">
+          <Progress
+            value={ratio * 100}
+            size="sm"
+            color="teal"
+            style={{ flex: 1 }}
+          />
+          <Text size="xs" w={36} ta="right">
+            {percent(ratio)}
+          </Text>
+        </Group>
+        <Text size="xs" c="dimmed">
+          收录 {item.total} · 已掌握 {item.graduated}
+        </Text>
+      </Stack>
+    </Card>
+  );
+}
+
 export default function DashboardPage() {
+  const navigate = useNavigate();
   const [data, setData] = useState<DashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -303,6 +352,8 @@ export default function DashboardPage() {
     );
   }
 
+  const cta = reviewCta(data.due.total);
+
   return (
     <Stack gap="md">
       <Stack gap={4}>
@@ -311,6 +362,36 @@ export default function DashboardPage() {
           只读确定性统计：孩子与家长看同一份，全部从事件事实现算，不调模型。
         </Text>
       </Stack>
+
+      <Group justify="space-between" wrap="wrap">
+        <Button size="md" onClick={() => navigate(cta.to)}>
+          {cta.label}
+        </Button>
+        <Text size="sm" c="dimmed">
+          到期合计 {data.due.total} · 今日 {data.due.today} · 逾期{" "}
+          {data.due.overdue}
+        </Text>
+      </Group>
+
+      {data.subjects.length > 0 && (
+        <Stack gap="xs">
+          <Group justify="space-between" wrap="wrap">
+            <Text fw={600}>各科错题</Text>
+            <Text size="sm" c="dimmed">
+              点卡片直接进该科错题本
+            </Text>
+          </Group>
+          <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }}>
+            {data.subjects.map((item) => (
+              <SubjectEntryCard
+                key={item.subject}
+                item={item}
+                onOpen={() => navigate(mistakesSubjectHref(item.subject))}
+              />
+            ))}
+          </SimpleGrid>
+        </Stack>
+      )}
 
       <ScheduleBrief />
 

@@ -9,6 +9,11 @@
 - 错题存量：按 `mistakes.status` 分 active / voided；
 - 薄弱分布：活跃错题按 `primary_topic_id` 聚合（学科取 seed 的 subject，
   未挂考点单列），不做任何加权；
+- 各科存量（P2-13）：同一套 topic→subject 映射（`services.subjects`）下，
+  `active` = 在册且非 `is_graduated`、`graduated` = 在册且 `is_graduated`、
+  `total` = 两者之和；**voided 三项都不计**。因此 `sum(total) == inventory.active`，
+  而 `graduated_total` 沿用旧口径（事件里出现过的 mistake，不按 status 过滤），
+  两者差额恰为"已作废但曾毕业"的题数；
 - 掌握度：只统计当前版本里“已确认”的 concept（与复习排期 min mastery 同源），
   曲线末点 = 各 concept 掌握度的算术平均；样本 < 3 只是看板展示，不据此下结论；
 - 到期：活跃错题且排期未完成，`due_date < today` 为逾期、`== today` 为今日；
@@ -61,11 +66,11 @@ from app.services.recompute import (
     stats,
 )
 from app.services.streak import StreakSummary, summarize_streak
+from app.services.subjects import load_topics, subject_for_topic
 
 DEFAULT_CURVE_DAYS = 30
 MAX_CURVE_DAYS = 90
 REVIEW_EVENT_KIND = "review"
-UNASSIGNED_SUBJECT = "未挂考点"
 
 
 @dataclass(frozen=True)
@@ -80,6 +85,16 @@ class TopicWeakness:
 class SubjectWeakness:
     subject: str
     active_mistakes: int
+
+
+@dataclass(frozen=True)
+class SubjectInventory:
+    """各科入口卡（P2-13）：active=在册未掌握、graduated=在册已毕业、total=在册总数。"""
+
+    subject: str
+    active: int
+    graduated: int
+    total: int
 
 
 @dataclass(frozen=True)
@@ -115,6 +130,7 @@ class DashboardSnapshot:
     voided_mistakes: int
     weak_topics: tuple[TopicWeakness, ...]
     weak_subjects: tuple[SubjectWeakness, ...]
+    subjects: tuple[SubjectInventory, ...]
     unassigned_active: int
     overall_mastery: float
     concept_mastery: tuple[ConceptMastery, ...]
@@ -333,13 +349,43 @@ def _weak_distribution(
 
     subject_counts: Counter[str] = Counter()
     for topic_id, count in active_topic_counts.items():
-        subject = topics[topic_id].subject if topic_id is not None and topic_id in topics else UNASSIGNED_SUBJECT
-        subject_counts[subject] += count
+        subject_counts[subject_for_topic(topic_id, topics)] += count
     weak_subjects = tuple(
         SubjectWeakness(subject=subject, active_mistakes=count)
         for subject, count in sorted(subject_counts.items(), key=lambda item: (-item[1], item[0]))
     )
     return weak_topics, weak_subjects, unassigned_active
+
+
+def _subject_inventory(
+    mistakes: list[tuple[int, str, str | None]],
+    graduated_ids: set[int],
+    topics: dict[str, KnowledgeSeed],
+) -> tuple[SubjectInventory, ...]:
+    """在册错题按学科分毕业/未毕业两堆；voided 一律跳过（三项都不计）。"""
+
+    active: Counter[str] = Counter()
+    graduated: Counter[str] = Counter()
+    for mistake_id, status, topic_id in mistakes:
+        if status != MISTAKE_ACTIVE:
+            continue
+        subject = subject_for_topic(topic_id, topics)
+        if mistake_id in graduated_ids:
+            graduated[subject] += 1
+        else:
+            active[subject] += 1
+    subjects = set(active) | set(graduated)
+    return tuple(
+        SubjectInventory(
+            subject=subject,
+            active=active[subject],
+            graduated=graduated[subject],
+            total=active[subject] + graduated[subject],
+        )
+        for subject in sorted(
+            subjects, key=lambda item: (-(active[item] + graduated[item]), item)
+        )
+    )
 
 
 async def _due_counts(session: AsyncSession, today: date) -> tuple[int, int, int]:
@@ -437,15 +483,7 @@ async def build_dashboard(
     active_mistakes = sum(active_topic_counts.values())
     voided_mistakes = sum(1 for _, status, _ in mistakes if status == MISTAKE_VOIDED)
 
-    topic_ids = {topic_id for topic_id in active_topic_counts if topic_id}
-    topics = (
-        {
-            row.id: row
-            for row in (await session.scalars(select(KnowledgeSeed).where(KnowledgeSeed.id.in_(topic_ids)))).all()
-        }
-        if topic_ids
-        else {}
-    )
+    topics = await load_topics(session, active_topic_counts)
     weak_topics, weak_subjects, unassigned_active = _weak_distribution(active_topic_counts, topics)
 
     concept_ids = await _confirmed_concept_ids(session)
@@ -462,7 +500,8 @@ async def build_dashboard(
     graduated_this_week = sum(1 for event in week_reviews if _payload(event).get("graduated") is True)
 
     mistake_ids = {event.mistake_id for event in events if event.mistake_id is not None}
-    graduated_total = sum(1 for mistake_id in mistake_ids if is_graduated(events, mistake_id))
+    graduated_ids = {mistake_id for mistake_id in mistake_ids if is_graduated(events, mistake_id)}
+    subjects = _subject_inventory(mistakes, graduated_ids, topics)
 
     bank_gap_topics, bank_gap_unassigned_open = await _bank_gap(session, active_topic_counts, topics)
     appeal_count, appealed_gradings = await _appeal_counts(session)
@@ -484,6 +523,7 @@ async def build_dashboard(
         voided_mistakes=voided_mistakes,
         weak_topics=weak_topics,
         weak_subjects=weak_subjects,
+        subjects=subjects,
         unassigned_active=unassigned_active,
         overall_mastery=overall_mastery,
         concept_mastery=concept_mastery,
@@ -492,7 +532,7 @@ async def build_dashboard(
         due_overdue=due_overdue,
         due_total=due_total,
         reviews_completed_this_week=len(week_reviews),
-        graduated_total=graduated_total,
+        graduated_total=len(graduated_ids),
         graduated_this_week=graduated_this_week,
         bank_gap_topics=bank_gap_topics,
         bank_gap_unassigned_open=bank_gap_unassigned_open,

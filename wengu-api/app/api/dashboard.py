@@ -36,6 +36,13 @@ class SubjectWeaknessView(BaseModel):
     active_mistakes: int
 
 
+class SubjectInventoryView(BaseModel):
+    subject: str
+    active: int
+    graduated: int
+    total: int
+
+
 class ConceptMasteryView(BaseModel):
     concept_id: int
     name: str
@@ -121,6 +128,7 @@ class DashboardResponse(BaseModel):
     inventory: InventoryView
     weak_topics: list[TopicWeaknessView]
     weak_subjects: list[SubjectWeaknessView]
+    subjects: list[SubjectInventoryView]
     mastery: MasteryView
     due: DueView
     completion: CompletionView
@@ -155,6 +163,15 @@ def _to_response(snapshot: DashboardSnapshot) -> DashboardResponse:
         weak_subjects=[
             SubjectWeaknessView(subject=item.subject, active_mistakes=item.active_mistakes)
             for item in snapshot.weak_subjects
+        ],
+        subjects=[
+            SubjectInventoryView(
+                subject=item.subject,
+                active=item.active,
+                graduated=item.graduated,
+                total=item.total,
+            )
+            for item in snapshot.subjects
         ],
         mastery=MasteryView(
             overall=snapshot.overall_mastery,

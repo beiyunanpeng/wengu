@@ -9,6 +9,25 @@
 
 ### Added
 
+- **P2-13 看板信息层级：主 CTA + 各科入口卡（v2.7 D2；零迁移、零新依赖）**（2026-11-14）：
+  - **新增 `app/services/subjects.py` = 学科归并唯一口径**：`primary_topic_id → knowledge_seed.subject`，
+    查不到 seed（含未挂主考点）落 `未挂考点`。看板学科分布与错题本 `subject` 筛选**共用同一把尺**
+    （`category_id` 是知识点 id、不是学科，见 §19-H）；独立成模块是因为 dashboard 已 import mistakes，反向会成环。
+  - **`GET /api/dashboard` 新增 `subjects: [{subject, active, graduated, total}]`**：`active`=该学科在册未掌握、
+    `graduated`=该学科在册 `recompute.is_graduated`、`total=active+graduated`；**voided 三项都不计**；
+    全部从事件事实现算，不新增列、不建派生表、不做缓存。恒等式 `sum(subjects[].total) == inventory.active`；
+    `graduated_total` **语义不变**（仍含 voided 且已毕业），故 `graduated_total - sum(subjects[].graduated)` = voided 且已毕业数。
+    **DoD 两条算式经审核方裁定修正**（卡语义保留）：`sum(total)==inventory.active`、`sum(graduated)` 对齐 voided 排除后的重算。
+  - **`GET /api/mistakes` 新增可选 `subject`（≤64 字符）**：经 seed 归并过滤，与 `q`/`category_id`/`error_cause`/`mastery_state`
+    可组合；分页 `total` 为过滤后总数；未知学科名返回空集不报错。
+  - **前端**：`DashboardPage` 首次引入 `useNavigate`——主 CTA「开始今日复习」跳 `/review`，`due.total===0` 时文案改
+    「今天没有到期复习」但**仍可点击**（无禁用态）；各科入口卡（收录 / 已掌握 + 进度条）点击**直跳** `/mistakes?subject=<学科>`，
+    无中间选择步骤；`MistakesPage` 从 URL 读 `subject`、渲染为可清除徽标并纳入「清除筛选」（四项 → 五项）。
+    纯函数抽到 `src/lib/dashboard.ts` 供 node 原生测试断言（仓库无 jsdom/RTL，零新依赖）。
+  - **一字未改**：既有 9 张 MetricCard、掌握度曲线、薄弱分布、题库缺口、事件事实的语义与顺序；看板仍为只读投影。
+  - **测试与取证**：`test_dashboard_api.py` / `test_mistakes_api.py` 各 +1 集成（含 voided 已毕业不对称、恢复后对齐、
+    学科×知识点双轴独立、分页契约）；新增 `wengu-web/tests/dashboard.test.ts` 6 条；全量 `pytest -q` 744 passed、
+    `ruff check --no-cache .` 绿、`npm run lint/test/build` 绿；360/412 两档 `scrollWidth === clientWidth` 取证截图存档。
 - **TICKETS 第四批四卡**（2026-11-14，出卡前逐条读盘核端点/字段/行号）：**P2-13** 看板主 CTA + 各科入口卡
   （`subjects` 现算 `active/graduated/total`，并为卡片提供真实消费方新增 `GET /api/mistakes?subject=`）、
   **P2-11** 错因聚合卡（计数走 `effective_labels` 优先级，未填错因单列 `unlabeled`、不塞进 `other`）、

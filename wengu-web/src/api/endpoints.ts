@@ -73,6 +73,7 @@ export interface MistakeFilters {
   status?: "active" | "voided" | "all";
   categoryId?: string | null;
   errorCause?: string | null;
+  subject?: string | null;
   q?: string | null;
   masteryState?: MistakeMasteryState | null;
   limit?: number;
@@ -89,6 +90,9 @@ export function listMistakes(
   }
   if (filters.errorCause) {
     params.set("error_cause", filters.errorCause);
+  }
+  if (filters.subject) {
+    params.set("subject", filters.subject);
   }
   if (filters.q) {
     params.set("q", filters.q);

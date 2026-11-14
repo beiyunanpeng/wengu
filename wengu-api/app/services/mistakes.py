@@ -43,6 +43,7 @@ from app.services.review import (
 )
 from app.services.review_policy import initial_state
 from app.services.review_policy import mastery_state as classify_mastery_state
+from app.services.subjects import load_topics, subject_for_topic
 
 MAX_CONCEPTS = 10
 MAX_ERROR_CAUSE_LENGTH = 32
@@ -574,6 +575,7 @@ async def list_mistakes(
     category_id: str | None = None,
     concept_id: int | None = None,
     error_cause: str | None = None,
+    subject: str | None = None,
     q: str | None = None,
     mastery_state: str | None = None,
     limit: int = 50,
@@ -583,6 +585,8 @@ async def list_mistakes(
 
     q 对当前版本题干 + 订正答案做大小写不敏感 LIKE（通配符转义，不搜历史版本）；
     mastery_state 由复习事件重放推导（pending/consolidating/graduated），不加列。
+    subject 走 `Mistake.primary_topic_id` → seed 的学科归并（与看板学科卡同一把尺，
+    不是 `category_id`——那是知识点 id）；未知学科名匹配不到任何行，返回空集不报错。
     """
 
     latest_version = (
@@ -618,9 +622,16 @@ async def list_mistakes(
         if concept_id is not None
         else None
     )
+    topics = (
+        await load_topics(session, (mistake.primary_topic_id for mistake, _ in rows))
+        if subject is not None
+        else {}
+    )
 
     filtered: list[tuple[Mistake, MistakeVersion]] = []
     for mistake, version in rows:
+        if subject is not None and subject_for_topic(mistake.primary_topic_id, topics) != subject:
+            continue
         labels = effective_labels(version)
         if category_id is not None and labels.category_id != category_id:
             continue
