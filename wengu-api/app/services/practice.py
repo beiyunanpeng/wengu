@@ -6,7 +6,8 @@
 - 抽题复用 `paper_picks`（同 topic + mulberry32 固定种子），同 `(topic, seed, count)`
   重放同一张卷；题面走 `quiz_view`，绝不下发 answer/accept/explanation/verify。
 - 客观题由服务端 `judge_answer` 判分，客户端 `correct` 一律忽略；解答题/依赖图题
-  降级 `self_eval`，由孩子在卷面自评后回传 `correct`。
+  降级 `self_eval`，由孩子在卷面自评后回传 `correct`。例外：公式题系统未判定
+  （`formula_fallback`）时降级卷面自评，收 `correct`；只写派生表，不动掌握度/排期。
 - 提交幂等：`dedup_key = variant:{topic_id}:{seed}:{question_id}` 有部分唯一索引；
   同题重复提交不新增行，回看已有行并标 `reused=true`。
 
@@ -84,6 +85,7 @@ class PracticeAnswerResult:
     status: str
     practice_record_id: int | None
     reused: bool = False
+    formula_fallback: bool = False
 
 
 @dataclass(frozen=True)
@@ -150,7 +152,7 @@ async def start_practice(
     )
 
 
-def _judge(question: BankQuestion, answer: str) -> str:
+def _judge(question: BankQuestion, answer: str) -> tuple[str, bool]:
     outcome = judge_answer(
         answer,
         question.answer,
@@ -158,8 +160,8 @@ def _judge(question: BankQuestion, answer: str) -> str:
         unordered=question.unordered,
     )
     if outcome.verdict == "uncertain":
-        return "uncertain"
-    return "correct" if outcome.verdict == "correct" else "wrong"
+        return "uncertain", outcome.reason == "formula_fallback"
+    return ("correct" if outcome.verdict == "correct" else "wrong"), False
 
 
 def _dedup_key(topic_id: str, seed: int, question_id: str) -> str:
@@ -260,6 +262,7 @@ async def submit_practice(
             )
             continue
 
+        formula_fallback = False
         if item.mode == "system":
             if not text:
                 results.append(
@@ -271,18 +274,25 @@ async def submit_practice(
                     )
                 )
                 continue
-            status = _judge(question, text)
+            status, formula_fallback = _judge(question, text)
             if status == "uncertain":
-                results.append(
-                    PracticeAnswerResult(
-                        question_id=question.id,
-                        mode="system",
-                        status="uncertain",
-                        practice_record_id=None,
+                if formula_fallback and entry.correct is not None:
+                    # 公式题系统未判定：降级孩子卷面自评（仅派生表，不动掌握度/排期）。
+                    is_correct = entry.correct
+                    status = "correct" if is_correct else "wrong"
+                else:
+                    results.append(
+                        PracticeAnswerResult(
+                            question_id=question.id,
+                            mode="system",
+                            status="uncertain",
+                            practice_record_id=None,
+                            formula_fallback=formula_fallback,
+                        )
                     )
-                )
-                continue
-            is_correct = status == "correct"
+                    continue
+            else:
+                is_correct = status == "correct"
         else:
             if entry.correct is None:
                 if not text:
@@ -336,6 +346,7 @@ async def submit_practice(
                 mode=item.mode,
                 status=status,
                 practice_record_id=row.id,
+                formula_fallback=formula_fallback,
             )
         )
 

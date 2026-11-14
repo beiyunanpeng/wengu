@@ -142,3 +142,23 @@ export function errorMessage(error: unknown): string {
   }
   return "操作失败，请重试";
 }
+
+export const FORMULA_FALLBACK_MESSAGE =
+  "公式题：系统未自动判定，请自评或家长核对";
+
+/** 到期考核公式题降级信号：后端 422 + detail.reason === "formula_fallback"。 */
+export function isFormulaFallback(error: unknown): boolean {
+  if (!(error instanceof ApiError) || error.status !== 422) {
+    return false;
+  }
+  const body = error.detail;
+  if (body && typeof body === "object") {
+    const detail = (body as Record<string, unknown>).detail;
+    if (detail && typeof detail === "object") {
+      return (
+        (detail as Record<string, unknown>).reason === "formula_fallback"
+      );
+    }
+  }
+  return false;
+}

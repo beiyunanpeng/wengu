@@ -101,6 +101,7 @@ class PaperAnswerInfo(BaseModel):
     status: Literal["correct", "wrong", "uncertain", "skipped"]
     attempt_id: int | None
     replayed: bool
+    formula_fallback: bool = False
 
 
 class PaperSubmitResponse(BaseModel):
@@ -276,6 +277,7 @@ async def submit_quiz_paper(
                 status=item.status,
                 attempt_id=item.attempt_id,
                 replayed=item.replayed,
+                formula_fallback=item.formula_fallback,
             )
             for item in result.items
         ],

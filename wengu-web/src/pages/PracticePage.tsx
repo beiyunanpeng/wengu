@@ -11,7 +11,7 @@ import {
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
-import { errorMessage } from "../api/client";
+import { FORMULA_FALLBACK_MESSAGE, errorMessage } from "../api/client";
 import { startPractice, submitPractice } from "../api/endpoints";
 import type {
   PracticeStartResponse,
@@ -104,16 +104,19 @@ export default function PracticePage() {
   }
 
   async function handleSubmit() {
-    if (!paper || !paper.topic_id || busy || result) {
+    if (!paper || !paper.topic_id || busy || (result && !pendingFallback)) {
       return;
     }
     const items = paper.items.map((question) => {
       const entry = drafts[question.question_id];
       const answer = entry?.answer.trim() ? entry.answer.trim() : null;
+      const needsSelfEval =
+        question.mode === "self_eval" ||
+        statusFor(question)?.formula_fallback === true;
       return {
         question_id: question.question_id,
         answer,
-        correct: question.mode === "self_eval" ? entry?.correct ?? null : null,
+        correct: needsSelfEval ? entry?.correct ?? null : null,
       };
     });
     if (!items.some((entry) => entry.answer || entry.correct !== null)) {
@@ -144,6 +147,11 @@ export default function PracticePage() {
       (entry) => entry.question_id === question.question_id,
     );
   }
+
+  const pendingFallback =
+    result?.items.some(
+      (item) => item.formula_fallback && item.status === "uncertain",
+    ) ?? false;
 
   return (
     <Stack gap="md">
@@ -207,6 +215,8 @@ export default function PracticePage() {
           {paper.items.map((question, index) => {
             const status = statusFor(question);
             const entry = drafts[question.question_id];
+            const isFallback =
+              status?.formula_fallback === true && status.status === "uncertain";
             return (
               <Stack key={question.question_id} gap={6}>
                 <QuizQuestionCard
@@ -216,17 +226,19 @@ export default function PracticePage() {
                   onAnswer={(value) => setAnswer(question.question_id, value)}
                   disabled={result !== null}
                 />
-                {question.mode === "self_eval" && (
+                {(question.mode === "self_eval" || isFallback) && (
                   <Group gap="xs">
-                    <Text size="xs" c="dimmed">
-                      纸上完成，自评：
+                    <Text size="xs" c={isFallback ? "orange" : "dimmed"}>
+                      {isFallback
+                        ? FORMULA_FALLBACK_MESSAGE
+                        : "纸上完成，自评："}
                     </Text>
                     <Button
                       size="compact-xs"
                       color="green"
                       variant={entry?.correct === true ? "filled" : "light"}
                       onClick={() => setVerdict(question.question_id, true)}
-                      disabled={result !== null}
+                      disabled={result !== null && !isFallback}
                     >
                       做对了
                     </Button>
@@ -235,7 +247,7 @@ export default function PracticePage() {
                       color="red"
                       variant={entry?.correct === false ? "filled" : "light"}
                       onClick={() => setVerdict(question.question_id, false)}
-                      disabled={result !== null}
+                      disabled={result !== null && !isFallback}
                     >
                       没做对
                     </Button>
@@ -250,7 +262,9 @@ export default function PracticePage() {
                       {STATUS_LABELS[status.status].label}
                     </Badge>
                     <Text size="xs" c="dimmed">
-                      {status.mode === "system" ? "服务端判分" : "学生自评"}
+                      {status.mode === "system" && !status.formula_fallback
+                        ? "服务端判分"
+                        : "学生自评"}
                     </Text>
                     {status.reused && (
                       <Badge color="blue" variant="light">
@@ -269,7 +283,16 @@ export default function PracticePage() {
             </Alert>
           )}
 
-          {result ? (
+          {result && pendingFallback ? (
+            <Group>
+              <Button onClick={() => void handleSubmit()} loading={busy}>
+                提交自评
+              </Button>
+              <Text size="xs" c="dimmed">
+                公式题系统未判定，请在上面自评后提交；其余题已记录。
+              </Text>
+            </Group>
+          ) : result ? (
             <Group>
               <Badge color="green" variant="light">
                 答对 {result.correct}

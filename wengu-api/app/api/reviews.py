@@ -26,6 +26,7 @@ from app.services.review import (
     ReviewConflict,
     ReviewError,
     ReviewNotFound,
+    ReviewQuizFormulaFallback,
     ReviewQuizInvalid,
     ReviewQuizStale,
     ReviewQuizUnavailable,
@@ -119,6 +120,7 @@ class ReviewQuizResponse(BaseModel):
     question: QuizQuestionView
     mode: Literal["system", "self_eval"]
     verdict: Literal["correct", "wrong"]
+    formula_fallback: bool = False
 
 
 def _schedule_info(schedule) -> ScheduleInfo:
@@ -256,6 +258,11 @@ async def complete_review_quiz(
             )
         except ReviewNotFound as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from None
+        except ReviewQuizFormulaFallback as exc:
+            raise HTTPException(
+                status_code=422,
+                detail={"message": str(exc), "reason": "formula_fallback"},
+            ) from None
         except (ReviewQuizInvalid, ReviewQuizUncertain) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from None
         except (
@@ -279,4 +286,5 @@ async def complete_review_quiz(
         ),
         mode=result.mode,
         verdict=result.verdict,
+        formula_fallback=result.formula_fallback,
     )

@@ -75,6 +75,8 @@ AttemptSource = Literal["student_self", "system_quiz"]
 DueTask = Literal["quiz", "self_eval", "redo"]
 QuizVerdict = Literal["correct", "wrong"]
 
+FORMULA_FALLBACK_MESSAGE = "公式题：系统未自动判定，请自评或家长核对"
+
 
 class ReviewError(Exception):
     pass
@@ -124,6 +126,10 @@ class ReviewQuizUncertain(ReviewQuizError):
     """judgeAnswer 无法确定（占位符等），绝不猜对错。"""
 
 
+class ReviewQuizFormulaFallback(ReviewQuizUncertain):
+    """公式题超出受限子集/不可判：降级卷面自评，需客户端回传 correct，绝不猜对错。"""
+
+
 @dataclass(frozen=True)
 class ReviewFact:
     correct: bool
@@ -146,6 +152,7 @@ class QuizFact:
     mode: AnswerMode
     verdict: QuizVerdict
     verify_status: str | None
+    formula_fallback: bool = False
 
 
 @dataclass(frozen=True)
@@ -172,6 +179,7 @@ class ReviewQuizResult:
     verdict: QuizVerdict
     seed: int
     pool_size: int
+    formula_fallback: bool = False
 
 
 @dataclass(frozen=True)
@@ -654,6 +662,7 @@ def _quiz_fact(payload: dict[str, Any]) -> QuizFact | None:
         mode=mode,
         verdict=verdict,
         verify_status=verify_status,
+        formula_fallback=bool(payload.get("formula_fallback", False)),
     )
 
 
@@ -1039,6 +1048,7 @@ def _recorded_quiz_result(
         verdict=completion.quiz.verdict,
         seed=pick.seed,
         pool_size=pick.pool_size,
+        formula_fallback=completion.quiz.formula_fallback,
     )
 
 
@@ -1088,6 +1098,9 @@ async def submit_review_quiz(
     if question_id is not None and question_id != pick.question.id:
         raise ReviewQuizStale("题目已更新，请刷新到期任务后重试")
 
+    formula_fallback = False
+    verdict: QuizVerdict
+    source: AttemptSource
     if pick.mode == "system":
         text = (answer or "").strip()
         if not text:
@@ -1099,14 +1112,22 @@ async def submit_review_quiz(
             unordered=pick.question.unordered,
         )
         if outcome.verdict == "uncertain":
-            raise ReviewQuizUncertain(
-                "无法自动判分（作答含不确定内容），请改用原题重做或自评"
-            )
-        judged_correct = outcome.verdict == "correct"
-        verdict: QuizVerdict = (
-            "correct" if judged_correct else "wrong"
-        )
-        source: AttemptSource = "system_quiz"
+            if outcome.reason == "formula_fallback":
+                # 公式题系统不可判 → 降级卷面自评（source=student_self），绝不猜对错。
+                if correct is None:
+                    raise ReviewQuizFormulaFallback(FORMULA_FALLBACK_MESSAGE)
+                judged_correct = correct
+                verdict = "correct" if correct else "wrong"
+                source = "student_self"
+                formula_fallback = True
+            else:
+                raise ReviewQuizUncertain(
+                    "无法自动判分（作答含不确定内容），请改用原题重做或自评"
+                )
+        else:
+            judged_correct = outcome.verdict == "correct"
+            verdict = "correct" if judged_correct else "wrong"
+            source = "system_quiz"
     else:
         if correct is None:
             raise ReviewQuizInvalid(
@@ -1116,6 +1137,16 @@ async def submit_review_quiz(
         verdict = "correct" if correct else "wrong"
         source = "student_self"
 
+    quiz_payload = {
+        "quiz_question_id": pick.question.id,
+        "quiz_topic_id": pick.question.topic_id,
+        "quiz_mode": pick.mode,
+        "quiz_verdict": verdict,
+        "quiz_verify_status": pick.question.verify_status,
+        "quiz_seed": seed,
+    }
+    if formula_fallback:
+        quiz_payload["formula_fallback"] = True
     completion = await complete_attempt(
         session,
         mistake_id,
@@ -1125,14 +1156,7 @@ async def submit_review_quiz(
         actor=actor,
         source=source,
         now=now,
-        extra_payload={
-            "quiz_question_id": pick.question.id,
-            "quiz_topic_id": pick.question.topic_id,
-            "quiz_mode": pick.mode,
-            "quiz_verdict": verdict,
-            "quiz_verify_status": pick.question.verify_status,
-            "quiz_seed": seed,
-        },
+        extra_payload=quiz_payload,
     )
 
     # 并发重试可能命中已存在事件：以记录为准回放，不采用本次判分。
@@ -1152,4 +1176,9 @@ async def submit_review_quiz(
         ),
         seed=seed,
         pool_size=pick.pool_size,
+        formula_fallback=(
+            completion.quiz.formula_fallback
+            if completion.quiz is not None
+            else formula_fallback
+        ),
     )

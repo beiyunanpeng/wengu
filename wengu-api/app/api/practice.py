@@ -104,6 +104,7 @@ class PracticeAnswerInfo(BaseModel):
     status: Literal["correct", "wrong", "uncertain", "skipped"]
     practice_record_id: int | None
     reused: bool = False
+    formula_fallback: bool = False
 
 
 class PracticeSubmitResponse(BaseModel):
@@ -334,6 +335,7 @@ async def submit_practice_endpoint(
                 status=item.status,
                 practice_record_id=item.practice_record_id,
                 reused=item.reused,
+                formula_fallback=item.formula_fallback,
             )
             for item in result.items
         ],

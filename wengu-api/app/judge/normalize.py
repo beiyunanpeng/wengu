@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import ast
 import re
 import unicodedata
 from collections import Counter
@@ -15,6 +16,10 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from fractions import Fraction
 from typing import Literal
+
+import sympy
+
+from app.judge.latex_subset import UnsupportedLatex, to_sympy
 
 Verdict = Literal["correct", "wrong", "uncertain"]
 PLACEHOLDER = "〔?〕"
@@ -376,6 +381,171 @@ def _compare(student: str, standard: str, unordered: bool) -> tuple[bool, str]:
     return _normalize_text(student) == _normalize_text(standard), "text"
 
 
+# --- 公式题判分（P4-6）：受限 LaTeX 子集 + sympy 等值；白名单外一律降级自评，绝不猜 ---
+
+MAX_FORMULA_NODES = 200
+_FORMULA_MAX_CONST = 1e15
+_FORMULA_MAX_POW = 1000
+
+# 子集内允许的单字母变量；e/E/pi 是常数，sqrt 是唯一允许的函数调用。
+_FORMULA_SYMBOLS = frozenset(
+    {"x", "y", "z", "a", "b", "c", "d", "n", "m", "k", "t", "u", "v", "w", "p", "q", "r", "s"}
+)
+_SYMPY_LOCALS: dict[str, object] = {name: sympy.Symbol(name) for name in sorted(_FORMULA_SYMBOLS)}
+_SYMPY_LOCALS.update({"pi": sympy.pi, "E": sympy.E, "e": sympy.E, "sqrt": sympy.sqrt})
+_FORMULA_ALLOWED_NAMES = _FORMULA_SYMBOLS | {"pi", "E", "e", "sqrt"}
+_FORMULA_ALLOWED_SYMBOLS = frozenset(_SYMPY_LOCALS[name] for name in _FORMULA_SYMBOLS)
+_FORMULA_ALLOWED_NODES = (
+    ast.Expression,
+    ast.Constant,
+    ast.Name,
+    ast.Load,
+    ast.BinOp,
+    ast.Add,
+    ast.Sub,
+    ast.Mult,
+    ast.Div,
+    ast.Pow,
+    ast.UnaryOp,
+    ast.UAdd,
+    ast.USub,
+    ast.Call,
+)
+_FORMULA_MARKER_RE = re.compile(r"\\[a-zA-Z%]|\^")
+
+
+class _FormulaUnsupported(Exception):
+    """公式超出白名单/不可判；reason 是稳定码，不含题目正文。上层据此降级自评。"""
+
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+        super().__init__(reason)
+
+
+def _validate_formula_ast(tree: ast.AST) -> None:
+    """sympify 前的白名单闸门：只放行数字/允许名/四则/幂/sqrt()，挡掉一切可执行结构。"""
+
+    nodes = list(ast.walk(tree))
+    if len(nodes) > MAX_FORMULA_NODES:
+        raise _FormulaUnsupported("too_complex")
+    for node in nodes:
+        if not isinstance(node, _FORMULA_ALLOWED_NODES):
+            raise _FormulaUnsupported("forbidden_node")
+        if isinstance(node, ast.Name):
+            if node.id.startswith("_") or node.id not in _FORMULA_ALLOWED_NAMES:
+                raise _FormulaUnsupported("forbidden_name")
+        elif isinstance(node, ast.Constant):
+            if isinstance(node.value, bool) or not isinstance(node.value, int | float):
+                raise _FormulaUnsupported("forbidden_constant")
+            if abs(node.value) > _FORMULA_MAX_CONST:
+                raise _FormulaUnsupported("const_too_large")
+        elif isinstance(node, ast.Call):
+            if not isinstance(node.func, ast.Name) or node.func.id != "sqrt":
+                raise _FormulaUnsupported("forbidden_call")
+            if len(node.args) != 1 or node.keywords:
+                raise _FormulaUnsupported("bad_call")
+        elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Pow):
+            exponent = node.right
+            if isinstance(exponent, ast.UnaryOp) and isinstance(exponent.operand, ast.Constant):
+                exponent = exponent.operand
+            if isinstance(exponent, ast.Constant) and abs(exponent.value) > _FORMULA_MAX_POW:
+                raise _FormulaUnsupported("pow_too_large")
+
+
+def _parse_formula_side(text: str) -> sympy.Expr:
+    tree = ast.parse(text, mode="eval")
+    _validate_formula_ast(tree)
+    expr = sympy.sympify(text, rational=True, locals=_SYMPY_LOCALS)
+    if not isinstance(expr, sympy.Expr):
+        raise _FormulaUnsupported("not_expr")
+    if not expr.free_symbols <= _FORMULA_ALLOWED_SYMBOLS:
+        raise _FormulaUnsupported("unexpected_symbol")
+    # sqrt 在 sympy 里是 Pow（不是 Function 原子）；E**x 会化成 exp，是子集内唯一额外函数。
+    for atom in expr.atoms(sympy.Function):
+        if not isinstance(atom, sympy.exp):
+            raise _FormulaUnsupported("unexpected_function")
+    return expr
+
+
+def _formula_equivalent_converted(left: str, right: str) -> bool | None:
+    """两侧均已归一为 sympy 串。等式按移项后是否成非零常数比判等价；不可判返回 None。"""
+
+    left_eq, right_eq = left.count("="), right.count("=")
+    if left_eq > 1 or right_eq > 1 or left_eq != right_eq:
+        return None
+    if left_eq == 0:
+        difference = sympy.simplify(_parse_formula_side(left) - _parse_formula_side(right))
+        return bool(difference == 0)
+    left_lhs, left_rhs = left.split("=")
+    right_lhs, right_rhs = right.split("=")
+    e1 = sympy.simplify(_parse_formula_side(left_lhs) - _parse_formula_side(left_rhs))
+    e2 = sympy.simplify(_parse_formula_side(right_lhs) - _parse_formula_side(right_rhs))
+    if e1 == 0 or e2 == 0:
+        return bool(e1 == 0 and e2 == 0)
+    ratio = sympy.simplify(e1 / e2)
+    if ratio.free_symbols:
+        # 不成常数比：可能同解（如 (x-2)^2=0 与 x=2），不敢断言错，降级自评。
+        return None
+    return bool(ratio != 0)
+
+
+def formula_equivalent(a: str | None, b: str | None) -> bool | None:
+    """公式等值：True=等价，False=不等价，None=不可判（降级自评，绝不猜对错）。
+
+    先走既有 NFKC/有理数/单位规范化比对，再试受限 LaTeX 子集 + sympy。sympify 前用
+    AST 白名单挡掉 import/属性/下标/lambda/任意函数，sympify 后复核自由符号与函数原子。
+    超出子集（UnsupportedLatex）或 sympy 失败都返回 None，绝不抛给调用方。
+    """
+
+    if not isinstance(a, str) or not isinstance(b, str):
+        return None
+    left, right = _clean(a), _clean(b)
+    if not left or not right or PLACEHOLDER in left or PLACEHOLDER in right:
+        return None
+    matched, _ = _compare(left, right, False)
+    if matched:
+        return True
+    try:
+        converted_left, converted_right = to_sympy(left), to_sympy(right)
+    except UnsupportedLatex:
+        return None
+    try:
+        return _formula_equivalent_converted(converted_left, converted_right)
+    except Exception:
+        return None
+
+
+def _looks_like_formula(text: str) -> bool:
+    """含 LaTeX 宏（\\frac 等）或幂标记 ^ 才进公式判分；依赖图形的题不判（AGENTS §5）。"""
+
+    return "【依赖图形】" not in text and _FORMULA_MARKER_RE.search(text) is not None
+
+
+def _judge_formula(student_clean: str, references: list[str], unordered: bool) -> JudgeOutcome:
+    """公式类判分：先复用既有规范化比对，再试 sympy 等值；不可判→formula_fallback 自评。"""
+
+    fallback = False
+    for index, reference in enumerate(references):
+        reference_clean = _clean(reference)
+        if not reference_clean or PLACEHOLDER in reference_clean:
+            continue
+        matched, rule = _compare(student_clean, reference_clean, unordered)
+        if matched:
+            if index == 0:
+                return JudgeOutcome("correct", f"{rule}_equal", rule)
+            return JudgeOutcome("correct", "accepted_alias", rule)
+        equivalent = formula_equivalent(student_clean, reference_clean)
+        if equivalent is True:
+            if index == 0:
+                return JudgeOutcome("correct", "formula_equal", "formula")
+            return JudgeOutcome("correct", "accepted_alias", "formula")
+        if equivalent is None:
+            fallback = True
+    if fallback:
+        return JudgeOutcome("uncertain", "formula_fallback")
+    return JudgeOutcome("wrong", "mismatch")
+
+
 def judge_answer(
     student: str | None,
     standard: str | None,
@@ -396,6 +566,10 @@ def judge_answer(
 
     references: list[str] = [standard]
     references.extend(item for item in acceptable if isinstance(item, str))
+    if _looks_like_formula(student_clean) or any(
+        _looks_like_formula(_clean(reference)) for reference in references
+    ):
+        return _judge_formula(student_clean, references, unordered)
     for index, reference in enumerate(references):
         reference_clean = _clean(reference)
         if not reference_clean or PLACEHOLDER in reference_clean:

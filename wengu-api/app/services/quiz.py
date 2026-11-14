@@ -74,6 +74,7 @@ class PaperAnswerResult:
     status: PaperStatus
     attempt_id: int | None
     replayed: bool
+    formula_fallback: bool = False
 
 
 @dataclass(frozen=True)
@@ -178,6 +179,7 @@ async def _replayed_result(
         status="correct" if verdict == "correct" else "wrong",
         attempt_id=attempt.id if attempt is not None else None,
         replayed=True,
+        formula_fallback=bool(payload.get("formula_fallback", False)),
     )
 
 
@@ -195,6 +197,7 @@ def _judge_system(question: BankQuestion, answer: str) -> PaperAnswerResult:
             status="uncertain",
             attempt_id=None,
             replayed=False,
+            formula_fallback=outcome.reason == "formula_fallback",
         )
     return PaperAnswerResult(
         question_id=question.id,
@@ -250,6 +253,7 @@ async def submit_paper(
             results.append(await _replayed_result(session, existing, question))
             continue
 
+        formula_fallback = False
         if item.mode == "system":
             text = (entry.answer or "").strip()
             if not text:
@@ -265,10 +269,17 @@ async def submit_paper(
                 continue
             judged = _judge_system(question, text)
             if judged.status == "uncertain":
-                results.append(judged)
-                continue
-            is_correct = judged.status == "correct"
-            source = "system_quiz"
+                if judged.formula_fallback and entry.correct is not None:
+                    # 公式题系统不可判 → 降级自评（source=student_self），打 formula_fallback 标签。
+                    is_correct = entry.correct
+                    source = "student_self"
+                    formula_fallback = True
+                else:
+                    results.append(judged)
+                    continue
+            else:
+                is_correct = judged.status == "correct"
+                source = "system_quiz"
         else:
             if entry.correct is None:
                 if not (entry.answer or "").strip():
@@ -301,6 +312,8 @@ async def submit_paper(
             "quiz_verify_status": question.verify_status,
             "quiz_seed": seed,
         }
+        if formula_fallback:
+            payload["formula_fallback"] = True
         event, created = await record_event(
             session,
             ATTEMPT_CORRECT if is_correct else ATTEMPT_WRONG,
@@ -332,6 +345,7 @@ async def submit_paper(
                 status=verdict,
                 attempt_id=attempt.id,
                 replayed=False,
+                formula_fallback=formula_fallback,
             )
         )
 

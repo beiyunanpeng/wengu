@@ -15,7 +15,11 @@ import {
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-import { errorMessage } from "../api/client";
+import {
+  FORMULA_FALLBACK_MESSAGE,
+  errorMessage,
+  isFormulaFallback,
+} from "../api/client";
 import {
   completeReview,
   getDashboard,
@@ -87,6 +91,9 @@ export default function ReviewPage() {
   const [busyId, setBusyId] = useState<number | null>(null);
   const [answers, setAnswers] = useState<Record<number, string>>({});
   const [results, setResults] = useState<DueResult[]>([]);
+  const [formulaFallback, setFormulaFallback] = useState<
+    Record<number, boolean>
+  >({});
 
   const [topicId, setTopicId] = useState<string | null>(null);
   const [paperCount, setPaperCount] = useState("1");
@@ -164,6 +171,11 @@ export default function ReviewPage() {
       delete next[scheduleId];
       return next;
     });
+    setFormulaFallback((previous) => {
+      const next = { ...previous };
+      delete next[scheduleId];
+      return next;
+    });
   }
 
   async function finishQuiz(item: DueReviewItem) {
@@ -182,6 +194,43 @@ export default function ReviewPage() {
         question_id: item.quiz.question_id,
         answer:
           item.task === "quiz" ? answers[item.schedule_id] ?? "" : undefined,
+      });
+      setResults((previous) => [
+        {
+          scheduleId: item.schedule_id,
+          mistakeId: item.mistake_id,
+          completion: response.completion,
+          verdict: response.verdict,
+        },
+        ...previous,
+      ]);
+      removeDue(item.schedule_id);
+    } catch (cause) {
+      if (isFormulaFallback(cause)) {
+        setFormulaFallback((previous) => ({
+          ...previous,
+          [item.schedule_id]: true,
+        }));
+      } else {
+        setActionError(errorMessage(cause));
+      }
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function finishQuizSelfEval(item: DueReviewItem, correct: boolean) {
+    if (!item.quiz || busyId !== null) {
+      return;
+    }
+    setBusyId(item.schedule_id);
+    setActionError(null);
+    try {
+      const response = await submitReviewQuiz(item.mistake_id, {
+        schedule_id: item.schedule_id,
+        question_id: item.quiz.question_id,
+        answer: answers[item.schedule_id] ?? "",
+        correct,
       });
       setResults((previous) => [
         {
@@ -284,13 +333,17 @@ export default function ReviewPage() {
     }
     const answers: PaperSubmitAnswer[] = paper.items.map((question) => {
       const entry = paperAnswers[question.question_id];
+      const status = paperStatus(question);
+      const isFallback =
+        status?.formula_fallback === true && status.status === "uncertain";
+      const needsSelfEval = question.mode === "self_eval" || isFallback;
       return {
         question_id: question.question_id,
         answer:
           question.mode === "system" && entry?.answer.trim()
             ? entry.answer.trim()
             : null,
-        correct: question.mode === "self_eval" ? entry?.correct ?? null : null,
+        correct: needsSelfEval ? entry?.correct ?? null : null,
       };
     });
     if (
@@ -324,6 +377,11 @@ export default function ReviewPage() {
       (entry) => entry.question_id === question.question_id,
     );
   }
+
+  const paperPendingFallback =
+    paperResult?.items.some(
+      (item) => item.formula_fallback && item.status === "uncertain",
+    ) ?? false;
 
   // 今日工作量 = 剩余到期 + 今天已完成，再按每日上限截断；
   // 完成一项时 due_total 减 1、today_completed 加 1，分母保持不变。
@@ -522,7 +580,7 @@ export default function ReviewPage() {
             )}
 
             <Group>
-              {item.task === "quiz" ? (
+              {item.task === "quiz" && !formulaFallback[item.schedule_id] ? (
                 <Button
                   onClick={() => void finishQuiz(item)}
                   loading={busyId === item.schedule_id}
@@ -530,6 +588,29 @@ export default function ReviewPage() {
                 >
                   提交答案（服务端判分）
                 </Button>
+              ) : item.task === "quiz" ? (
+                <>
+                  <Text size="xs" c="orange">
+                    {FORMULA_FALLBACK_MESSAGE}
+                  </Text>
+                  <Button
+                    color="green"
+                    onClick={() => void finishQuizSelfEval(item, true)}
+                    loading={busyId === item.schedule_id}
+                    disabled={busyId !== null}
+                  >
+                    做对了
+                  </Button>
+                  <Button
+                    color="red"
+                    variant="light"
+                    onClick={() => void finishQuizSelfEval(item, false)}
+                    loading={busyId === item.schedule_id}
+                    disabled={busyId !== null}
+                  >
+                    没做对
+                  </Button>
+                </>
               ) : (
                 <>
                   <Button
@@ -657,6 +738,9 @@ export default function ReviewPage() {
                   {paper.items.map((question, index) => {
                     const status = paperStatus(question);
                     const entry = paperAnswers[question.question_id];
+                    const isFallback =
+                      status?.formula_fallback === true &&
+                      status.status === "uncertain";
                     return (
                       <Stack key={question.question_id} gap={6}>
                         <QuizQuestionCard
@@ -668,10 +752,12 @@ export default function ReviewPage() {
                           }
                           disabled={paperResult !== null}
                         />
-                        {question.mode === "self_eval" && (
+                        {(question.mode === "self_eval" || isFallback) && (
                           <Group gap="xs">
-                            <Text size="xs" c="dimmed">
-                              纸上完成，自评：
+                            <Text size="xs" c={isFallback ? "orange" : "dimmed"}>
+                              {isFallback
+                                ? FORMULA_FALLBACK_MESSAGE
+                                : "纸上完成，自评："}
                             </Text>
                             <Button
                               size="compact-xs"
@@ -682,7 +768,7 @@ export default function ReviewPage() {
                               onClick={() =>
                                 setPaperVerdict(question.question_id, true)
                               }
-                              disabled={paperResult !== null}
+                              disabled={paperResult !== null && !isFallback}
                             >
                               做对了
                             </Button>
@@ -695,7 +781,7 @@ export default function ReviewPage() {
                               onClick={() =>
                                 setPaperVerdict(question.question_id, false)
                               }
-                              disabled={paperResult !== null}
+                              disabled={paperResult !== null && !isFallback}
                             >
                               没做对
                             </Button>
@@ -712,7 +798,8 @@ export default function ReviewPage() {
                             <Text size="xs" c="dimmed">
                               {status.replayed
                                 ? "已提交过，按记录回放"
-                                : status.mode === "system"
+                                : status.mode === "system" &&
+                                    !status.formula_fallback
                                   ? "服务端判分"
                                   : "学生自评"}
                             </Text>
@@ -721,7 +808,19 @@ export default function ReviewPage() {
                       </Stack>
                     );
                   })}
-                  {paperResult ? (
+                  {paperResult && paperPendingFallback ? (
+                    <Group>
+                      <Button
+                        onClick={() => void submitPaper()}
+                        loading={paperBusy}
+                      >
+                        提交自评
+                      </Button>
+                      <Text size="xs" c="dimmed">
+                        公式题系统未判定，请在上面自评后提交；其余题已记录。
+                      </Text>
+                    </Group>
+                  ) : paperResult ? (
                     <Group>
                       <Badge color="green" variant="light">
                         答对 {paperResult.correct}
