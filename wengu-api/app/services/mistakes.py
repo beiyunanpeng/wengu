@@ -61,6 +61,7 @@ ERROR_CAUSES: dict[str, str] = {
 MISTAKE_LABELED = "mistake_labeled"
 MISTAKE_VOIDED_EVENT = "mistake_voided"
 MISTAKE_REACTIVATED_EVENT = "mistake_reactivated"
+MISTAKE_PRIMARY_TOPIC_SET = "mistake_primary_topic_set"
 
 MAX_VOID_REASON_LENGTH = 200
 
@@ -512,6 +513,64 @@ async def append_label_version(
         },
     )
     return mistake, version
+
+
+async def set_primary_topic(
+    session: AsyncSession,
+    *,
+    mistake_id: int,
+    base_version: int,
+    actor: str,
+    primary_topic_id: str | None,
+) -> Mistake:
+    """P1-18 设定/更正主考点：写根表 + 追加审计事件，绝不碰版本表。
+
+    `primary_topic_id` 在根表 `mistakes`（不在 `mistake_versions`），故只就地翻
+    根表列 + `updated_at`，再追加一条 `mistake_primary_topic_set` 事件；**不 bump
+    current_version、不追加版本行**。base_version 乐观锁、voided 拒绝、未知 seed
+    422 与 `append_label_version` 同口径；同值幂等 no-op（不写事件、不改 updated_at）。
+    主考点只决定同类题检索，不进 mastery/排期/streak（新事件类型不被 streak 收录）。
+    """
+
+    if actor not in ("student", "parent"):
+        raise MistakeConflict("只有 student/parent 可以设定主考点")
+    mistake = await get_mistake(session, mistake_id)
+    if mistake.status != MISTAKE_ACTIVE:
+        raise MistakeStateConflict("已作废错题不能修改主考点")
+    if base_version != mistake.current_version:
+        raise MistakeVersionConflict(
+            f"版本已变化，当前版本 {mistake.current_version}"
+        )
+
+    cleaned = (primary_topic_id or "").strip() or None
+    if cleaned is not None and await session.get(KnowledgeSeed, cleaned) is None:
+        raise CategoryNotFound("知识点 category 不存在")
+
+    if cleaned == mistake.primary_topic_id:
+        return mistake
+
+    from_topic = mistake.primary_topic_id
+    mistake.primary_topic_id = cleaned
+    mistake.updated_at = datetime.now(UTC)
+    await session.flush()
+
+    await record_event(
+        session,
+        MISTAKE_PRIMARY_TOPIC_SET,
+        actor,
+        idempotency_key=(
+            f"mistake:{mistake.id}:primary-topic:{base_version}:"
+            f"{cleaned if cleaned is not None else 'null'}"
+        ),
+        mistake_id=mistake.id,
+        payload={
+            "from_topic_id": from_topic,
+            "to_topic_id": cleaned,
+            "actor": actor,
+            "base_version": base_version,
+        },
+    )
+    return mistake
 
 
 async def append_notes_version(

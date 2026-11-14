@@ -29,6 +29,7 @@ import {
   mergeConcepts,
   mistakeImageUrl,
   previewConceptMerge,
+  setMistakePrimaryTopic,
   startPractice,
   unvoidMistake,
   updateMistakeLabels,
@@ -89,6 +90,10 @@ export default function MistakeDetailPage() {
   const [notesDraft, setNotesDraft] = useState("");
   const [notesSaving, setNotesSaving] = useState(false);
   const [notesError, setNotesError] = useState<string | null>(null);
+  const [primaryTopicDraft, setPrimaryTopicDraft] = useState<string | null>(null);
+  const [primarySaving, setPrimarySaving] = useState(false);
+  const [primaryError, setPrimaryError] = useState<string | null>(null);
+  const [primaryMessage, setPrimaryMessage] = useState<string | null>(null);
 
   function applyDetail(next: MistakeDetail) {
     setDetail(next);
@@ -107,6 +112,8 @@ export default function MistakeDetailPage() {
     setNotesEditing(false);
     setNotesDraft(next.correction_notes ?? "");
     setNotesError(null);
+    setPrimaryTopicDraft(next.primary_topic_id);
+    setPrimaryError(null);
   }
 
   async function load(showSpinner = true) {
@@ -369,6 +376,32 @@ export default function MistakeDetailPage() {
       }
     } finally {
       setNotesSaving(false);
+    }
+  }
+
+  async function savePrimaryTopic(nextValue: string | null) {
+    if (!detail || primarySaving) {
+      return;
+    }
+    setPrimarySaving(true);
+    setPrimaryError(null);
+    setPrimaryMessage(null);
+    try {
+      const updated = await setMistakePrimaryTopic(detail.id, {
+        base_version: detail.current_version,
+        primary_topic_id: nextValue,
+      });
+      applyDetail(updated);
+      setPrimaryMessage(nextValue === null ? "主考点已清除" : "主考点已保存");
+    } catch (cause) {
+      if (cause instanceof ApiError && cause.status === 409) {
+        setPrimaryError("版本已变化，已刷新为最新内容，请重新保存");
+        await load(false);
+      } else {
+        setPrimaryError(errorMessage(cause));
+      }
+    } finally {
+      setPrimarySaving(false);
     }
   }
 
@@ -721,6 +754,67 @@ export default function MistakeDetailPage() {
           <Group>
             <Button size="compact-sm" variant="light" onClick={adoptSuggestion}>
               采用建议标签
+            </Button>
+          </Group>
+        </Stack>
+      </Card>
+
+      <Card withBorder>
+        <Stack gap="sm">
+          <Group justify="space-between" align="center">
+            <Text fw={600}>主考点</Text>
+            <Badge
+              color={detail.primary_topic_id ? "blue" : "gray"}
+              variant="light"
+            >
+              {detail.primary_topic_subject}
+            </Badge>
+          </Group>
+          <Text size="xs" c="dimmed">
+            主考点决定到期时按哪个知识点检索同类题考核：有题就考、系统判分；
+            未挂考点只排原题重做自评。它不影响掌握度、复习间隔与打卡。
+          </Text>
+          {detail.status !== "active" && (
+            <Alert color="gray" variant="light">
+              错题已作废：主考点只读。撤销作废后可继续修改。
+            </Alert>
+          )}
+          <CategoryPicker
+            value={primaryTopicDraft}
+            onChange={setPrimaryTopicDraft}
+            label="设定 / 更正主考点"
+            disabled={detail.status !== "active"}
+          />
+          {primaryError && (
+            <Alert color="red" variant="light">
+              {primaryError}
+            </Alert>
+          )}
+          {primaryMessage && (
+            <Alert color="green" variant="light">
+              {primaryMessage}
+            </Alert>
+          )}
+          <Group>
+            <Button
+              onClick={() => void savePrimaryTopic(primaryTopicDraft)}
+              loading={primarySaving}
+              disabled={detail.status !== "active"}
+            >
+              保存主考点
+            </Button>
+            <Button
+              variant="subtle"
+              onClick={() => {
+                setPrimaryTopicDraft(null);
+                void savePrimaryTopic(null);
+              }}
+              loading={primarySaving}
+              disabled={
+                detail.status !== "active" || primaryTopicDraft === null
+              }
+            >
+              清除
             </Button>
           </Group>
         </Stack>

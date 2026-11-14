@@ -9,6 +9,24 @@
 
 ### Added
 
+- **P1-18 主考点可设定与更正（v2.8 §19-I；零迁移、零新依赖）**（2026-11-14）：
+  - **新端点 `POST /api/mistakes/{id}/primary-topic`**（孩子区免 PIN，与 `/labels`/`/notes`/`/images` 同级）：
+    body `{primary_topic_id: str|null, actor∈{student,parent}, base_version}`；`base_version≠current_version`→409、
+    voided→409、未知 seed→422（稳定码、不含题干）、**同值幂等 no-op**（不写事件、不改 `updated_at`、返回当前详情）。
+  - **写根表 `mistakes.primary_topic_id`+`updated_at`，追加 `learning_events` 新 type `mistake_primary_topic_set`**
+    （payload 仅 `from_topic_id/to_topic_id/actor/base_version`；幂等键
+    `mistake:{id}:primary-topic:{base_version}:{to_topic_id 或 null}`）；**不 bump `current_version`、不追加
+    `mistake_versions` 行**——根表未被 append-only 触发器钉（触发器只钉版本表与事件表，见 §19-I 口径纠正）。
+  - **`MistakeDetail` 补 `primary_topic_id`/`primary_topic_subject`**：复用 `services/subjects.subject_for_topic`
+    唯一学科尺（与 P2-13 看板/筛选同口径），前端不另建映射；列表/详情/`/labels` 三处投影同步补齐。
+  - **前端详情页新增「主考点」卡**：学科徽标（未挂=灰「未挂考点」）+ 复用 `CategoryPicker` 的设定/更正/清除控件
+    （清除在无草稿时禁用）；409 自动刷新重试提示；**核对页交互与转正闸门一字未改**。
+  - **主考点不参与** mastery/排期/streak（`streak.LEARNING_EVENT_TYPES` 不收新 type）；改后同 today 的 due 中该题
+    kind 由 redo/self_eval 变 quiz（题库有题）或 `bank_gap=true`（无题不抛错）；学科卡归位、`inventory.unassigned_active` 减一。
+  - **测试与取证**：`test_mistakes_api.py` +5 集成（根表+审计唯一写入且历史零改动、幂等键含 `to_topic_id` 的
+    **可证伪锚**、409/409/422/404/非法 actor、孩子区免 PIN、mastery/排期/streak 全等 + due kind 迁移 + 学科卡归位）；
+    全量 `pytest -q` 749 passed、`ruff check --no-cache .` 绿、`npm run lint/test/build` 绿；CDP 真实驱动 Select
+    设定→保存→清除三态截图 + 360/412 两档 `scrollWidth === clientWidth` 取证存档。
 - **TICKETS 新增 P1-18「主考点可设定与更正」卡**（2026-11-14，出卡前读盘核四处机制）：新端点
   `POST /api/mistakes/{id}/primary-topic`（孩子区免 PIN，与 `/labels`、`/notes`、`/images` 同级），
   **写根表 `mistakes.primary_topic_id` + 追加 `learning_events` 新 type `mistake_primary_topic_set` 做审计**，

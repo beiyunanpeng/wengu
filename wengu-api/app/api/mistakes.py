@@ -44,9 +44,11 @@ from app.services.mistakes import (
     list_mistakes,
     load_concept_ids,
     load_problem_images,
+    set_primary_topic,
     unvoid_mistake,
     void_mistake,
 )
+from app.services.subjects import load_topics, subject_for_topic
 
 router = APIRouter(tags=["mistakes"])
 
@@ -86,6 +88,8 @@ class MistakeDetail(BaseModel):
     correction_notes: str | None
     problem_images: list[str] = Field(default_factory=list)
     is_correct: bool | None
+    primary_topic_id: str | None
+    primary_topic_subject: str
     labels: MistakeLabels
     suggestion: MistakeSuggestion
     created_at: datetime
@@ -119,6 +123,12 @@ class LabelRequest(BaseModel):
 class NotesRequest(BaseModel):
     base_version: int = Field(ge=1)
     correction_notes: str | None = Field(default=None, max_length=500)
+    actor: Literal["student", "parent"] = "student"
+
+
+class PrimaryTopicRequest(BaseModel):
+    base_version: int = Field(ge=1)
+    primary_topic_id: str | None = Field(default=None, max_length=64)
     actor: Literal["student", "parent"] = "student"
 
 
@@ -170,6 +180,7 @@ def _to_detail(
     *,
     category_names: dict[str, str],
     concept_map: dict[int, Concept],
+    primary_topic_subject: str,
 ) -> MistakeDetail:
     labels = effective_labels(version)
     suggested_ids = tuple(load_concept_ids(version.suggested_concept_ids_json))
@@ -184,6 +195,8 @@ def _to_detail(
         correction_notes=version.correction_notes,
         problem_images=load_problem_images(version.problem_images),
         is_correct=version.is_correct,
+        primary_topic_id=mistake.primary_topic_id,
+        primary_topic_subject=primary_topic_subject,
         labels=MistakeLabels(
             confirmed=labels.confirmed,
             category_id=labels.category_id,
@@ -240,6 +253,17 @@ async def _load_lookup(
     return category_names, concept_map
 
 
+async def _primary_subjects(
+    session: AsyncSession, mistakes: list[Mistake]
+) -> dict[int, str]:
+    """主考点 → 学科唯一口径（复用 services.subjects，前端禁止另建映射）。"""
+
+    topics = await load_topics(session, [m.primary_topic_id for m in mistakes])
+    return {
+        m.id: subject_for_topic(m.primary_topic_id, topics) for m in mistakes
+    }
+
+
 async def _render_detail(
     session: AsyncSession, mistake: Mistake
 ) -> MistakeDetail:
@@ -247,11 +271,13 @@ async def _render_detail(
     if version is None:
         raise HTTPException(status_code=404, detail="错题内容版本缺失")
     category_names, concept_map = await _load_lookup(session, [version])
+    subjects = await _primary_subjects(session, [mistake])
     return _to_detail(
         mistake,
         version,
         category_names=category_names,
         concept_map=concept_map,
+        primary_topic_subject=subjects[mistake.id],
     )
 
 
@@ -296,12 +322,16 @@ async def list_mistakes_endpoint(
         category_names, concept_map = await _load_lookup(
             session, [version for _, version in rows]
         )
+        subjects = await _primary_subjects(
+            session, [mistake for mistake, _ in rows]
+        )
         items = [
             _to_detail(
                 mistake,
                 version,
                 category_names=category_names,
                 concept_map=concept_map,
+                primary_topic_subject=subjects[mistake.id],
             )
             for mistake, version in rows
         ]
@@ -422,11 +452,13 @@ async def update_mistake_labels(
             raise HTTPException(status_code=422, detail=str(exc)) from None
 
         category_names, concept_map = await _load_lookup(session, [version])
+        subjects = await _primary_subjects(session, [mistake])
         return _to_detail(
             mistake,
             version,
             category_names=category_names,
             concept_map=concept_map,
+            primary_topic_subject=subjects[mistake.id],
         )
 
 
@@ -456,6 +488,38 @@ async def update_mistake_notes(
         except (MistakeVersionConflict, MistakeStateConflict) as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from None
         except MistakeConflict as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from None
+        return await _render_detail(session, mistake)
+
+
+@router.post(
+    "/api/mistakes/{mistake_id}/primary-topic", response_model=MistakeDetail
+)
+async def update_mistake_primary_topic(
+    mistake_id: int,
+    payload: PrimaryTopicRequest,
+    session: AsyncSession = Depends(get_session),
+) -> MistakeDetail:
+    """孩子区设定/更正主考点（免 PIN，与 /labels、/notes 同级）：写根表 + 审计事件。
+
+    不 bump current_version、不追加版本行；同值幂等 no-op；null 落 NULL；未知
+    知识点 422。主考点只决定同类题检索，不进 mastery/排期/streak。
+    """
+
+    async with session.begin():
+        try:
+            mistake = await set_primary_topic(
+                session,
+                mistake_id=mistake_id,
+                base_version=payload.base_version,
+                actor=payload.actor,
+                primary_topic_id=payload.primary_topic_id,
+            )
+        except MistakeNotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from None
+        except (MistakeVersionConflict, MistakeStateConflict) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from None
+        except (MistakeConflict, CategoryNotFound) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from None
         return await _render_detail(session, mistake)
 
