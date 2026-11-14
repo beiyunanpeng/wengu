@@ -694,14 +694,18 @@
     **超出子集（积分、求和、矩阵、`\begin{...}`、未识别宏）抛 `UnsupportedLatex`**；
   - `judge/normalize.py` 增 `formula_equivalent(a, b) -> bool | None`（None = 不可判）：先走现有 NFKC/有理数规则，
     再试 sympy；`sympify` 前后做变量与运算白名单检查，**禁 eval/exec、禁任意属性调用**，只做 `Eq` / `simplify(lhs-rhs)==0`；
-  - `judge_answer` 接入：仅当题目为公式类（答案含 LaTeX 标记或 `answer_kind == formula`）时尝试；
+  - `judge_answer` 接入：仅当题目为公式类时尝试——**触发面 = 题面/答案含 `\宏` 或 `^` 标记**
+    （卡原写的 `answer_kind == formula` 未实现，2026-11-13 交付后由审核方收敛口径）；
     返回 正确 / 错误 / **unknown → fallback**；
   - fallback 走既有自评路径（`source=student_self`），UI 标注"公式题：系统未自动判定，请自评或家长核对"，
-    `formula_fallback` 作为标签记入 payload（**不进判分结论、不影响掌握度算法**）；
+    `formula_fallback` 作为标签记入 payload（**不进判分结论、不影响掌握度算法**，须有集成断言锁定）；
   - 题库 `verify` 表达式仍走 AST 沙箱，本票不改。
-- DoD：正例 ≥12 条（`\frac{1}{2}≡0.5`、`2(x-3)+4=3x-5 ≡ x=3`、`\sqrt{16}≡4`、常数/单位等价等）；
+- DoD：正例 ≥12 条（`\frac{1}{2}≡0.5`、`\sqrt{16}≡4`、常数/单位等价等；**纯文本等式如 `2(x-3)+4=3x-5`
+  与 `x=3` 不进公式分支**，由既有文本/有理数规范化比对处理，等价性仅在 `formula_equivalent` 函数层断言）；
   负例不误判为对；`UnsupportedLatex` 用例（积分/矩阵/未知宏）→ 返回 None 且走自评、不报错；
-  sympify 注入用例（`__import__`、`open`、属性访问、下标）必须被白名单拒绝并有断言；同输入重放一致；
+  **白名单必须被"语法合法但结构被禁"的输入直接打到 `_parse_formula_side` 上并断言精确拒绝码**
+  （属性访问/下标/多参或关键字调用/白名单外名/下划线名/字符串常量/裸 lambda/超大常数），
+  且变异"关掉 `_validate_formula_ast` 闸门"时这批用例必须全部变红；同输入重放一致；
   全量 pytest 绿 + `ruff check --no-cache` + build；**`requirements.txt` 零变化**。
 - 禁止：引入 antlr4-python3-runtime 或任何新依赖；`eval`/`exec` 或 unrestricted `sympify`；
   把 fallback 伪装成"判对"；对依赖图形的题（`figure`）启用公式判分；改 `judgeAnswer` 既有非公式路径行为。

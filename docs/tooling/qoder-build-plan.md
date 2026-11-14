@@ -1786,17 +1786,28 @@ MASTERY_SOURCES / GRADUATION_STREAK）+ app/services/review_policy.py（review_i
 2. `judge/normalize.py` 增 `formula_equivalent(a, b) -> bool | None`（None = 不可判）：
    先走现有 NFKC / 有理数 / 单位规则，再试 sympy；`sympify` 前后做**变量与运算白名单**检查，
    禁 `eval` / `exec` / 属性访问 / 下标 / 任意函数调用，只做 `Eq` 与 `simplify(lhs - rhs) == 0`。
-3. `judge_answer` 接入：仅当题目为公式类（答案含 LaTeX 标记或 `answer_kind == formula`）时尝试；
+3. `judge_answer` 接入：仅当题目为公式类（**触发面 = 含 `\宏` 或 `^` 标记**；`answer_kind == formula`
+   未实现，交付后由审核方收敛口径）时尝试；
    返回 正确 / 错误 / **unknown → fallback**。
 4. fallback 走既有自评路径（`source=student_self`），UI 明示"公式题：系统未自动判定，请自评或家长核对"；
    `formula_fallback` 作为**标签**记入 payload，**不进判分结论、不影响掌握度与排期算法**。
 5. 题库 `verify` 表达式仍走 AST 沙箱，本票不改。
 
 【DoD】
-- 正例 **≥12 条**（含 `\frac{1}{2} ≡ 0.5`、`2(x-3)+4=3x-5 ≡ x=3`、`\sqrt{16} ≡ 4`、常数/单位等价等）；
+- 正例 **≥12 条**（含 `\frac{1}{2} ≡ 0.5`、`\sqrt{16} ≡ 4`、常数/单位等价等；**纯文本等式
+  `2(x-3)+4=3x-5` 与 `x=3` 不进公式分支**，由既有文本/有理数规范化比对处理，等价性只在
+  `formula_equivalent` 函数层断言——原卡把它列为端到端正例是审核方措辞错误，已改）；
 - 负例不误判为对（有断言）；
 - `UnsupportedLatex` 用例（积分 / 矩阵 / 未知宏）→ 返回 None、走自评、不抛给调用方；
-- **注入用例必须被白名单拒绝并有断言**：`__import__('os')`、`open(...)`、属性访问、下标、lambda；
+- **白名单必须是承重墙**：用"语法合法但结构被禁"的输入直接打 `_parse_formula_side`，断言精确拒绝码
+  （属性访问 `x.y`→`forbidden_node`、下标 `sqrt[2]`→`forbidden_node`、多参 `sqrt(1,2)`→`bad_call`、
+  关键字 `sqrt(x=1)`→`bad_call`、白名单外名 `foo+1`/`_x+1`→`forbidden_name`、字符串常量→`forbidden_constant`、
+  裸 `lambda: 1`→`forbidden_node`、超大常数→`const_too_large`）；
+  **注意 `ast.walk` 是 BFS**：外层 `Call` 先于内层 `Lambda` 被访问，故 `(lambda: 1)(x)` 的真实拒绝码是
+  `forbidden_call` 而非 `forbidden_node`——按真实码断言，另补裸 lambda 用例覆盖节点路径；
+  变异要求：临时把 `_validate_formula_ast` 的 `nodes` 置空，这批用例必须**全部变红**；
+- 标签惰性必须有集成反证：剥掉 `formula_fallback` 后 mastery 与下次到期日一字不变，
+  **且 `mastery=0` 时到期日必须不同**（证明 mastery 真进入间隔计算，等式非恒真）；
 - 同输入重放一致（确定性）；
 - 全量 `pytest -q` 绿 + `ruff check --no-cache` + `npm run build`；**`requirements.txt` 零变化**（用
   `git diff` 证明）。
