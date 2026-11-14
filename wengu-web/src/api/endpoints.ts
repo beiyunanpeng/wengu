@@ -149,6 +149,23 @@ export function updateMistakeNotes(
   );
 }
 
+export interface MistakePrimaryTopicPayload {
+  base_version: number;
+  primary_topic_id: string | null;
+  actor?: "student" | "parent";
+}
+
+export function setMistakePrimaryTopic(
+  mistakeId: number,
+  payload: MistakePrimaryTopicPayload,
+): Promise<MistakeDetail> {
+  return requestJson<MistakeDetail>(
+    `/api/mistakes/${mistakeId}/primary-topic`,
+    "POST",
+    payload,
+  );
+}
+
 export function voidMistake(
   mistakeId: number,
   payload: { actor?: "student" | "parent"; reason?: string | null } = {},

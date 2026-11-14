@@ -35,6 +35,7 @@ from app.models import (
     ProblemBankItem,
     ReviewSchedule,
 )
+from app.services import recompute, streak
 from app.services.backup import create_backup
 from app.services.concepts import concept_family_ids, resolve_concepts
 from app.services.mistake_images import MAX_IMAGE_BYTES
@@ -1835,3 +1836,440 @@ async def test_notes_edit_overlong_empty_and_bad_actor(tmp_path) -> None:
             )
         ).all()
     assert [r.correction_notes for r in rows] == [None, None, None]
+
+
+# ---- P1-18 主考点可设定与更正（根表 + 审计事件，零迁移） ----
+
+
+async def _event_rows(factory: async_sessionmaker) -> list[LearningEvent]:
+    async with factory() as session:
+        return list(
+            (
+                await session.scalars(
+                    select(LearningEvent).order_by(LearningEvent.id)
+                )
+            ).all()
+        )
+
+
+def _recompute_events(rows: list[LearningEvent]) -> list[recompute.Event]:
+    return [
+        recompute.Event(
+            type=row.type,
+            actor=row.actor,
+            mistake_id=row.mistake_id,
+            payload=row.payload,
+            occurred_at=row.occurred_at,
+        )
+        for row in rows
+    ]
+
+
+async def _mastery_snapshot(
+    factory: async_sessionmaker, concept_ids: list[int]
+) -> dict[int, float]:
+    events = _recompute_events(await _event_rows(factory))
+    return {cid: recompute.mastery(events, cid) for cid in concept_ids}
+
+
+async def _schedule_snapshot(
+    factory: async_sessionmaker, mistake_id: int
+) -> list[tuple]:
+    async with factory() as session:
+        rows = (
+            await session.scalars(
+                select(ReviewSchedule)
+                .where(ReviewSchedule.mistake_id == mistake_id)
+                .order_by(ReviewSchedule.id)
+            )
+        ).all()
+    return [
+        (row.id, row.due_date, row.completed_at, row.rung) for row in rows
+    ]
+
+
+async def _seed_attempts(
+    factory: async_sessionmaker, concept_id: int, kinds: tuple[str, ...]
+) -> None:
+    now = datetime.now(UTC)
+    async with factory() as session, session.begin():
+        for index, kind in enumerate(kinds):
+            session.add(
+                LearningEvent(
+                    type=f"attempt_{kind}",
+                    actor="student",
+                    mistake_id=None,
+                    payload=json.dumps(
+                        {"concept_id": concept_id, "source": "student_self"}
+                    ),
+                    occurred_at=now,
+                    idempotency_key=f"p118-mastery-{concept_id}-{index}-{uuid4().hex}",
+                )
+            )
+
+
+@pytest.mark.integration
+async def test_primary_topic_set_writes_root_and_audit_event_only(tmp_path) -> None:
+    """P1-18 核心：写根表 + 恰 1 条审计事件；不 bump 版本、不追加版本行、历史零改动。
+
+    同值幂等 no-op（0 新增、updated_at 不变）；null 落 NULL；学科经唯一口径投影。
+    """
+
+    factory = _migrated(tmp_path)
+    await _seed_topic(factory)
+    await _seed_topic(
+        factory, topic_id="cnm_test_english", name="词汇", subject="英语"
+    )
+
+    async with _client(factory) as client:
+        body = await _create_mistake(client, primary_topic_id=None)
+        mistake_id = body["mistake_id"]
+        assert body["primary_topic_id"] is None
+
+        detail = (await client.get(f"/api/mistakes/{mistake_id}")).json()
+        assert detail["primary_topic_id"] is None
+        assert detail["primary_topic_subject"] == "未挂考点"
+        before_updated = detail["updated_at"]
+        before_versions = await _count(factory, MistakeVersion)
+        before_events = await _event_rows(factory)
+
+        # null → 数学：恰新增 1 条事件，根表列 + updated_at 变，版本不动
+        set_math = await client.post(
+            f"/api/mistakes/{mistake_id}/primary-topic",
+            json={
+                "base_version": 1,
+                "primary_topic_id": "cnm_test_equation",
+                "actor": "student",
+            },
+        )
+        assert set_math.status_code == 200, set_math.text
+        math_body = set_math.json()
+        assert math_body["primary_topic_id"] == "cnm_test_equation"
+        assert math_body["primary_topic_subject"] == "数学"
+        assert math_body["current_version"] == 1
+        assert math_body["updated_at"] != before_updated
+
+        after_math = await _event_rows(factory)
+        before_ids = {event.id for event in before_events}
+        new_events = [e for e in after_math if e.id not in before_ids]
+        assert len(new_events) == 1
+        event = new_events[0]
+        assert event.type == "mistake_primary_topic_set"
+        assert event.mistake_id == mistake_id
+        assert event.idempotency_key == (
+            f"mistake:{mistake_id}:primary-topic:1:cnm_test_equation"
+        )
+        assert json.loads(event.payload) == {
+            "from_topic_id": None,
+            "to_topic_id": "cnm_test_equation",
+            "actor": "student",
+            "base_version": 1,
+        }
+        # 历史事件零改动（逐条比对 type/payload/occurred_at/key）
+        assert await _count(factory, MistakeVersion) == before_versions
+        after_by_id = {e.id: e for e in after_math}
+        for old in before_events:
+            now = after_by_id[old.id]
+            assert (
+                now.type,
+                now.payload,
+                now.occurred_at,
+                now.idempotency_key,
+            ) == (old.type, old.payload, old.occurred_at, old.idempotency_key)
+
+        # 同值重复：幂等 no-op，0 新增、updated_at 不变
+        repeat = await client.post(
+            f"/api/mistakes/{mistake_id}/primary-topic",
+            json={"base_version": 1, "primary_topic_id": "cnm_test_equation"},
+        )
+        assert repeat.status_code == 200, repeat.text
+        assert repeat.json()["updated_at"] == math_body["updated_at"]
+        assert len(await _event_rows(factory)) == len(after_math)
+
+        # 数学 → 英语：同 base_version 再恰新增 1 条（键含 to_topic_id 不撞）
+        set_eng = await client.post(
+            f"/api/mistakes/{mistake_id}/primary-topic",
+            json={
+                "base_version": 1,
+                "primary_topic_id": "cnm_test_english",
+                "actor": "parent",
+            },
+        )
+        assert set_eng.status_code == 200, set_eng.text
+        assert set_eng.json()["primary_topic_subject"] == "英语"
+        after_eng = await _event_rows(factory)
+        assert len(after_eng) == len(after_math) + 1
+        assert after_eng[-1].idempotency_key == (
+            f"mistake:{mistake_id}:primary-topic:1:cnm_test_english"
+        )
+        assert json.loads(after_eng[-1].payload)["from_topic_id"] == (
+            "cnm_test_equation"
+        )
+
+        # 英语 → null：清除落 NULL，学科回"未挂考点"
+        clear = await client.post(
+            f"/api/mistakes/{mistake_id}/primary-topic",
+            json={"base_version": 1, "primary_topic_id": None},
+        )
+        assert clear.status_code == 200, clear.text
+        assert clear.json()["primary_topic_id"] is None
+        assert clear.json()["primary_topic_subject"] == "未挂考点"
+        after_clear = await _event_rows(factory)
+        assert len(after_clear) == len(after_eng) + 1
+        assert after_clear[-1].idempotency_key == (
+            f"mistake:{mistake_id}:primary-topic:1:null"
+        )
+        assert json.loads(after_clear[-1].payload)["to_topic_id"] is None
+
+    # 版本表行数与 current_version 全程不变（专门断言）
+    assert await _count(factory, MistakeVersion) == before_versions == 1
+    async with factory() as session:
+        root = await session.get(Mistake, mistake_id)
+        assert root.current_version == 1
+        assert root.primary_topic_id is None
+
+
+@pytest.mark.integration
+async def test_primary_topic_idempotency_key_includes_to_topic(tmp_path) -> None:
+    """P1-18 可证伪锚点：同 base_version 两次不同目标 → 恰 2 条事件。
+
+    幂等键含 to_topic_id 时两键不撞、各记 1 条；若把 to_topic_id 从键里拿掉，
+    第二次会被 UNIQUE 去重 → 只剩 1 条，本断言变红（还原后复绿）。
+    """
+
+    factory = _migrated(tmp_path)
+    await _seed_topic(factory)
+    await _seed_topic(
+        factory, topic_id="cnm_test_english", name="词汇", subject="英语"
+    )
+
+    async with _client(factory) as client:
+        mistake_id = (await _create_mistake(client, primary_topic_id=None))[
+            "mistake_id"
+        ]
+        baseline = len(await _event_rows(factory))
+
+        first = await client.post(
+            f"/api/mistakes/{mistake_id}/primary-topic",
+            json={"base_version": 1, "primary_topic_id": "cnm_test_equation"},
+        )
+        assert first.status_code == 200, first.text
+        assert len(await _event_rows(factory)) == baseline + 1
+
+        second = await client.post(
+            f"/api/mistakes/{mistake_id}/primary-topic",
+            json={"base_version": 1, "primary_topic_id": "cnm_test_english"},
+        )
+        assert second.status_code == 200, second.text
+        # 改一次恰新增 1 条：两次不同目标共 2 条（去掉 to_topic_id 会塌成 1 条）
+        assert len(await _event_rows(factory)) == baseline + 2
+
+    async with factory() as session:
+        keys = (
+            await session.scalars(
+                select(LearningEvent.idempotency_key).where(
+                    LearningEvent.type == "mistake_primary_topic_set"
+                )
+            )
+        ).all()
+    assert set(keys) == {
+        f"mistake:{mistake_id}:primary-topic:1:cnm_test_equation",
+        f"mistake:{mistake_id}:primary-topic:1:cnm_test_english",
+    }
+
+
+@pytest.mark.integration
+async def test_primary_topic_optimistic_lock_state_unknown_and_missing(
+    tmp_path,
+) -> None:
+    """P1-18：base_version≠current → 409；voided → 409；未知 seed → 422；不存在 → 404。
+
+    冲突/非法一律不写事件、不追加版本行；非法 actor → 422。
+    """
+
+    factory = _migrated(tmp_path)
+    await _seed_topic(factory)
+
+    async with _client(factory) as client:
+        mistake_id = (await _create_mistake(client))["mistake_id"]
+        baseline = len(await _event_rows(factory))
+
+        stale = await client.post(
+            f"/api/mistakes/{mistake_id}/primary-topic",
+            json={"base_version": 99, "primary_topic_id": "cnm_test_equation"},
+        )
+        assert stale.status_code == 409, stale.text
+
+        unknown = await client.post(
+            f"/api/mistakes/{mistake_id}/primary-topic",
+            json={"base_version": 1, "primary_topic_id": "cnm_missing"},
+        )
+        assert unknown.status_code == 422, unknown.text
+
+        bad_actor = await client.post(
+            f"/api/mistakes/{mistake_id}/primary-topic",
+            json={
+                "base_version": 1,
+                "primary_topic_id": "cnm_test_equation",
+                "actor": "teacher",
+            },
+        )
+        assert bad_actor.status_code == 422, bad_actor.text
+
+        missing = await client.post(
+            "/api/mistakes/9999/primary-topic",
+            json={"base_version": 1, "primary_topic_id": "cnm_test_equation"},
+        )
+        assert missing.status_code == 404, missing.text
+
+        # 冲突/非法都不写盘
+        assert len(await _event_rows(factory)) == baseline
+        assert await _count(factory, MistakeVersion) == 1
+
+        voided = await client.post(
+            f"/api/mistakes/{mistake_id}/void",
+            json={"actor": "parent", "reason": "测试作废"},
+        )
+        assert voided.status_code == 200, voided.text
+        state_conflict = await client.post(
+            f"/api/mistakes/{mistake_id}/primary-topic",
+            json={"base_version": 1, "primary_topic_id": "cnm_test_equation"},
+        )
+        assert state_conflict.status_code == 409, state_conflict.text
+
+    assert await _count(factory, MistakeVersion) == 1
+
+
+@pytest.mark.integration
+async def test_primary_topic_child_area_no_pin(tmp_path) -> None:
+    """P1-18：孩子区免 PIN——未解锁会话也能设定/读取主考点（与 /labels、/notes 同级）。"""
+
+    factory = _migrated(tmp_path)
+    await _seed_topic(factory)
+
+    async with _client(factory) as client:
+        mistake_id = (await _create_mistake(client, primary_topic_id=None))[
+            "mistake_id"
+        ]
+
+    async with _client(factory, unlock=False) as locked:
+        edited = await locked.post(
+            f"/api/mistakes/{mistake_id}/primary-topic",
+            json={"base_version": 1, "primary_topic_id": "cnm_test_equation"},
+        )
+        assert edited.status_code == 200, edited.text
+        assert edited.json()["primary_topic_id"] == "cnm_test_equation"
+        detail = await locked.get(f"/api/mistakes/{mistake_id}")
+        assert detail.json()["primary_topic_subject"] == "数学"
+
+
+@pytest.mark.integration
+async def test_primary_topic_keeps_mastery_schedule_streak_and_moves_due_kind(
+    tmp_path,
+) -> None:
+    """P1-18 DoD：mastery/排期/streak 不受影响；due kind 由 redo→quiz（有题），
+
+    无题则 bank_gap=true 不抛错；学科卡归位、inventory.unassigned_active 减 1。
+    """
+
+    factory = _migrated(tmp_path)
+    await _seed_topic(factory)
+    await _seed_topic(factory, topic_id="cnm_001", name="有理数", subject="数学")
+    await _seed_topic(
+        factory, topic_id="cnm_999999", name="题库空缺", subject="数学"
+    )
+    concept_id = await _seed_concept(
+        factory, name="正负数", category_id="cnm_001"
+    )
+    await _seed_attempts(factory, concept_id, ("correct", "wrong"))
+
+    # 新事件类型绝不进 streak（让主考点不参与 streak）
+    assert "mistake_primary_topic_set" not in streak.LEARNING_EVENT_TYPES
+
+    async with _client(factory) as client:
+        mistake_id = (
+            await _create_mistake(
+                client, primary_topic_id="cnm_001", concept_ids=(concept_id,)
+            )
+        )["mistake_id"]
+        # 核对页要求选细标签前先有主考点，故先入本再经端点清除 → 未挂考点作"改前"基线
+        cleared = await client.post(
+            f"/api/mistakes/{mistake_id}/primary-topic",
+            json={"base_version": 1, "primary_topic_id": None},
+        )
+        assert cleared.status_code == 200, cleared.text
+        schedule = await _open_schedule(factory, mistake_id)
+        due_day = schedule.due_date.isoformat()
+
+        before_item = next(
+            item
+            for item in (
+                await client.get(
+                    "/api/reviews/due", params={"today": due_day}
+                )
+            ).json()["items"]
+            if item["mistake_id"] == mistake_id
+        )
+        assert before_item["task"] == "redo"
+        assert before_item["bank_gap"] is True
+
+        before_dash = (await client.get("/api/dashboard")).json()
+        before_mastery = await _mastery_snapshot(factory, [concept_id])
+        before_schedules = await _schedule_snapshot(factory, mistake_id)
+        assert before_mastery[concept_id] == 0.5
+        assert before_dash["inventory"]["unassigned_active"] == 1
+
+        # 设定主考点 → cnm_001（seed 题库有题）：due kind 变 quiz
+        set_topic = await client.post(
+            f"/api/mistakes/{mistake_id}/primary-topic",
+            json={"base_version": 1, "primary_topic_id": "cnm_001"},
+        )
+        assert set_topic.status_code == 200, set_topic.text
+
+        after_item = next(
+            item
+            for item in (
+                await client.get(
+                    "/api/reviews/due", params={"today": due_day}
+                )
+            ).json()["items"]
+            if item["mistake_id"] == mistake_id
+        )
+        assert after_item["task"] == "quiz"
+        assert after_item["bank_gap"] is False
+        assert after_item["primary_topic_id"] == "cnm_001"
+        assert after_item["quiz"] is not None
+
+        # mastery 全等、排期行数与 due_date 不变
+        assert await _mastery_snapshot(factory, [concept_id]) == before_mastery
+        assert await _schedule_snapshot(factory, mistake_id) == before_schedules
+
+        # 学科卡归位 + unassigned_active 减 1
+        after_dash = (await client.get("/api/dashboard")).json()
+        before_cards = {c["subject"]: c for c in before_dash["subjects"]}
+        after_cards = {c["subject"]: c for c in after_dash["subjects"]}
+        assert before_cards["未挂考点"]["active"] == 1
+        assert after_cards.get("未挂考点", {}).get("active", 0) == 0
+        assert after_cards["数学"]["active"] == (
+            before_cards.get("数学", {}).get("active", 0) + 1
+        )
+        assert after_dash["inventory"]["unassigned_active"] == 0
+
+        # 改挂无题知识点：bank_gap=true 不抛错（退回 redo）
+        gap_topic = await client.post(
+            f"/api/mistakes/{mistake_id}/primary-topic",
+            json={"base_version": 1, "primary_topic_id": "cnm_999999"},
+        )
+        assert gap_topic.status_code == 200, gap_topic.text
+        gap_item = next(
+            item
+            for item in (
+                await client.get(
+                    "/api/reviews/due", params={"today": due_day}
+                )
+            ).json()["items"]
+            if item["mistake_id"] == mistake_id
+        )
+        assert gap_item["task"] == "redo"
+        assert gap_item["bank_gap"] is True
+        assert gap_item["quiz"] is None

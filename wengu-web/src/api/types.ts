@@ -33,6 +33,8 @@ export interface MistakeDetail {
   correction_notes: string | null;
   problem_images: string[];
   is_correct: boolean | null;
+  primary_topic_id: string | null;
+  primary_topic_subject: string;
   labels: MistakeLabels;
   suggestion: MistakeSuggestion;
   created_at: string;
