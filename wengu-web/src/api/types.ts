@@ -234,6 +234,7 @@ export interface ReviewQuizResponse {
   question: QuizQuestionView;
   mode: "system" | "self_eval";
   verdict: "correct" | "wrong";
+  formula_fallback?: boolean;
 }
 
 export interface QuizTopicInfo {
@@ -292,6 +293,7 @@ export interface PaperAnswerInfo {
   status: "correct" | "wrong" | "uncertain" | "skipped";
   attempt_id: number | null;
   replayed: boolean;
+  formula_fallback?: boolean;
 }
 
 export interface PaperSubmitResponse {
@@ -553,6 +555,7 @@ export interface PracticeAnswerInfo {
   status: "correct" | "wrong" | "uncertain" | "skipped";
   practice_record_id: number | null;
   reused: boolean;
+  formula_fallback?: boolean;
 }
 
 export interface PracticeSubmitResponse {

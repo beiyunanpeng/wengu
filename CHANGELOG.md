@@ -9,6 +9,51 @@
 
 ### Added
 
+- **P4-6 公式题判分：受限 LaTeX 子集 + `sympy` 等值判断，不可判降级自评（v2.8 §19-E；零迁移、零新依赖）**（2026-11-13）：
+  - **路径（审核方 2026-11-12 定死）**：**不引入 antlr**（`sympy.parsing.latex` 需 antlr4-python3-runtime，属新重依赖，本票拒绝）。
+    改**确定性字符串规则**把受限 LaTeX 子集归一为 sympy 可解析式，再做等式判断；超出子集或不可判 → **降级孩子卷面自评**并标
+    `formula_fallback`，**绝不猜对错**。`sympy>=1.13,<2` 原为"已声明未使用"依赖（`grep sympy app` 零命中），**本票是其首次真正启用**；
+    **`requirements.txt` 零变化**（`git diff origin/main -- wengu-api/requirements.txt` 为空）。
+  - **新增 `app/judge/latex_subset.py`**：纯字符串转换器（**不解析任意 LaTeX**），支持 `\frac{a}{b}`、`\sqrt{a}`、`a^{b}`、
+    `\cdot`/`\times`/`\div`、`\left`/`\right`、`\%`、`\pi`、`e^{x}`、四则/括号/等号两侧与隐式乘法（`3x`→`3*x`）。
+    超出子集（`\int`/`\sum`/矩阵/`\begin{...}`/未识别宏/`n` 次根/缺参/括号不配对/坏转义/空/超长）→ 抛 `UnsupportedLatex(reason)`。
+  - **`judge/normalize.py` 增 `formula_equivalent(a, b) -> bool | None`**（`None`=不可判）：先走现有 NFKC/有理数/单位规则，
+    再试 sympy。`sympify` **前后双白名单**：转换式先过 AST 校验（仅 `Expression/Constant/Name/BinOp/UnaryOp/Call`，
+    变量名 ∈ 受限符号集、常量 `int|float` 且 `abs≤1e15`、`Call` 只允许 `sqrt` 单参、`Pow` 常量指数 `abs≤1000`、节点数 `≤200`），
+    `sympify(rational=True, locals=…)` 后再查 `free_symbols ⊆ 白名单`、`Function` 原子 ⊆ `{exp}`；**禁 `eval`/`exec`/属性访问/下标/任意函数调用**。
+    等值只用 `Eq` 与 `simplify(lhs-rhs)==0`（等式两侧作差求比值，**含自由符号的等式保守返回 `None`**），**不用 `.equals()`**（随机数值测试，非确定性）。
+    DoS 守卫：`MAX_FORMULA_CHARS=1000`。`judge_answer` 仅当**作答或任一参考答案含 LaTeX 标记**（`\宏`/`\%`/`^`）时进公式分支；
+    **`【依赖图形】` 题二次守卫不启用**（上游 `is_answerable` 已把 `figure` 题排除在 `mode=system` 外）。
+  - **口径（P4-6 返工③，仅说明不改实现）**：公式判分触发面是**「仅标记触发」**——作答或任一参考答案含 `\宏`/`\%`/`^` 才进公式分支；
+    工单卡提到的 `answer_kind == formula` **并未实现**。纯文本等式（如 `2(x-3)+4=3x-5` 与 `x=3`）**不含标记 → 不进公式分支**，
+    由既有文本/有理数规范化比对处理；该行为由 `test_formula_detection_is_narrow_and_excludes_figures` 钉住（DoD 措辞由审核方改卡）。
+  - **三个考核面接入 fallback（只接系统自造同类题，绝不接真实作业链路）**：手动组卷 `quiz.py`、加练 `practice.py`、到期考核 `review.py`
+    的 `system` 判分得 `uncertain/formula_fallback` 时——若客户端补了卷面自评 `correct` 则降级 `source=student_self` 并在事件 payload 打
+    `formula_fallback=True` 标签；否则 quiz/practice 回 `uncertain`（不落库），review 抛 `ReviewQuizFormulaFallback` →
+    **HTTP 422 `detail={"message":…, "reason":"formula_fallback"}`**。**标签只作展示/审计，不进判分结论、不改掌握度与排期算法**；
+    加练面**仍只写 `practice_records`、绝不写 attempts/events**。同输入重放幂等（quiz/review 按事件回放、practice 按 dedup 复用）。
+  - **前端**：`api/client.ts` 增 `FORMULA_FALLBACK_MESSAGE`（「公式题：系统未自动判定，请自评或家长核对」）+ `isFormulaFallback(error)`
+    （`ApiError.status===422 && detail.reason==="formula_fallback"`）；`PracticePage`/`ReviewPage`（到期考核 + 手动组卷）对 fallback 题
+    渲染橙色文案 + 做对了/没做对自评按钮，徽章区分「服务端判分」与「学生自评」，其余题照常记录、可单独补交自评。
+  - **一字未改**：`judge_answer` 既有**非公式路径**行为与既有断言；题库 `verify` 仍走入库 AST 沙箱 `verify_sandbox.py`（本票不改）；
+    真实作业不在系统内判分的纪律不变。
+  - **测试**：新增 `tests/unit/test_latex_subset.py`（18 条确定性转换 + 11 条超子集抛错带 reason + 非字符串/超长/重放/去空白）、
+    `tests/unit/test_judge_formula.py`（**18 条正例对**含 `\frac{1}{2}≡0.5`、`2(x-3)+4=3x-5≡x=3`、`\sqrt{16}≡4`、`50\%≡0.5`、`e^{x}≡E**x`；
+    负例不误判为对；超子集→`None`→降级；**注入用例 `__import__('os')`/`open(...)`/属性/下标/`lambda` 被白名单拒绝**；`eval`/`exec` monkeypatch 守卫；
+    巨指数拒绝；同输入重放一致；图形题识别与跳过；非公式路径不变；**返工① +10 条白名单承重墙用例**：直接测 `_parse_formula_side`
+    断言精确 reason（`forbidden_node`/`bad_call`/`forbidden_name`/`forbidden_constant`/`forbidden_call`/`const_too_large`），
+    `nodes=[]` 变异→10 条全红、还原→全绿）、`tests/integration/test_formula_fallback_api.py`
+    （5 条：quiz 正例 `system_quiz` 无标签 + 重放、quiz fallback→自评降级 + 标签 + 重放、practice fallback **零 attempts/events**、
+    review fallback **422 reason** + 补自评 `student_self` + 标签 + 重放、**返工② 标签惰性断言**：先系统判对建立非平凡 mastery，
+    再 fallback 自评，断言 `recompute.mastery()`/下次到期日/判分结论字段与「剥 `formula_fallback` 标签的孪生输入」逐项一致 + mastery=0 反证）、
+    `wengu-web/tests/formulaFallback.test.ts`（6 条 `isFormulaFallback`）。
+  - **实跑**：全量 **742 passed**（较 P4-5 的 618 增 124：公式单测 119 + 集成 5；含返工① +10 白名单单测、返工② +1 集成；unit 496/integration 235/e2e 11）；全仓 `ruff check --no-cache .` 绿；
+    `npm run build` 绿（5.45s）；`npm test` **26 passed**（20 基线 + 6 新增）；`requirements.txt` 零变化（git diff 为空）。
+  - **残留 / 审核方需复核**：① 子集只覆盖初中常见公式，超出即降级自评（**设计预期，非缺陷**）；含自由符号的等式等价保守返回 `None`（不猜）；
+    ② 等值用 `simplify` 作差/比值（确定性），**未用 `.equals()`**；③ 公式判分**只接系统自造考核**，真实作业链路零接入；
+    ④ **无生产存量公式题复跑**（集成用自建 `cnm_formula` 考点 + 一道 `\frac{1}{2}` 题）；⑤ 前端 fallback UI 经 `npm run build`/单测验证，
+    **未做浏览器端到端取证**（本票未起 dev server 走查）。
+
 - **P4-4 后端健壮性与可观测性小修：seed 显式降级 + `occurred_at` 索引 + 同步 IO 收口 + 迁移回退说明（设计文档 §19-E）**（2026-11-13）：
   - **seed 装载失败显式可观测（不崩溃、不静默）**：新增进程内状态 `app/seed/state.py`
     （`SeedStatus` 冻结数据类 + `set/get/reset_seed_status` 单例，纯模块无 app 依赖）；

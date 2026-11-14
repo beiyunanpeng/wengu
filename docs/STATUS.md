@@ -1,9 +1,9 @@
 # STATUS.md — 开发计划与完成情况
 
-> 快照日期：2026-11-13（**P4-5 掌握度改近期窗口**，待评审；main 已含 P4-4 / PR #51）
-> 基线：`main` = `cb6ab4c`（P4-4 / PR #51 已合并）；P4-5 在分支 `feat/p4-5-mastery-window`，待评审
-> 全量测试：**618 passed**（2026-11-13 施工方实跑，unit 377 / integration 230 / **e2e 11**）；`ruff check --no-cache .` 全绿；P4-5 纯后端零前端改动，`npm test`（20）/ `npm run build` 沿用 P4-4 基线（未重跑）
-> Alembic head：`0023_learning_events_occurred_at`；业务表 **22 张**（P4-5 零迁移、零新依赖）
+> 快照日期：2026-11-13（**P4-6 公式题判分**，待评审；main 已含 P4-5 / PR #52）
+> 基线：`main` = `c7511cb`（P4-5 / PR #52 已合并）；P4-6 在分支 `feat/p4-6-formula-judge`，待评审
+> 全量测试：**742 passed**（2026-11-13 施工方实跑，unit 496 / integration 235 / **e2e 11**，较 P4-5 的 618 增 124：公式单测 119 + 集成 5；含返工① +10 白名单单测、返工② +1 集成）；`ruff check --no-cache .` 全绿；`npm run build` 绿（5.45s）、`npm test` **26 passed**（20 基线 + 6 新增）；`requirements.txt` 零变化（`git diff` 为空）
+> Alembic head：`0023_learning_events_occurred_at`；业务表 **22 张**（P4-6 零迁移、零新依赖；`sympy` 为已声明依赖首次真正启用）
 
 本文件是**状态快照**，不替代以下事实源；冲突时以它们为准：
 
@@ -231,6 +231,23 @@
   **一字未改**：`GRADUATION_STREAK`=3 / `is_graduated` / `stats` / `review_interval` 公式形状 / 多 concept 取最小。
   实跑 **618 passed**（unit 377 / integration 230 / e2e 11，+8 条 DoD 单测）、`ruff check --no-cache .` 绿；零迁移、零新依赖、前端零改动。
   **残留**：N=20>MIN_SAMPLE=5 时回退对 n<20 与 `[-20:]` 同效（按工单显式实现的冷启动守卫）；≥20 条真实存量数据尚未观测（无生产复跑）。
+- **P4-6 公式题判分已交付（待评审）**（2026-11-13，分支 `feat/p4-6-formula-judge`，设计文档 §19-E / §5.2）：
+  系统自造同类题考核的**公式类答案**新增确定性等值判断——`judge/latex_subset.py` 把受限 LaTeX 子集
+  （`\frac`/`\sqrt`/`^{}`/`\cdot`/`\times`/`\div`/`\left\right`/`\%`/`\pi`/`e^{x}`/四则/括号/等号）纯字符串归一，
+  超出子集（积分/求和/矩阵/`\begin`/未知宏）抛 `UnsupportedLatex`；`normalize.formula_equivalent(a,b)->bool|None`
+  先走既有 NFKC/有理数/单位规则再试 `sympy`，**sympify 前后双白名单**（变量/运算受限、禁 `eval`/`exec`/属性/下标/任意调用），
+  等值只用 `Eq` 与 `simplify(lhs-rhs)==0`（**不用 `.equals()`** 随机数值测试），含自由符号的等式保守返回 `None`。
+  **不引入 antlr**；`sympy>=1.13,<2` 原为"已声明未使用"依赖（`grep sympy app` 零命中），**本票首次真正启用**，`requirements.txt` 零变化。
+  **不可判 → 降级孩子卷面自评**（`source=student_self`）并标 `formula_fallback`：手动组卷 `quiz`、加练 `practice`、
+  到期考核 `review` 三个系统判分面接住，review 抛 `ReviewQuizFormulaFallback` → **HTTP 422 `reason=formula_fallback`**；
+  **标签只作展示/审计，不进判分结论、不改掌握度与排期算法**，加练面仍只写 `practice_records`、零 attempts/events。
+  仅当作答或参考答案含 LaTeX 标记（`\宏`/`\%`/`^`）时进公式分支，`【依赖图形】` 题二次守卫不启用（上游 `is_answerable` 已排除）。
+  **一字未改**：`judge_answer` 非公式路径与既有断言、题库 `verify` 入库 AST 沙箱 `verify_sandbox.py`、真实作业不判分纪律。
+  前端 `client.ts` 增 `FORMULA_FALLBACK_MESSAGE` + `isFormulaFallback`，`PracticePage`/`ReviewPage` 对 fallback 题渲染橙色文案 + 做对了/没做对自评按钮。
+  实跑 **742 passed**（unit 496 / integration 235 / e2e 11，+124：公式单测 119 + 集成 5）、`ruff check --no-cache .` 绿、
+  `npm run build` 绿（5.45s）、`npm test` 26 passed；零迁移、零新依赖。
+  **返工（2026-11-13，只补测试与口径、实现一字未动，`normalize.py` sha256 复核一致）**：① `test_judge_formula.py` +10 条白名单承重墙用例（直接测 `_parse_formula_side` 断言精确 reason；`nodes=[]` 变异→10 条全红、还原→全绿）；② `test_formula_fallback_api.py` +1 条惰性断言（先系统判对建立非平凡 mastery，再 fallback 自评，断言 `recompute.mastery()`/下次到期日/判分结论字段与剥 `formula_fallback` 标签的孪生输入逐项一致 + mastery=0 反证；挂确认细标签走 `append_label_version` 追加版本、不违反 append-only）；③ 口径：公式判分**仅标记触发**（`\宏`/`\%`/`^`），`answer_kind==formula` 未实现，纯文本等式不进公式分支（`test_formula_detection_is_narrow_and_excludes_figures` 钉住）。
+  **残留**：子集只覆盖初中常见公式（超出即降级，设计预期非缺陷）；无生产存量公式题复跑（集成用自建 `cnm_formula` 考点 + 一道 `\frac{1}{2}` 题）；前端 fallback UI 未做浏览器端到端取证。
 - **P0-5 两处 Windows 本地噪音已合并**（2026-11-05，PR#42 squash → main `629d6d7`）：
   ① `conftest.py` 新增 `pytest_configure` 钩子（仅 win32、未给 `--basetemp` 时生效），先移除被 ACL 锁死的
   死 `pytest-current` 链接（`os.rmdir` 是目录符号链接的正确原语），删不动时把整个临时根**改名保留现场**
@@ -260,7 +277,7 @@
 | Phase 1 | 核心闭环 | 进行中 | P1-0～P1-13b 完成（模型在环旧链路已退役，含 P1-3e 投递入口、P1-3f BOM 归一、P1-13 归并 UI、P1-13b 归并弹窗不预选）；仅剩 P1-7b，P1-7c 阻塞 |
 | Phase 2 | 每日任务 + 家长看板 | 进行中 | P2-5 家长看板、P2-4 两角色 + 本地 PIN、P2-6 极简打卡、P2-1 日队列（本轮仅到期复习/考核）、P2-3 课表/日历约束层、P2-2 番茄钟执行、P2-7 打印导出已完成；背诵铺底已随 P3-3a 以独立到期端点 + 复习页入口交付；P2-8 导航 sidebar、P2-9 搜索/掌握态、P2-10 回收站已完成（v2.7）；作业 deadline 与硬事件抬权重未开始 |
 | Phase 3 | 内容与扩展 | 进行中 | P3-1 家长录题（真题入库审核流水线）+ P3-1b 家长题接入检索池 + P3-1c 题库修订/软作废 + P3-2 主动加练变式 + **P3-3a 家长手填英语背诵** + **P3-3b 词表批量导入** + **P3-3c 从错题抽词**已完成；P3-5 前置（语文/化学家长自建章级 seed）已交付；听力默写、语文客观题、信奥、长期计划未开始 |
-| Phase 4 | 基础设施演进 | 进行中 | **P4-1 Tailscale 可达性 + 默认只绑回环已合并**（PR#39；两项待试用机实测：`tailscale serve` CLI 形式、sidecar 路径 A 运行时验证）；**P4-1b 部署面命令体检已合并**（PR#40 → `6f6c4cf`；死 `make backup`/`.PHONY restore` 删除、`make dev-api` 默认回环、`make lint --no-cache`、`seeds/README.md --src` 层级、`docs/manuals` 空骨架清理）；P4-1c 命令行备份入口已合并（PR#41 → `8bbef94`；CLI 只调 `create_backup`，与 UI 同目录同命名同 10 份轮转、无 PIN、Windows 计划任务示例已实测）；**P4-4 后端健壮性与可观测性小修已交付**（2026-11-13，待评审；seed 显式降级 + 迁移 0023 `occurred_at` 索引 + `save_config` 改 `to_thread` + 0013/0019 回退说明）；P4-2 可移植部署、P4-3 可选本地模型未开始 |
+| Phase 4 | 基础设施演进 | 进行中 | **P4-1 Tailscale 可达性 + 默认只绑回环已合并**（PR#39；两项待试用机实测：`tailscale serve` CLI 形式、sidecar 路径 A 运行时验证）；**P4-1b 部署面命令体检已合并**（PR#40 → `6f6c4cf`；死 `make backup`/`.PHONY restore` 删除、`make dev-api` 默认回环、`make lint --no-cache`、`seeds/README.md --src` 层级、`docs/manuals` 空骨架清理）；P4-1c 命令行备份入口已合并（PR#41 → `8bbef94`；CLI 只调 `create_backup`，与 UI 同目录同命名同 10 份轮转、无 PIN、Windows 计划任务示例已实测）；**P4-4 后端健壮性与可观测性小修已交付**（2026-11-13，待评审；seed 显式降级 + 迁移 0023 `occurred_at` 索引 + `save_config` 改 `to_thread` + 0013/0019 回退说明）；**P4-6 公式题判分已交付**（2026-11-13，待评审；受限 LaTeX 子集 + `sympy` 等值、不可判降级自评标 `formula_fallback`、不引入 antlr、`requirements.txt` 零变化）；P4-2 可移植部署、P4-3 可选本地模型未开始 |
 | Phase 5 | 开源分发与打包 | 部分完成 | LICENSE / README / CHANGELOG / `.env.example` / 第三方署名已就位；P5-2 备份 v1（导出一致性快照 + 停机恢复脚本）已交付；首次运行向导、在线恢复、云备份 / 清空级联、鉴权开关、教材包安装器未做 |
 
 ## 3. Phase 1 工单完成情况（v2.5 收口后）
@@ -1023,6 +1040,11 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
 
 - `learning_events` 只追加，UNIQUE 幂等键，UPDATE/DELETE 触发器守卫。
 - **模型只提、代码才判**（作用域 = 自造同类题）；运行时不用 `eval()`，题库核验走 AST 白名单沙箱。
+- **公式题判分（P4-6）**：只接系统自造同类题考核，真实作业链路零接入；受限 LaTeX 子集纯字符串归一
+  （超出抛 `UnsupportedLatex`）+ `sympy` 等值（`Eq`/`simplify` 作差，**不用 `.equals()`** 随机数值测试），
+  sympify 前后双白名单、**禁 `eval`/`exec`/属性访问/下标/任意函数调用**、**不引入 antlr**；
+  不可判 → 降级 `student_self` 自评并标 `formula_fallback`，**标签不进判分结论、不改掌握度/排期算法**；
+  仅 LaTeX 标记触发、`【依赖图形】` 题不启用；题库 `verify` 仍走入库 AST 沙箱 `verify_sandbox.py`（不改）。
 - 核对页确认是唯一转正入口；建议值与确认值分离；确认值优先、冲突不静默覆盖。
 - **家长录题红线**：`answer` 只能来自卷面/答案册或家长手填，**模型不得解题生成答案**；
   缺答案拒入库；`verify` 必须过 AST 白名单沙箱（禁 `__import__`/赋值/属性访问）；
@@ -1137,6 +1159,7 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
 | P4-3 | 未开始 | 可选本地模型层：若回退模型决策，另行评审，不默认引入 |
 | P4-4 | 已完成 | **后端健壮性与可观测性小修（2026-11-13，待评审，设计文档 §19-E）**：seed 装载失败显式降级（进程内状态 + 安全错误类别 `format/json/io/unknown`，`GET /api/setup/status` 增 `seed_loaded`/`seed_error`，前端 `seed_loaded===false` 红色横幅；服务不崩溃、错误明细不含题目/路径/堆栈）；迁移 0023 给 `learning_events.occurred_at` 建索引（可逆、纯加索引不碰 0008 触发器）；`save_config` 写盘改 `asyncio.to_thread`（原子写 + 文件锁语义不变）；backup-restore 补 0013/0019「逻辑可逆·数据不可回退」节。实跑 610 passed、ruff/build 绿、两次可证伪 RED→GREEN |
 | P4-5 | 已完成 | **掌握度改近期窗口（2026-11-13，待评审，设计文档 §5.4 / §19-E）**：`recompute.mastery()` 从全历史正确率收敛为最近 `MASTERY_WINDOW_SIZE`=20 次计入作答正确率（concept 过滤 + 双来源 + 申诉去重 + `occurred_at` 稳定排序取末尾 20；样本 <`MASTERY_MIN_SAMPLE`=5 回退全历史；常量模块级不可运行时配）；修「久会近错」孩子 mastery 仍高、复习间隔反被拉长。影响 review 取最小 + dashboard 概念/曲线三处（仅 concept ≥20 条时值变，间隔可能整体缩短属预期）；`GRADUATION_STREAK`/`is_graduated`/`review_interval` 公式一字未改。实跑 618 passed、ruff 绿；零迁移零新依赖 |
+| P4-6 | 已完成 | **公式题判分（2026-11-13，待评审，设计文档 §19-E / §5.2）**：受限 LaTeX 子集归一（`judge/latex_subset.py`，超出抛 `UnsupportedLatex`）+ `normalize.formula_equivalent` 走 `sympy` 等值（sympify 前后双白名单、禁 eval/exec/属性/下标/任意调用、`Eq`/`simplify` 不用 `.equals()`、含自由符号等式保守 `None`）；不可判降级 `student_self` 自评标 `formula_fallback`（quiz/practice/review 三面，review 抛 422 `reason=formula_fallback`；标签不进判分结论/掌握度/排期，practice 零 attempts/events）；仅 LaTeX 标记触发、`【依赖图形】` 题不启用；**不引入 antlr**、`sympy` 已声明依赖首次启用、`requirements.txt` 零变化；`judge_answer` 非公式路径与 `verify_sandbox.py` 一字未改。实跑 742 passed、ruff/build 绿、npm test 26；零迁移零新依赖。**返工只补测试与口径、实现不动**：+10 白名单承重墙单测（`nodes=[]` 变异全红/还原全绿）+1 标签惰性集成断言（mastery/到期日/结论字段与剥标签孪生一致 + mastery=0 反证）；口径=仅标记触发、`answer_kind==formula` 未实现 |
 
 ### Phase 5 — 开源分发与打包
 
