@@ -1227,6 +1227,95 @@ async def test_list_filters_combine_and_keep_pagination_contract(tmp_path) -> No
 
 
 @pytest.mark.integration
+async def test_list_subject_filter_shares_dashboard_mapping(tmp_path) -> None:
+    """P2-13 DoD：subject 经 `primary_topic_id`→seed 归并（**不是** category_id）。
+
+    夹具刻意让 m4 不挂主考点（primary_topic_id=NULL → 学科落"未挂考点"），
+    而其版本有效知识点仍回退到建议值 cnm_test_equation——以此钉死"学科"和
+    "知识点"是两根独立的轴，`subject` 绝不能拿 `category_id` 冒充。
+    并断言列表 total 与看板学科卡 total 逐科相等（卡片 N 道 → 点进去 N 道）。
+    """
+
+    factory = _migrated(tmp_path)
+    await _seed_topic(factory)
+    await _seed_topic(factory, topic_id="cnm_test_english", name="词汇", subject="英语")
+
+    async with _client(factory) as client:
+        m1 = await _create_mistake(
+            client, problem_text="解方程 2x=4", answer="x=2", error_cause="calculation"
+        )
+        m2 = await _create_mistake(
+            client, problem_text="解方程 5x=10", answer="x=2", error_cause="careless"
+        )
+        m3 = await _create_mistake(
+            client,
+            problem_text="翻译 apple",
+            answer="苹果",
+            primary_topic_id="cnm_test_english",
+        )
+        m4 = await _create_mistake(
+            client, problem_text="无主考点题", answer="略", primary_topic_id=None
+        )
+        m5 = await _create_mistake(
+            client, problem_text="解方程 3x=9", answer="x=3", error_cause="calculation"
+        )
+        for _ in range(3):
+            await _complete_correct(client, factory, m5["mistake_id"])
+
+        math_resp = await client.get("/api/mistakes", params={"subject": "数学"})
+        english_resp = await client.get("/api/mistakes", params={"subject": "英语"})
+        unassigned_resp = await client.get("/api/mistakes", params={"subject": "未挂考点"})
+        unknown_resp = await client.get("/api/mistakes", params={"subject": "不存在的学科"})
+        q_math = await client.get("/api/mistakes", params={"subject": "数学", "q": "解方程"})
+        cause_math = await client.get(
+            "/api/mistakes", params={"subject": "数学", "error_cause": "calculation"}
+        )
+        graduated_math = await client.get(
+            "/api/mistakes", params={"subject": "数学", "mastery_state": "graduated"}
+        )
+        unassigned_equation = await client.get(
+            "/api/mistakes", params={"subject": "未挂考点", "category_id": "cnm_test_equation"}
+        )
+        math_equation = await client.get(
+            "/api/mistakes", params={"subject": "数学", "category_id": "cnm_test_equation"}
+        )
+        paged = await client.get(
+            "/api/mistakes", params={"subject": "数学", "limit": 1, "offset": 1}
+        )
+        dashboard = await client.get("/api/dashboard")
+
+    math_ids = {m1["mistake_id"], m2["mistake_id"], m5["mistake_id"]}
+    assert _ids(math_resp) == math_ids
+    assert math_resp.json()["total"] == 3
+    assert _ids(english_resp) == {m3["mistake_id"]}
+    assert _ids(unassigned_resp) == {m4["mistake_id"]}
+    assert unknown_resp.status_code == 200, unknown_resp.text
+    assert unknown_resp.json()["items"] == []
+    assert unknown_resp.json()["total"] == 0
+
+    # 与既有四个筛选可组合
+    assert _ids(q_math) == math_ids
+    assert _ids(cause_math) == {m1["mistake_id"], m5["mistake_id"]}
+    assert _ids(graduated_math) == {m5["mistake_id"]}
+    # 学科走 primary_topic_id、知识点走版本有效标签：m4 未挂主考点（学科=未挂考点），
+    # 但确认前有效知识点回退到建议值 cnm_test_equation —— 两轴独立，不可互相冒充
+    assert _ids(unassigned_equation) == {m4["mistake_id"]}
+    assert _ids(math_equation) == math_ids
+
+    assert paged.status_code == 200, paged.text
+    page = paged.json()
+    assert page["total"] == 3  # 过滤后总数，不是全库总数
+    assert [item["id"] for item in page["items"]] == [m2["mistake_id"]]
+
+    assert dashboard.status_code == 200, dashboard.text
+    cards = {item["subject"]: item for item in dashboard.json()["subjects"]}
+    assert cards["数学"] == {"subject": "数学", "active": 2, "graduated": 1, "total": 3}
+    assert cards["数学"]["total"] == math_resp.json()["total"]
+    assert cards["英语"]["total"] == english_resp.json()["total"] == 1
+    assert cards["未挂考点"]["total"] == unassigned_resp.json()["total"] == 1
+
+
+@pytest.mark.integration
 async def test_voided_trash_list_and_restore_roundtrip(tmp_path) -> None:
     """P2-10 DoD：回收站走 status=voided 列表；void 退出 due、unvoid 回到 due；
     未解锁 unvoid/void 403（恢复入口家长专属）。复用 e2e ② 路径，零新端点。"""

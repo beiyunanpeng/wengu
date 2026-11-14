@@ -271,6 +271,7 @@ async def list_mistakes_endpoint(
     category_id: str | None = Query(default=None, max_length=64),
     concept_id: int | None = Query(default=None, ge=1),
     error_cause: str | None = Query(default=None, max_length=32),
+    subject: str | None = Query(default=None, max_length=64),
     q: str | None = Query(default=None, max_length=100),
     mastery_state: (
         Literal["pending", "consolidating", "graduated"] | None
@@ -286,6 +287,7 @@ async def list_mistakes_endpoint(
             category_id=category_id,
             concept_id=concept_id,
             error_cause=error_cause,
+            subject=subject,
             q=q,
             mastery_state=mastery_state,
             limit=limit,

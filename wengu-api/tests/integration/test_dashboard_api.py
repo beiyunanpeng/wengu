@@ -432,6 +432,7 @@ async def test_dashboard_empty_database(tmp_path) -> None:
     }
     assert payload["weak_topics"] == []
     assert payload["weak_subjects"] == []
+    assert payload["subjects"] == []
     assert payload["due"] == {"today": 0, "overdue": 0, "total": 0}
     assert payload["completion"] == {
         "reviews_this_week": 0,
@@ -462,3 +463,110 @@ async def test_dashboard_empty_database(tmp_path) -> None:
     assert len(payload["streak"]["recent_days"]) == 30
     assert payload["streak"]["recent_days"][-1] == {"date": today.isoformat(), "done": False}
     assert all(day["done"] is False for day in payload["streak"]["recent_days"])
+
+
+async def _graduate(
+    client: AsyncClient, factory: async_sessionmaker, mistake_id: int, today: date
+) -> None:
+    """复习 3 次全对 → is_graduated 成立；毕业不改 status，错题仍在册。"""
+
+    schedule = await _open_schedule(factory, mistake_id)
+    for _ in range(3):
+        completed = await client.post(
+            f"/api/reviews/{mistake_id}/complete",
+            json={
+                "schedule_id": schedule.id,
+                "correct": True,
+                "completed_on": today.isoformat(),
+            },
+        )
+        assert completed.status_code == 200, completed.text
+        body = completed.json()
+        if body["next_schedule"] is not None:
+            async with factory() as session:
+                schedule = await session.get(ReviewSchedule, body["next_schedule"]["id"])
+    assert body["graduated"] is True
+
+
+@pytest.mark.integration
+async def test_dashboard_subjects_split_graduated_and_exclude_voided(tmp_path) -> None:
+    """P2-13 各科入口卡口径（DoD 算式经审核方 2026-11-14 裁定修正）。
+
+    卡原文两条算式不可能同时成立，实跑证伪后裁定保留字段语义、修正算式：
+    - `sum(subjects[].total) == inventory.active`（毕业不改 status，故 active 含已毕业题，
+      卡的 `active`=在册**未掌握**必然小于 inventory.active）；
+    - `sum(subjects[].graduated)` 对齐"排除 voided 后按 is_graduated 重算"，
+      而既有 `graduated_total` 不按 status 过滤（语义不动），差额恰为已作废但曾毕业的题数。
+    """
+
+    factory = _migrated(tmp_path)
+    await _seed_topic(factory, topic_id="cnm_test_equation", name="一元一次方程")
+    await _seed_topic(factory, topic_id="cnm_test_english", name="词汇", subject="英语")
+    today = date.today()
+    async with _client(factory) as client:
+        mistake_a = (
+            await _create_mistake(client, primary_topic_id="cnm_test_equation", problem_text="解方程 2x=4")
+        )["mistake_id"]
+        await _graduate(client, factory, mistake_a, today)
+        mistake_b = (
+            await _create_mistake(client, primary_topic_id="cnm_test_equation", problem_text="解方程 3x=9")
+        )["mistake_id"]
+        mistake_c = (
+            await _create_mistake(client, primary_topic_id="cnm_test_english", problem_text="翻译 apple")
+        )["mistake_id"]
+        mistake_d = (
+            await _create_mistake(client, primary_topic_id="cnm_test_equation", problem_text="解方程 x/2=1")
+        )["mistake_id"]
+        await _graduate(client, factory, mistake_d, today)
+        voided = await client.post(f"/api/mistakes/{mistake_d}/void", json={"actor": "parent"})
+        assert voided.status_code == 200, voided.text
+
+        before = await _row_counts(factory)
+        response = await client.get(f"/api/dashboard?today={today.isoformat()}")
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        after = await _row_counts(factory)
+        assert before == after  # 新增聚合同样零写入
+
+        assert payload["inventory"] == {"active": 3, "voided": 1, "unassigned_active": 0}
+        assert payload["subjects"] == [
+            {"subject": "数学", "active": 1, "graduated": 1, "total": 2},
+            {"subject": "英语", "active": 1, "graduated": 0, "total": 1},
+        ]
+        # 既有区块语义不动：薄弱分布仍按 active 计数（含已毕业 A、不含已作废 D）
+        assert payload["weak_subjects"] == [
+            {"subject": "数学", "active_mistakes": 2},
+            {"subject": "英语", "active_mistakes": 1},
+        ]
+        assert payload["completion"]["graduated_total"] == 2
+
+        subjects = payload["subjects"]
+        assert sum(item["total"] for item in subjects) == payload["inventory"]["active"]
+        assert all(item["total"] == item["active"] + item["graduated"] for item in subjects)
+
+        events = await _recompute_events(factory)
+        active_ids = (mistake_a, mistake_b, mistake_c)
+        expected_graduated = sum(1 for mid in active_ids if is_graduated(events, mid))
+        assert sum(item["graduated"] for item in subjects) == expected_graduated == 1
+        voided_graduated = sum(1 for mid in (mistake_d,) if is_graduated(events, mid))
+        assert (
+            payload["completion"]["graduated_total"] - sum(item["graduated"] for item in subjects)
+            == voided_graduated
+            == 1
+        )
+
+        # 撤销作废：D 回到在册 → graduated 归位；graduated_total 全程不变
+        unvoided = await client.post(f"/api/mistakes/{mistake_d}/unvoid", json={"actor": "parent"})
+        assert unvoided.status_code == 200, unvoided.text
+        restored = await client.get(f"/api/dashboard?today={today.isoformat()}")
+        assert restored.status_code == 200, restored.text
+        back = restored.json()
+
+    assert back["inventory"]["active"] == 4
+    assert back["subjects"] == [
+        {"subject": "数学", "active": 1, "graduated": 2, "total": 3},
+        {"subject": "英语", "active": 1, "graduated": 0, "total": 1},
+    ]
+    assert back["completion"]["graduated_total"] == payload["completion"]["graduated_total"] == 2
+    assert sum(item["graduated"] for item in back["subjects"]) == back["completion"]["graduated_total"]
+    assert sum(item["total"] for item in back["subjects"]) == back["inventory"]["active"]

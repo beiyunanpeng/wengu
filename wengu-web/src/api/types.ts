@@ -579,6 +579,13 @@ export interface DashboardSubjectWeakness {
   active_mistakes: number;
 }
 
+export interface DashboardSubjectInventory {
+  subject: string;
+  active: number;
+  graduated: number;
+  total: number;
+}
+
 export interface DashboardConceptMastery {
   concept_id: number;
   name: string;
@@ -664,6 +671,7 @@ export interface DashboardResponse {
   inventory: DashboardInventory;
   weak_topics: DashboardTopicWeakness[];
   weak_subjects: DashboardSubjectWeakness[];
+  subjects: DashboardSubjectInventory[];
   mastery: DashboardMastery;
   due: DashboardDue;
   completion: DashboardCompletion;

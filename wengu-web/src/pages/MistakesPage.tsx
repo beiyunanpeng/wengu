@@ -3,6 +3,7 @@ import {
   Badge,
   Button,
   Card,
+  CloseButton,
   Group,
   Loader,
   Modal,
@@ -16,7 +17,7 @@ import {
 } from "@mantine/core";
 import { useDebouncedValue } from "@mantine/hooks";
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { errorMessage } from "../api/client";
 import {
@@ -42,6 +43,7 @@ const MASTERY_STATE_OPTIONS: { value: MistakeMasteryState; label: string }[] = [
 
 export default function MistakesPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { unlocked } = useParentSession();
   const [view, setView] = useState<MistakeView>("active");
   const [items, setItems] = useState<MistakeDetail[]>([]);
@@ -68,10 +70,20 @@ export default function MistakesPage() {
   const [restoreBusy, setRestoreBusy] = useState(false);
   const [restoreError, setRestoreError] = useState<string | null>(null);
 
+  // 学科筛选的唯一真源是 URL：看板卡片深链进来即已筛选，清除时回写 URL。
+  const subject = searchParams.get("subject");
+
+  function clearSubject() {
+    const next = new URLSearchParams(searchParams);
+    next.delete("subject");
+    setSearchParams(next, { replace: true });
+    setOffset(0);
+  }
+
   // 回收站只对家长解锁开放；未解锁时既不算 trash 视图，也不渲染入口。
   const isTrash = unlocked && view === "voided";
   const hasFilters = Boolean(
-    categoryId || errorCause || debouncedSearch || masteryState,
+    categoryId || errorCause || debouncedSearch || masteryState || subject,
   );
 
   // 孩子区永远只看在本：锁定后强制回到 active，避免停留在回收站。
@@ -99,7 +111,7 @@ export default function MistakesPage() {
 
   useEffect(() => {
     setOffset(0);
-  }, [debouncedSearch, masteryState, view]);
+  }, [debouncedSearch, masteryState, subject, view]);
 
   useEffect(() => {
     let active = true;
@@ -108,6 +120,7 @@ export default function MistakesPage() {
       status: isTrash ? "voided" : "active",
       categoryId,
       errorCause,
+      subject,
       q: debouncedSearch || null,
       masteryState,
       limit: PAGE_SIZE,
@@ -137,6 +150,7 @@ export default function MistakesPage() {
   }, [
     categoryId,
     errorCause,
+    subject,
     debouncedSearch,
     masteryState,
     offset,
@@ -311,7 +325,19 @@ export default function MistakesPage() {
                 placeholder="全部状态"
               />
             </div>
-            {(categoryId || errorCause || search || masteryState) && (
+            {subject && (
+              <Group gap={4} wrap="nowrap">
+                <Badge variant="light" color="blue">
+                  学科：{subject}
+                </Badge>
+                <CloseButton
+                  size="sm"
+                  aria-label="清除学科筛选"
+                  onClick={clearSubject}
+                />
+              </Group>
+            )}
+            {(categoryId || errorCause || search || masteryState || subject) && (
               <Button
                 variant="subtle"
                 onClick={() => {
@@ -319,6 +345,9 @@ export default function MistakesPage() {
                   setErrorCause(null);
                   setSearch("");
                   setMasteryState(null);
+                  if (subject) {
+                    clearSubject();
+                  }
                   setOffset(0);
                 }}
               >
