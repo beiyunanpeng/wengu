@@ -204,6 +204,33 @@ export interface DueReviewResponse {
   limit: number;
 }
 
+export interface ReviewCalendarPlanned {
+  mistake_id: number;
+  due_date: string;
+  kind: ReviewTask;
+  overdue: boolean;
+  completed: boolean;
+}
+
+export interface ReviewCalendarDone {
+  date: string;
+  type: string;
+  mistake_id: number | null;
+}
+
+export interface ReviewCalendarDay {
+  date: string;
+  planned: ReviewCalendarPlanned[];
+  done: ReviewCalendarDone[];
+}
+
+export interface ReviewCalendarResponse {
+  from: string;
+  to: string;
+  today: string;
+  days: ReviewCalendarDay[];
+}
+
 export interface ReviewStateInfo {
   rung: number;
   times_wrong: number;

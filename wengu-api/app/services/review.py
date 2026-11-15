@@ -912,6 +912,28 @@ async def _has_exam_today(session: AsyncSession, today: date) -> bool:
     return row is not None
 
 
+def task_pick(mistake: Mistake, schedule: ReviewSchedule, bank: QuestionBank) -> BankPick:
+    """到期任务/日历共用的选题输入：同一种子同一题池，判定输入唯一。
+
+    kind 是按查询时的 `primary_topic_id` 现算（P1-18 后主考点可事后更正），
+    不是快照；调用方不得把结果落库。
+    """
+
+    return find_same_type(
+        mistake.primary_topic_id, quiz_seed(mistake.id, schedule.id), bank=bank
+    )
+
+
+def task_kind(pick: BankPick) -> DueTask:
+    """quiz/self_eval/redo 判定唯一入口；due_queue 与复习日历共用，不得另建。"""
+
+    if pick.question is None:
+        return "redo"
+    if pick.mode == "self_eval":
+        return "self_eval"
+    return "quiz"
+
+
 async def due_queue(
     session: AsyncSession,
     today: date,
@@ -985,13 +1007,8 @@ async def due_queue(
     bank = await get_runtime_bank(session)
     for schedule, mistake, version in rows:
         seed = quiz_seed(mistake.id, schedule.id)
-        pick = find_same_type(mistake.primary_topic_id, seed, bank=bank)
-        if pick.question is None:
-            task: DueTask = "redo"
-        elif pick.mode == "self_eval":
-            task = "self_eval"
-        else:
-            task = "quiz"
+        pick = task_pick(mistake, schedule, bank)
+        task = task_kind(pick)
         items.append(
             DueReview(
                 schedule=schedule,

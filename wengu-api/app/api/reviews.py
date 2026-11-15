@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_session
 from app.schemas.quiz import QuizQuestionView, quiz_view
+from app.services.calendar import CalendarRangeError, build_calendar
 from app.services.review import (
     CompleteResult,
     ReviewConflict,
@@ -200,6 +201,79 @@ async def due_reviews(
         exam_today=queue.exam_today,
         today=day,
         limit=limit,
+    )
+
+
+class CalendarPlannedItem(BaseModel):
+    mistake_id: int
+    due_date: date
+    kind: Literal["quiz", "self_eval", "redo"]
+    overdue: bool
+    completed: bool
+
+
+class CalendarDoneItem(BaseModel):
+    date: date
+    type: str
+    mistake_id: int | None = None
+
+
+class CalendarDayView(BaseModel):
+    date: date
+    planned: list[CalendarPlannedItem]
+    done: list[CalendarDoneItem]
+
+
+class CalendarResponse(BaseModel):
+    from_: date = Field(alias="from")
+    to: date
+    today: date
+    days: list[CalendarDayView]
+
+
+@router.get("/api/reviews/calendar", response_model=CalendarResponse)
+async def review_calendar(
+    from_: date | None = Query(default=None, alias="from"),
+    to: date | None = Query(default=None),
+    today: date | None = Query(default=None),
+    session: AsyncSession = Depends(get_session),
+) -> CalendarResponse:
+    """只读按日投影（P2-12）：planned 来自排期行、done 来自事实事件；不写库。"""
+
+    day = today or date.today()
+    async with session.begin():
+        try:
+            days = await build_calendar(session, day, from_, to)
+        except CalendarRangeError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from None
+    return CalendarResponse(
+        **{
+            "from": days[0].date,
+            "to": days[-1].date,
+            "today": day,
+            "days": [
+                CalendarDayView(
+                    date=item.date,
+                    planned=[
+                        CalendarPlannedItem(
+                            mistake_id=p.mistake_id,
+                            due_date=p.due_date,
+                            kind=p.kind,
+                            overdue=p.overdue,
+                            completed=p.completed,
+                        )
+                        for p in item.planned
+                    ],
+                    done=[
+                        CalendarDoneItem(
+                            date=d.date, type=d.type, mistake_id=d.mistake_id
+                        )
+                        for d in item.done
+                    ],
+                )
+                for item in days
+            ],
+        }
     )
 
 

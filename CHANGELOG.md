@@ -9,6 +9,33 @@
 
 ### Added
 
+- **P2-12 复习日历（v2.7 §18 D9；只读投影、非自动排课、零新增状态、零迁移、零新依赖）**（2026-11-15）：
+  - **新只读端点 `GET /api/reviews/calendar?from=&to=&today=`**：默认窗口 `today-7..today+30`；
+    `from>to`→422、跨度 `>92` 天→422（恰好 92 放行）。按日返回
+    `{date, planned:[{mistake_id,due_date,kind,overdue,completed}], done:[{date,type,mistake_id?}]}`，含空日。
+  - **planned 取区间内 `due_date` 的排期行（含历史完成行）**，统一按 `Mistake.status=active` 过滤
+    （与 `due_queue` **同一把尺**）；`completed` 由 `completed_at` 判定（`review_schedules` 无 status 列）；
+    `overdue` = 未完成且 `due_date < today`。
+  - **kind 沿用 `due_queue` 判定、不另建**：把选题/判型抽成 `review.task_pick`/`task_kind` 共用入口
+    （`due_queue` 行为保持不变的等价重构）；kind 按查询时 `primary_topic_id` **现算**（P1-18 后主考点可事后更正），
+    **不是快照、绝不落库**。
+  - **done 按日归属采用 streak 的回退规则**（`completed_on` 优先 → 回退 `occurred_at` 的日期），
+    但白名单是日历自己的 **9 个真实 event type**（`attempt_correct/attempt_wrong/recitation_reviewed/
+    pomodoro_completed/review_scheduled/mistake_labeled/mistake_voided/mistake_reactivated/mistake_primary_topic_set`）：
+    **不复用** `streak._learning_day`（只收 3 type）、**不照抄** dashboard `_review_completed_on`/`_recitation_completed_on`
+    那套缺 `completed_on` 就返回 None 的口径（否则 5 类无 completed_on 的事件整类消失）；按 type 白名单扫 + Python 侧归属，
+    不在 SQL 截 UTC 日。
+  - **前端新路由 `/review-calendar` + 侧栏「复习日历」**（孩子组，插 `/schedule` 之后；`AppLayout`/`isNavActive` 一字未改，
+    `/review-calendar` 不点亮 `/review`）：月视图每天标「N 道计划」（红=含逾期）、✓N 当日完成事实数，
+    点某天看计划/完成清单并可跳 `/review`、错题号深链 `/mistakes/{id}`；**纯只读页，无任何 PIN 写操作**。
+  - **测试**：+7 集成 +1 unit（3 条不同 due_date 归属/逾期/不重复计、回退口径专门一条、今日数字与 `due_queue` 一致 + kind 逐条相等、
+    `>92`/`from>to`→422 + 默认窗口、与 `/api/calendar/events` 硬事件/课表互不混入、只读零写入 + 零网络 + 确定性、
+    无 `completed_on` 的 5 类逐类各一条按 `occurred_at` 归日）；unit 以 `set(CALENDAR_EVENT_TYPES) == {9 个字面串}` 钉死白名单（增删任一 type 即红）；
+    **三可证伪**：① 删 `_calendar_day` 的 occurred_at 回退→`assert 'review_scheduled' in []` 红、还原绿；
+    ② kind 恒 `redo`→`{1:'redo',3:'redo'} != {1:'quiz',3:'quiz'}` 红、还原绿；
+    ③ 删白名单成员 `mistake_primary_topic_set`→白名单钉死与 5 类归日两条同时红、还原绿（`calendar.py` 实现一字未改）。
+  - **验证**：全量 `pytest -q` 763 passed、`ruff check --no-cache .`（全仓）绿、`npm lint/test/build` 绿；
+    零迁移（head 仍 0023）；CDP 360/412 月视图 `scrollWidth === clientWidth` 无横向溢出取证存档。
 - **P2-11 错因聚合卡（v2.7 §18 D9；只读聚合、零新增状态、零迁移、零新依赖）**（2026-11-15）：
   - **`GET /api/dashboard` 新增 `error_cause_distribution: [{cause,label,count}]`**：口径=**在册未掌握**
     （`status=active` 且非 `is_graduated`，与 P2-13 学科卡同一把尺），按**当前版本 `effective_labels().error_cause`**
