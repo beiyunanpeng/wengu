@@ -513,8 +513,11 @@ X 深挖确认 v2.2 三条决定全部成立、可更具体。追加以下补丁
   → 第四批统一采用 `is_graduated` 作为"已掌握/未掌握"口径；**不得出现第三套**。若两者对同一数据集给出不同数字，
   属于需要单独开票核对的事实分歧，不允许各票自行挑选。
 - 附带事实纠正：`learning_events` 中**不存在** `mistake_confirmed` 类型（测试夹具里出现过该字符串，
-  易被误当事实）；真实写入类型共 8 个，分散在四个 services 文件、无统一枚举——日历/看板类投影必须
+  易被误当事实）；真实写入类型当时数得 **8 个**，分散在四个 services 文件、无统一枚举——日历/看板类投影必须
   用**显式白名单常量**，不得凭记忆列举。
+  ⚠️ **2026-11-15 复核更正（审核方自己写的数，被 P1-18 作废了一半）**：P1-18 新增 `mistake_primary_topic_set`
+  后真实类型是 **9 个**，写入点分布在 **6 个** services 文件（`grading/mistakes/pomodoro/quiz/recitation/review`）。
+  "必须用显式白名单、不得凭记忆列举"这条纪律**不变且更成立**——本条本身就是"把当时的数当永久事实写进文档"的反面教材。
 - **P2-13 交付时新增的第 4 条纠正（算式类）**：`graduated_total` 沿用旧口径、**不按 status 过滤**，
   而学科卡按设计排除 voided，故我原卡同时要求 `sum(graduated)==graduated_total` 与
   `sum(active)==inventory.active` 是**两条互斥算式**，数学上不可能同时成立。施工方未改既有指标迁就卡，
@@ -536,6 +539,9 @@ X 深挖确认 v2.2 三条决定全部成立、可更具体。追加以下补丁
   正确口径 = **写根表 + 追加一条 `learning_events` 审计事件**，不 bump `current_version`、不追加版本行。
 - **P2-13b 打印导出接 `subject`**：`/print/mistakes` 只支持 `category_id`/`error_cause`，
   学科筛选态下导出会丢失该过滤（P2-13 按【禁止改全站】未扩）。
+  ⚠️ **2026-11-15 复核补一条**：该过滤参数在 `PrintMistakesPage.tsx:57-58` 读取，但同文件 `:34` 的
+  **分组键是 `labels.category_id`**。所以本票不只是"加一个 `subject` 参数"——**分组口径必须一起换**，
+  否则导出会出现"按学科筛、却仍按知识点分组"的自相矛盾（§19-H 第 1 条换了个位置复发）。出卡时按此写。
 
 ### J. P1-18 交付后暴露的幂等键维度错误（2026-11-14，追加）
 
@@ -584,3 +590,39 @@ P1-18b 卡的投单纪律把改动范围写成"只应碰 `services/mistakes.py` 
 **本来就要求更新 CHANGELOG**。施工方没有擅自扩大战线，而是把它单列成"审核方需复核的点"并给出剔除命令——
 裁定**保留 CHANGELOG 条目**、由审核方改卡面口径。→ 教训：**票卡列"允许改哪些文件"时必须先与 AGENTS §8 DoD 对齐**，
 否则卡面纪律会反向逼施工方要么漏文档、要么违规扩面（审核方第 12 次卡面口径疏漏）。
+
+### K. 投单前的引用校对轮（2026-11-15，P2-11 / P2-12 / P2-14 出票前）
+
+- **起因**：第四批四张卡写在 `b5c972c`，此后 main 上又落了三次功能合并——`b996f9a`（P2-13）、`1c1a951`（P1-18）、
+  `27b1c0f`（P1-18b），三者都动过卡里引用的文件。审核方立规矩：**投单前逐条重读盘校对引用**，不靠"我记得"。
+- **结论分三类（这个分类本身就是交付物）**：
+  - **① 纯行号漂移（改数不改义）**：`ERROR_CAUSES 50-58 → 52-60`、`effective_labels 118-141 → 121-144`、
+    `list_mistakes 500-640 → 659-741`、`_mistake_rows 213-217 → 229-233`、
+    `DashboardPage 硬编码色 100/108/111/201 → 104/112/115/205`。
+    来源可复现（`git diff b5c972c..HEAD` 逐段对得上）：P1-18 给 `services/mistakes.py` 加 1 行 subjects import
+    + 1 个 `MISTAKE_PRIMARY_TOPIC_SET` 常量、P1-18b 再加 1 行 `LearningEvent` import（合计 +2/+3）；
+    P2-13 重写 `dashboard.py`（+16）与 `DashboardPage.tsx`（+4）。
+  - **② 真事实错误（不是行号问题，是当时就读错了）**：
+    - P2-12 原写日历 `done` 的按日归属"与 `dashboard.py` / `streak.py` **同一口径**"——**盘上是两套**：
+      `_review_completed_on:176-188` / `_recitation_completed_on:191-200` 缺 `completed_on` 直接返回 None、**不回退**；
+      "优先 `completed_on`、否则回退 `occurred_at`"只在 `streak._learning_day:77-88`（回退在 `:88`）。
+      按错口径施工的后果不是数字差一点，是 `mistake_labeled / mistake_voided / mistake_reactivated /
+      review_scheduled / mistake_primary_topic_set` 这 **5 类事件整类从日历消失**
+      （全仓只有 pomodoro/quiz/recitation/review 四处写 `completed_on`）。
+    - P2-14 原写 `print.css` "通篇硬编码浅色（4 处）"——实际 **30 行含颜色声明**；其中 `#a11` / `#116329` /
+      `#fff5f5` / `#f0fff4` 是卷面"**孩子错答 / 订正正答**"的语义色、不是装饰色，深色化时必须保住对比度。
+    - P2-14 原写"`PUT /api/config` 整挂 `require_parent`"——实际挂在 **router 级 `dependencies`**（`api/config.py:24`），
+      **连 `GET` 也被挡**。结论方向不变（主题不进 app-config），但论据被低估了一档。
+  - **③ 复查后仍准确、不动**：`models/mistakes.py:80/81`、`models/review.py:16-47/35/41-46`、
+    `services/review.py:495/503/715/915-1019/951/977-979/986-994`、`api/reviews.py:159`、`nav.ts:15-27/34`、
+    `App.tsx:28-29`、`main.tsx:17`、`package.json:15`、`runtime_config.py:221-225`（确实 4 键）、
+    `streak.py:31-33`、`models/events.py:25/29-31`、`intake.py:50/101-107`、`PrintMistakesPage.tsx:9`、
+    `PrintPaperPage.tsx:14/145`。
+- **顺带查出的两个新事实（已写进对应卡）**：
+  - `dashboard.py` 里**已有**查版本列的先例 `_confirmed_concept_ids:236-258`，条件带 `confirmed_by IS NOT NULL`。
+    **P2-11 绝不能照抄**——错因口径是"确认值否则建议值"，照抄会把"外部 agent 已建议、孩子还没确认"的题静默漏掉，
+    而且总数看着依然自洽，属于最难发现的一类错。
+  - `PrintMistakesPage.tsx:34` 的打印分组按 `labels.category_id` 走。**P2-13b 接 `subject` 筛选时分组口径必须一起换**，
+    否则出现"按学科导出、却仍按知识点分组"的自相矛盾——这是 §19-H 第 1 条（`category_id` 不是学科）换了个位置复发。
+- **纪律固化**：投单前必须重跑一轮引用校对，且校对结论要按"**行号漂移 / 事实错误 / 仍准确**"三类留痕。
+  只把数字改对、不写为什么变，下一轮仍会在同一处栽。

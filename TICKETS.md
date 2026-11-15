@@ -573,6 +573,9 @@
   不含掌握度与收录总数；`DashboardPage.tsx:306-498` 是"标题 → ScheduleBrief → StreakCard →
   9 张 MetricCard → 曲线+知识点表 → 薄弱分布+题库缺口 → 事件事实"，**没有任何主 CTA、也没 import react-router**；
   硬编码色在 `:100/:108/:111/:201`。
+  > 存档提示（2026-11-15）：本条是 P2-13 **交付前**的读盘快照，故意不改。P2-13 合并（`b996f9a`）后
+  > `DashboardPage.tsx` 整体下移 4 行，硬编码色现在是 **`:104/:112/:115/:205`**；
+  > 给 P2-11/P2-14 用的现行行号以它们自己的卡与 §19-K 为准。
 - ⚠️ **两条读盘纠正（§18 D2 原设想踩空的点）**：
   ① **`category_id` 不是学科**——它是 `knowledge_seed.id`（粗粒度知识点，`Concept.category_id`、
   `mistake_versions.confirmed/suggested_category_id` 都指它）；学科在 `KnowledgeSeed.subject`（`models/knowledge.py:20`），
@@ -606,21 +609,30 @@
   把 dashboard 变成写路径；给卡片加"点击后还要再选一次"的中间步骤。
 
 ### P2-11 错因聚合卡（v2.7 D9；只读聚合、零新增状态）
-- **现状（2026-11-14 读盘）**：`ERROR_CAUSES` 在 `services/mistakes.py:50-58`，7 键原文
+- **现状（2026-11-15 复核行号，原卡 2026-11-14 读盘）**：`ERROR_CAUSES` 在 `services/mistakes.py:52-60`，7 键原文
   `prerequisite_gap / concept_unclear / method_missing / calculation / careless / expression / other`；
-  错因两列都在 `mistake_versions`（`suggested_error_cause:80`、`confirmed_error_cause:81`），
-  **取值优先级唯一入口是 `effective_labels()`（`:118-141`）**：`confirmed_by is not None` 用确认值、否则用建议值；
-  `services/dashboard.py` **零处错因聚合**（grep 无命中），且 `_mistake_rows`（`:213-217`）只读根表、
-  不加载 `MistakeVersion`——本票要扩到版本列，但**不得绕过 `effective_labels` 自己拼优先级**。
+  错因两列都在 `mistake_versions`（`models/mistakes.py` `suggested_error_cause:80`、`confirmed_error_cause:81`），
+  **取值优先级唯一入口是 `effective_labels()`（`:121-144`）**：`confirmed_by is not None` 用确认值、否则用建议值；
+  `services/dashboard.py` **零处错因聚合**（grep 无命中），且 `_mistake_rows`（**`:229-233`**）只读根表
+  （`id/status/primary_topic_id`）、不加载 `MistakeVersion`——本票要扩到版本列，但**不得绕过 `effective_labels` 自己拼优先级**。
+  - ⚠️ **新增一条必须避开的照抄陷阱（2026-11-15 读盘）**：`dashboard.py` 里**已有**一个查版本列的先例
+    `_confirmed_concept_ids`（**`:236-258`**），它带 `MistakeVersion.confirmed_by IS NOT NULL` 过滤
+    （只看已确认 concept）。**错因聚合绝不能照抄这个过滤**——错因口径是"确认值，否则建议值"，
+    照抄会把"只被外部 agent 建议、孩子还没确认"的题整类漏掉，数字看起来正常但少计。
+  - 检索侧现状：`list_mistakes`（`services/mistakes.py:659-741`）已有 `error_cause`（`:665`）与 `subject`（`:666`）过滤，
+    前端点击跳转直接复用，不新增端点。
 - 交付：`GET /api/dashboard` 新增 `error_cause_distribution: [{cause, label, count}]`——
   口径 = **在册未掌握**（`active` 且非 `is_graduated`，与 P2-13 同一把尺）按 `effective_labels().error_cause` 计数；
   **未填错因单列 `unlabeled`**（不塞进 `other`，否则会把"没标"误读成"其他原因"）；
   前端看板加一张横向条卡（与薄弱分布同风格），点击某条跳 `/mistakes?error_cause=<键>`（复用 P2-9 既有筛选）。
 - DoD：造 confirmed/suggested 混合 fixture，断言计数走 `effective_labels` 优先级（改判后数字随之变、不重复计）；
-  `sum(error_cause_distribution) + unlabeled == 未掌握总数`（与 P2-13 学科卡自洽）；
+  **自洽算式右端必须用可证的既有量**：`sum(error_cause_distribution) + unlabeled == sum(subjects[].active)`
+  ——且**复用同一个 `graduated_ids` 集合与同一份 `_mistake_rows` 输入**（`_subject_inventory:360-388`），
+  不得为错因卡另算一套未掌握口径。⚠️ 右端**不许**写成 `inventory.active`：那个量是"未作废在册"、含已毕业，
+  拿它当右端会重犯 §19-H 第 4 条的互斥算式错误（审核方 2026-11-15 自查时按同一教训改掉了本卡原写法）。
   `other` 与 `unlabeled` 分列断言；零新增列/零迁移；360/412 不破版；全量绿 + ruff + build。
 - 禁止：引入模型/AI 归类错因（零模型红线）；把 `suggested_*` 当确认值统计；新建第三套未掌握口径；
-  为聚合结果存列或建缓存表；用 `other` 兜底空值。
+  为聚合结果存列或建缓存表；用 `other` 兜底空值；照抄 `_confirmed_concept_ids` 的 `confirmed_by IS NOT NULL` 过滤。
 
 ### P2-12 复习日历（v2.7 D9；只读投影，非自动排课）
 - **现状（2026-11-14 读盘）**：`review_schedules` 列（`models/review.py:16-47`）为
@@ -636,12 +648,27 @@
   ① 新只读端点 `GET /api/reviews/calendar?from=&to=`（默认 `today-7` 至 `today+30`，跨度 >92 天 → 422）：
      返回按日 `{date, planned: [{mistake_id, due_date, kind, overdue}], done: [{date, type, mistake_id?}]}`；
      `planned` 取该日 `due_date` 的排期行（含历史已完成行，用 `completed_at` 判是否已完成）、
-     `kind` 沿用 `due_queue` 的 quiz/redo 判定，**不得另建判定**；
-  ② `done` 来自 `learning_events` 按日归属（payload `completed_on` 优先、回退 `occurred_at`，
-     与 `dashboard.py:160-184` / `streak.py:64-79` 同一口径）；**事件类型白名单必须是显式常量**，
-     只收真实存在的 type：`attempt_correct`、`attempt_wrong`、`recitation_reviewed`、
-     `pomodoro_completed`、`review_scheduled`、`mistake_labeled`、`mistake_voided`、`mistake_reactivated`
-     （⚠️ 盘上**不存在** `mistake_confirmed`，测试夹具里出现过该字符串属误导，不得当事实写进实现）；
+     `kind` 沿用 `due_queue` 的 quiz/redo 判定，**不得另建判定**（判定实现在 `services/review.py:986-994`：
+     `quiz_seed` → `find_same_type(mistake.primary_topic_id, seed, bank=await get_runtime_bank(session))` →
+     `question is None` 则 `redo`、`mode == "self_eval"` 则 `self_eval`、否则 `quiz`）。
+     ⚠️ P1-18 之后主考点可事后设定 → **未来某天的 `kind` 会随主考点更正而变，这是按查询时现算、不是快照**，
+     日历不得把 kind 落库；交付说明里要写清这条语义。
+  ② `done` 来自 `learning_events` 按日归属。**⚠️ 2026-11-15 复核：本条原写"与 `dashboard.py:160-184` /
+     `streak.py:64-79` 同一口径"是审核方的事实错误——盘上是两套口径**：
+     `dashboard.py` 的 `_review_completed_on`（**`:176-188`**）与 `_recitation_completed_on`（**`:191-200`**）
+     缺 `completed_on` 时**直接返回 None、不回退**；真正"优先 `completed_on`、否则回退 `occurred_at`"的
+     是 `streak.py` 的 `_learning_day`（**`:77-88`**，回退实现在 `:88`，配套 `_fallback_day:64-74`）。
+     日历**采用 streak 那套**（`completed_on` 优先 → 回退 `occurred_at` 的日期），理由不是偏好，是事实：
+     `mistake_labeled / mistake_voided / mistake_reactivated / review_scheduled / mistake_primary_topic_set`
+     这 5 类事件**payload 里根本没有 `completed_on`**（全仓只有 pomodoro/quiz/recitation/review 四处写它），
+     若照抄 dashboard 口径，这五类会在日历上**整类消失**。
+     **不得复用 `_learning_day` 本身**——它按 `streak.LEARNING_EVENT_TYPES`（`:31-33`，只有 3 个 type）过滤；
+     P4-4 的 `ix_learning_events_occurred_at`（`models/events.py:31`、迁移 0023）正是为这类区间扫描准备的。
+     **事件类型白名单必须是显式常量**，真实写入的 type 全集现在是 **9 个**（P1-18 新增第 9 个）：
+     `attempt_correct`、`attempt_wrong`、`recitation_reviewed`、`pomodoro_completed`、`review_scheduled`、
+     `mistake_labeled`、`mistake_voided`、`mistake_reactivated`、**`mistake_primary_topic_set`**
+     （常量 `mistakes.py:62-65`、写入点 `:531` / `:587`；⚠️ 盘上**不存在** `mistake_confirmed`，
+     测试夹具里出现过该字符串属误导，不得当事实写进实现）；
   ③ 新路由 `/review-calendar` + NAV 追加 `{to:"/review-calendar", label:"复习日历"}`
      （插在 `/schedule` 之后、`parentOnly` 三项之前；`groupNavItems`/`isNavActive` 自动生效）；
      月视图每天标「N 道计划」，点某天看清单并可跳 `/review`。
@@ -652,13 +679,23 @@
   臆造不存在的 event type；把 PIN 写操作混进只读页；用 `due_queue` 之外的第二套逾期/kind 判定。
 
 ### P2-14 主题切换（v2.7 D10；纯前端，零后端改动）
-- **现状（2026-11-14 读盘）**：`main.tsx:17` 写死 `<MantineProvider defaultColorScheme="light">`，
-  全仓**无 `createTheme`、无 theme 文件**；`src/print.css` 通篇硬编码浅色（`.print-shell:5-6`、
-  `.print-toolbar:21-22`、`.print-sheet:73`、`@media print:251-306` 强制 `background:#fff !important`），
-  两个打印页各自 import 它且路由挂在 `AppLayout` 之外（`App.tsx:28-29`）；
-  `DashboardPage` 有 4 处硬编码色（`:100/:108/:111/:201`）；前端**完全没用过 localStorage**；
+- **现状（2026-11-15 复核行号，原卡 2026-11-14 读盘）**：`main.tsx:17` 写死 `<MantineProvider defaultColorScheme="light">`，
+  全仓**无 `createTheme`、无 theme 文件、前端完全没用过 localStorage**（grep `createTheme|localStorage|useMantineColorScheme` 零命中）；
+  `DashboardPage` 有 **4 处硬编码色，行号已因 P2-13 合并整体推高 4 行**：现在是 **`:104`（曲线网格 `#e9ecef`）、
+  `:112` 与 `:115`（曲线描边/端点 `#228be6`）、`:205`（番茄钟格 `#12b886` / `#e9ecef`，**一行两个色值**）**；
+  两个打印页各自 import `../print.css`（`PrintMistakesPage.tsx:9`、`PrintPaperPage.tsx:14`，样式根 `.print-shell` 在 `:145`），
+  路由挂在 `AppLayout` 之外（`App.tsx:28-29`）；
   `@mantine/hooks@8.3.18` 已在依赖（`package.json:15`）；后端 app-config 白名单只有 4 键
-  （`runtime_config.py:225`）且 `PUT /api/config` 整挂 `require_parent`（`api/config.py:24`）。
+  （`runtime_config.py:221-225`：`daily_review_limit`、`daily_recitation_limit`、`exam_day_limit_factor`、`setup_completed`）。
+  - ⚠️ **2026-11-15 两处卡面纠正（审核方）**：
+    ① `api/config.py:24` 的 `require_parent` 挂在 **router 级 `dependencies`**，**连 `GET /api/config` 也被挡**
+    （原卡写"`PUT` 整挂"弱化了事实，方向不变：主题确实不该进 app-config）。
+    ② `print.css` 的硬编码色**远不止原卡列的 4 处**——全文件 **30 行含颜色声明**（`grep -cE '#[0-9a-fA-F]{3,8}'` = 30），除 `.print-shell:5-6`、
+    `.print-toolbar:21-22`、`.print-sheet:73`、`@media print:251`（`:259` 是 `#fff !important`、`:264` 白底）外，
+    还有 `:59/:60` 的 `#1c4ed8`、`:162/:163` 的 `#fff5f5`+`#a11`、`:167/:168` 的 `#f0fff4`+`#116329` 等
+    （`#a11`/`#116329` 是卷面"错答/订正正答"的红绿语义色）。→ 豁免口径改成**可测断言**，不再靠数行号：
+    **`@media print` 下必须白底深字**（`:259/:264` 保持），且**深色主题屏幕态下 `.print-sheet` 仍须白底深字**
+    （打印页是纸面样式，不参与换肤）；DoD 用深色模式打印预览截图取证。
 - 交付：`createTheme` + `useMantineColorScheme`，头部加浅色/深色切换按钮（孩子区与家长区都可见，
   解锁与否都能切）；偏好存 **localStorage（Mantine 内置 storage key）**——理由写进代码注释：
   主题是**每设备的呈现偏好、不是学习数据**，因此不进 app-config（那会被 PIN 挡住，孩子改不了自己设备外观），
