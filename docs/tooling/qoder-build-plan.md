@@ -1937,12 +1937,37 @@ commit -F 仓库外 UTF-8；ruff --no-cache；UI 改动带取证；不一致上�
 照抄 `_confirmed_concept_ids` 的 `confirmed_by IS NOT NULL` 过滤来做错因计数。
 ```
 
+> **交付后补记（审核方，2026-11-15；PR#57 squash → main `b321919`，以下不是投单内容）**
+>
+> 1. **本块【投单纪律】的白名单漏列 `wengu-web/src/pages/MistakesPage.tsx`**（审核方第 13 次口径疏漏）：
+>    DoD 要求"点错因条跳 `/mistakes?error_cause=<键>`"，而该筛选原来是组件内 state、URL 参数不生效，
+>    **不改它 DoD 就做不到**。施工方扩了该文件并主动单列为复核点（顺带修掉"清除筛选"两次 `setSearchParams`
+>    基于旧闭包互相覆盖的真 bug；「导出打印」现在尊重深链错因，审核方判定属修正而非副作用）。
+>    裁定：不属越界。→ 出卡纪律加一层：**先逆推 DoD 每一条的落点文件再写白名单**。
+> 2. **本票造成的行号漂移**（`services/dashboard.py` +88 行）：`_mistake_rows` 229 → **248**、
+>    `_confirmed_concept_ids` 236 → **278**、`_subject_inventory` 360 → **402**、新增
+>    `_error_cause_distribution` **433**；`DashboardPage.tsx` 硬编码色 104/112/115/205 → **106/114/117/207**。
+>    登记时审核方自己先从 diff 块头推算成 247/279、实读后纠正——**行号只认实读定义行**。
+> 3. 审核方独立实跑：全量 **755 passed**、`ruff --no-cache` 全仓绿、`tsc --noEmit` 干净、`npm test` 32/32、
+>    `npm run build` ✓、CI 三 job 绿。自主变异三次分别 **2 / 1 / 1 红**（绕过 `effective_labels` 只取 confirmed、
+>    错因聚合不排除已毕业即换尺、把 `unlabeled` 折进 `other`），每次还原后 sha256 与仓库外备份逐字节一致
+>    （`372f9ac0…`）。取证存档 `Temp\p211-evidence\`（RED/GREEN + 5 页窄屏 report.json）与
+>    `Temp\p211-fixture\fixture_report.json`（10 == sum(subjects.active)，而 inventory.active = 11）。
+> 4. 残留：`unlabeled` 条只能看不可点——`/api/mistakes` 无"无错因"语义，补它要动既有筛选契约，
+>    **按"没有真实使用信号不加功能"暂不排期**。
+
 ## P2-12 —— 复习日历（v2.7 D9；只读投影，非自动排课）
 
 > **卡面校对（审核方，2026-11-15，基线 main `a324174`）**：`models/review.py`、`services/review.py`、
 > `api/reviews.py`、`SchedulePage.tsx`、`nav.ts`、`App.tsx`、`models/events.py`、`streak.py:31-33` 的引用
 > 逐条复查**仍然准确**；但原卡有**两处事实错误**（不是行号漂移）：把 dashboard 与 streak 的按日归属说成"同一口径"，
 > 以及事件 type 全集仍是 P1-18 之前的 8 个。下面已改对，行号与口径以本块为准。
+>
+> **投单前再校对（2026-11-15，基线 main `b321919`，P2-11 已合并）**：P2-11 给 `services/dashboard.py` 加了 88 行，
+> 本块内该文件的引用随之漂移 —— `_review_completed_on` 176 → **195 起**、`_recitation_completed_on` 191 → **210 起**、
+> `void_events`/`reactivate_events` 508-509 → **581-582**（本票只读、不依赖后两个定位）。
+> `streak.py`、`mistakes.py`、`recompute.py`、`models/*`、`review.py`、`nav.ts`、`App.tsx`、`SchedulePage.tsx`
+> 未被 P2-11 触碰，引用**继续有效**。行号一律只写实读到的定义起始行。
 
 ```
 你在 wengu 仓库工作。开工前完整读：AGENTS.md §2.3（已砍"时间块自动排课式日程"，不得加回）与 §5（事实源/不存易变字段）
@@ -1955,7 +1980,7 @@ commit -F 仓库外 UTF-8；ruff --no-cache；UI 改动带取证；不一致上�
 + app/models/events.py（occurred_at 25、三索引 29-31，其中 ix_learning_events_occurred_at:31 来自迁移 0023）
 + app/services/streak.py（LEARNING_EVENT_TYPES 31-33 只有 3 个 type；_fallback_day 64-74；
   **_learning_day 77-88 = completed_on 优先、:88 回退 occurred_at**）
-+ app/services/dashboard.py（**_review_completed_on 176-188 / _recitation_completed_on 191-200：
++ app/services/dashboard.py（**_review_completed_on 195 起 / _recitation_completed_on 210 起：
   这两个缺 completed_on 就返回 None、不回退**，与 streak 不是同一口径）
 + app/services/mistakes.py（事件 type 常量 62-65；写入点 397/435/531/587）
 + wengu-web/src/pages/SchedulePage.tsx（周课表 217-313、硬事件 315-427、PIN 门 195-199）
@@ -1973,7 +1998,9 @@ ruff --no-cache；UI 改动带 CDP/真机取证；不一致上报不硬凑）。
   历史行 = `completed_at IS NOT NULL`。按日期投影可直接用已有的 `ix_review_schedules_due_date`。
 - `GET /api/reviews/due` 只覆盖过去/今日，**没有区间端点**，日历需要新的只读查询端点。
 - ⚠️ **坑一：按日归属在盘上是两套口径，本票选第二套。**
-  `dashboard.py:176-200` 的两个 helper **不回退**；`streak.py:77-88` 才是"`completed_on` 优先 → 回退 `occurred_at`"。
+  `dashboard.py` 的 `_review_completed_on`（195 起）与 `_recitation_completed_on`（210 起）**不回退**：
+  缺 `completed_on` 直接返回 None。真正"优先 `completed_on`、否则回退 `occurred_at`"的是
+  **`streak.py` 的 `_learning_day:77-88`**（回退实现在 `:88`，配套 `_fallback_day:64-74`）。
   日历必须用 **streak 那套**，理由不是偏好而是事实：全仓只有 pomodoro/quiz/recitation/review 四处写
   `completed_on`，而 `mistake_labeled / mistake_voided / mistake_reactivated / review_scheduled /
   mistake_primary_topic_set` 这 5 类事件**payload 里根本没有 `completed_on`**——照抄 dashboard 口径，

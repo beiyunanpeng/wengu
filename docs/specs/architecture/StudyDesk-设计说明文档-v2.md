@@ -551,7 +551,8 @@ X 深挖确认 v2.2 三条决定全部成立、可更具体。追加以下补丁
 
 - **事实链**：主考点变更**不 bump `current_version`**（§19-I 的正确设计——版本表存不了这列）。
   于是卡里钉的键 `mistake:{id}:primary-topic:{base_version}:{to_topic_id}`
-  （实现在 `services/mistakes.py:561-564`）的两个维度里，`base_version` 对该端点**恒定不变**，
+  （实现在 `services/mistakes.py:561-564`，**P1-18b 后该键已补 `n`、现位于 `:590-592`**）的两个维度里，
+  `base_version` 对该端点**恒定不变**，
   键的实际区分度**只剩 `to_topic_id`**。
 - **后果**：循环回改 `A→B→A→B` 时，第 3、4 次提交分别撞上第 1、2 次的键，
   `_insert_or_fetch`（`services/events.py:25-39`）捕获 `IntegrityError` 后回滚 savepoint、
@@ -570,7 +571,7 @@ X 深挖确认 v2.2 三条决定全部成立、可更具体。追加以下补丁
   测试还得注入时钟。**序号是事实推导值、可确定性重放**（与既有的 `v{version}` 维度同构），故选序号不选时钟，
   且**禁止**改用 `uuid4`（不可重放）。
 - **同类调用点一并纠**：`mistake:{id}:void`（`mistakes.py:377`）与 `mistake:{id}:reactivate`（`:412`）连"变化维度"都没有，
-  第二次作废事件同样被吞——而 `dashboard.py:508-509` 的 `void_events`/`reactivate_events` 与
+  第二次作废事件同样被吞——而 `dashboard.py:508-509`（P2-11 后现位于 **581-582**）的 `void_events`/`reactivate_events` 与
   `recompute.stats()` 的 `event_stats.by_type`（`recompute.py:158-163`）都是**按事件行数计数**，
   所以这条边界的后果**不止审计链，看板次数也会少计**（掌握度/排期/streak 不读这些 type，不受影响）。
 - **明确不动的三处**（防"顺手统一"扩大战线）：`review:schedule:{id}:init`（每错题恰一次是有意设计）、
@@ -626,3 +627,20 @@ P1-18b 卡的投单纪律把改动范围写成"只应碰 `services/mistakes.py` 
     否则出现"按学科导出、却仍按知识点分组"的自相矛盾——这是 §19-H 第 1 条（`category_id` 不是学科）换了个位置复发。
 - **纪律固化**：投单前必须重跑一轮引用校对，且校对结论要按"**行号漂移 / 事实错误 / 仍准确**"三类留痕。
   只把数字改对、不写为什么变，下一轮仍会在同一处栽。
+
+#### K-1 P2-11 交付后的两点补充（2026-11-15，PR#57 → main `b321919`）
+
+- **白名单的第二层含义（审核方第 13 次口径疏漏）**：P2-11 的投单块把允许改动文件列全了"模块 + 测试 + CHANGELOG"，
+  却漏了 `wengu-web/src/pages/MistakesPage.tsx`——而 DoD 里"点错因条跳 `/mistakes?error_cause=<键>`"**必须**改它才成立
+  （该筛选原来是组件内 state，URL 参数根本不生效）。施工方扩了该文件并主动单列为复核点，裁定**不属越界、属审核方漏列**。
+  → 纪律补全：**列白名单时先逆推 DoD 每一条的落点文件**，"改哪些模块"和"改哪些文件"不是一回事；
+  只对齐 AGENTS §8 的 CHANGELOG 是第一层，覆盖 DoD 可达性是第二层。
+- **本票自己造成的漂移（已在卡面登记，故意不改交付前快照）**：`services/dashboard.py`
+  `_mistake_rows` 229 → **248**、`_confirmed_concept_ids` 236 → **278**、`_subject_inventory` 360 → **402**、
+  新增 `_error_cause_distribution` **433**；`DashboardPage.tsx` 硬编码色 104/112/115/205 → **106/114/117/207**。
+  ⚠️ 登记过程中我又犯了一次"从 diff 块头推算行号"的错（写成 247/279），实读文件后改为 **248/278**——
+  由此补一条：**行号一律以实读定义行为准，不从 diff 上下文推断**；且优先只写定义起始行、不猜区间。
+- **验收结论**：审核方自跑 755 passed、ruff/tsc/npm test 32/build 全绿，三次自主变异分别 2/1/1 红
+  （绕过 `effective_labels`、错因聚合不排除已毕业、把 `unlabeled` 折进 `other`），还原 sha256 逐字节一致。
+  卡里点名的"照抄 `_confirmed_concept_ids` 的 `confirmed_by IS NOT NULL`"陷阱**确实被一条专门反例钉住**，
+  这是本轮唯一一处"预防性写进卡的陷阱被测试接住"的实例。

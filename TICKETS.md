@@ -424,6 +424,9 @@
   **审核方三次变异**：删 primary 的 `n` → 3 红；删 void 的 `n` → 3 红（含 e2e）；
   **关掉同值状态级早退 → 2 红**（证明"重试 0 增"不是空话，但防线是**早退不是键**，见下条 ⚠️）。
   范围 4 文件 +237/−16（含 `CHANGELOG.md`——AGENTS §8 DoD 必需项，本卡原写"只碰 service+测试"是审核方写漏）。
+  ⚠️ 本卡【现状】行号为交付前快照（`1c1a951`），P1-18b/P2-11 后已漂移：三处键现位于
+  `mistakes.py:399-401 / 437-439 / 590-592`，`_next_event_seq` 在 `:349`，`dashboard.py` 的
+  `void_events`/`reactivate_events` 从 508-509 移到 **581-582**。
 - **现状（2026-11-14 读盘 main `1c1a951`）**：
   - `_insert_or_fetch`（`services/events.py:25-39`）同 `idempotency_key` 撞 UNIQUE → 回滚 savepoint、
     取回旧行、`created=False`：**静默吞事件**，不报错、不追加。
@@ -609,6 +612,20 @@
   把 dashboard 变成写路径；给卡片加"点击后还要再选一次"的中间步骤。
 
 ### P2-11 错因聚合卡（v2.7 D9；只读聚合、零新增状态）
+- **状态：已合并（2026-11-15，PR#57 squash → main `b321919`；原分支 `feat/p2-11-error-cause-card` 已删）**。
+  验收：审核方自跑 **755 passed** / `ruff --no-cache` 全仓绿 / `tsc` 干净 / `npm test` 32 / build ✓ / CI 三 job 绿；
+  自主变异三次分别 **2 / 1 / 1 红**（绕过 `effective_labels`、换尺不排除已毕业、`unlabeled` 折进 `other`），
+  还原 sha256 逐字节一致。
+  ⚠️ **本卡白名单漏列（审核方第 13 次卡面口径疏漏，2026-11-15 认领）**：投单块只列了
+  `services/dashboard.py`、`api/dashboard.py`、`DashboardPage.tsx`、`api/types.ts`、测试、CHANGELOG，
+  **没有 `MistakesPage.tsx`**——而 `error_cause` 原来是组件内 state，不改它深链 `?error_cause=<键>` **根本不生效**，
+  DoD 做不到。施工方扩了该文件并把它单列为复核点（还顺手修掉"清除筛选"两次 `setSearchParams` 基于旧闭包互相覆盖的真 bug）。
+  裁定：**不属越界，属审核方漏列**。→ 纪律加一层：**白名单必须覆盖 DoD 可达性所需的全部文件**，
+  不能只对齐"改哪些模块 + CHANGELOG"。
+  ⚠️ **本卡【现状】里的行号是交付前快照，现已漂移、故意不改**（漂移值按 `b321919` 实读，只给定义起始行、不猜区间）：
+  `_mistake_rows` 229 → **248**、`_confirmed_concept_ids` 236 → **278**、`_subject_inventory` 360 → **402**，
+  本票新增的 `_error_cause_distribution` 在 **433**（`services/dashboard.py` 自身加了 88 行）；
+  `DashboardPage` 硬编码色 `104/112/115/205` → **106/114/117/207**。
 - **现状（2026-11-15 复核行号，原卡 2026-11-14 读盘）**：`ERROR_CAUSES` 在 `services/mistakes.py:52-60`，7 键原文
   `prerequisite_gap / concept_unclear / method_missing / calculation / careless / expression / other`；
   错因两列都在 `mistake_versions`（`models/mistakes.py` `suggested_error_cause:80`、`confirmed_error_cause:81`），
@@ -655,7 +672,7 @@
      日历不得把 kind 落库；交付说明里要写清这条语义。
   ② `done` 来自 `learning_events` 按日归属。**⚠️ 2026-11-15 复核：本条原写"与 `dashboard.py:160-184` /
      `streak.py:64-79` 同一口径"是审核方的事实错误——盘上是两套口径**：
-     `dashboard.py` 的 `_review_completed_on`（**`:176-188`**）与 `_recitation_completed_on`（**`:191-200`**）
+     `dashboard.py` 的 `_review_completed_on`（**195 起**）与 `_recitation_completed_on`（**210 起**）
      缺 `completed_on` 时**直接返回 None、不回退**；真正"优先 `completed_on`、否则回退 `occurred_at`"的
      是 `streak.py` 的 `_learning_day`（**`:77-88`**，回退实现在 `:88`，配套 `_fallback_day:64-74`）。
      日历**采用 streak 那套**（`completed_on` 优先 → 回退 `occurred_at` 的日期），理由不是偏好，是事实：
