@@ -11,6 +11,7 @@ import {
   Table,
   Text,
   Title,
+  UnstyledButton,
 } from "@mantine/core";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -22,6 +23,7 @@ import { mistakesSubjectHref, reviewCta } from "../lib/dashboard";
 import type {
   DashboardConceptMastery,
   DashboardCurvePoint,
+  DashboardErrorCause,
   DashboardResponse,
   DashboardStreak,
   DashboardSubjectInventory,
@@ -305,6 +307,73 @@ function SubjectEntryCard({
   );
 }
 
+function ErrorCauseCard({
+  items,
+  onOpen,
+}: {
+  items: DashboardErrorCause[];
+  onOpen: (cause: string) => void;
+}) {
+  const max = items.reduce((acc, item) => Math.max(acc, item.count), 0);
+  return (
+    <Card withBorder padding="md">
+      <Stack gap="sm">
+        <Group justify="space-between" wrap="wrap">
+          <Text fw={600}>错因分布</Text>
+          <Text size="sm" c="dimmed">
+            在册未掌握 · 点错因进错题本筛选
+          </Text>
+        </Group>
+        {items.length === 0 ? (
+          <Alert color="gray" variant="light">
+            暂无活跃错题。
+          </Alert>
+        ) : (
+          <Stack gap={6}>
+            {items.map((item) => {
+              const unlabeled = item.cause === "unlabeled";
+              const value = max > 0 ? (item.count / max) * 100 : 0;
+              const row = (
+                <Group gap="xs" wrap="nowrap">
+                  <Text size="sm" w={96} c={unlabeled ? "dimmed" : undefined}>
+                    {item.label}
+                  </Text>
+                  <Progress
+                    value={value}
+                    size="sm"
+                    color={unlabeled ? "gray" : "orange"}
+                    style={{ flex: 1 }}
+                  />
+                  <Text size="xs" w={36} ta="right">
+                    {item.count}
+                  </Text>
+                </Group>
+              );
+              return unlabeled ? (
+                <Box
+                  key={item.cause}
+                  aria-label={`${item.label} ${item.count} 道（未标注错因，不可筛选）`}
+                >
+                  {row}
+                </Box>
+              ) : (
+                <UnstyledButton
+                  key={item.cause}
+                  onClick={() => onOpen(item.cause)}
+                  aria-label={`${item.label} ${item.count} 道，进入错题本按此错因筛选`}
+                  style={{ width: "100%" }}
+                >
+                  {row}
+                </UnstyledButton>
+              );
+            })}
+          </Stack>
+        )}
+      </Stack>
+    </Card>
+  );
+}
+
 export default function DashboardPage() {
   const navigate = useNavigate();
   const [data, setData] = useState<DashboardResponse | null>(null);
@@ -562,6 +631,13 @@ export default function DashboardPage() {
           </Stack>
         </Card>
       </SimpleGrid>
+
+      <ErrorCauseCard
+        items={data.error_cause_distribution}
+        onOpen={(cause) =>
+          navigate(`/mistakes?error_cause=${encodeURIComponent(cause)}`)
+        }
+      />
 
       <Card withBorder padding="md">
         <Group justify="space-between" wrap="wrap">

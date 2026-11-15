@@ -30,6 +30,7 @@ from app.models import (
     KnowledgeSeed,
     LearningEvent,
     Mistake,
+    MistakeVersion,
     ReviewSchedule,
 )
 from app.services.recompute import Event, is_graduated, mastery, stats
@@ -570,3 +571,214 @@ async def test_dashboard_subjects_split_graduated_and_exclude_voided(tmp_path) -
     assert back["completion"]["graduated_total"] == payload["completion"]["graduated_total"] == 2
     assert sum(item["graduated"] for item in back["subjects"]) == back["completion"]["graduated_total"]
     assert sum(item["total"] for item in back["subjects"]) == back["inventory"]["active"]
+
+
+async def _create_cause_mistake(
+    client: AsyncClient,
+    *,
+    primary_topic_id: str | None = "cnm_test_equation",
+    suggestion: str | None = "计算失误",
+    confirm_error_cause: str | None = None,
+    confirm_topic: bool = True,
+) -> dict:
+    """P2-11 fixture：可控 confirmed/suggested 错因状态。
+
+    `confirm_topic=False` 且无 confirm_error_cause/concepts → has_confirmation=False
+    → confirmed_by=NULL，effective 错因回退到 suggested（照抄陷阱反例）。
+    `confirm_error_cause` 非空 → confirmed_by=student、confirmed_error_cause 落库，
+    effective 用确认值（即便 suggested 不同）。
+    """
+
+    item: dict = {
+        "subject": "数学",
+        "problem_text": f"错因 fixture {uuid4().hex}",
+        "student_answer": "错答",
+        "standard_answer": "正答",
+        "source_ref": f"测试卷 {uuid4().hex}",
+        "captured_at": "2026-10-28",
+    }
+    if suggestion is not None:
+        item["error_cause_suggestion"] = suggestion
+    if primary_topic_id is not None:
+        item["suggested_topic_id"] = primary_topic_id
+    response = await client.post("/api/imports", json={"channel": CHANNEL, "items": [item]})
+    assert response.status_code == 201, response.text
+    batch_id = response.json()["batch_id"]
+    drafts = await client.get(f"/api/imports/{batch_id}/drafts")
+    assert drafts.status_code == 200, drafts.text
+    (draft_id,) = (draft["id"] for draft in drafts.json()["drafts"])
+
+    payload: dict = {"actor": "student"}
+    if confirm_topic and primary_topic_id is not None:
+        payload["primary_topic_id"] = primary_topic_id
+    if confirm_error_cause is not None:
+        payload["error_cause"] = confirm_error_cause
+    confirmed = await client.post(f"/api/imports/drafts/{draft_id}/confirm", json=payload)
+    assert confirmed.status_code == 200, confirmed.text
+    return confirmed.json()
+
+
+@pytest.mark.integration
+async def test_error_cause_counts_suggested_only_when_unconfirmed(tmp_path) -> None:
+    """照抄陷阱反例（P2-11 DoD 专门一条）：只有 suggested、confirmed_by IS NULL 的在册错题必须被计入。
+
+    若错因取值照抄 `_confirmed_concept_ids` 的 `confirmed_by IS NOT NULL` 过滤、
+    或绕过 effective_labels 只取 confirmed_error_cause，这条会变红（该题被漏掉/落 unlabeled）。
+    """
+
+    factory = _migrated(tmp_path)
+    today = date.today()
+    async with _client(factory) as client:
+        # 不确认主考点/错因/知识点 → confirmed_by=NULL；suggested="计算失误"→calculation。
+        body = await _create_cause_mistake(
+            client, primary_topic_id=None, suggestion="计算失误", confirm_topic=False
+        )
+        mistake_id = body["mistake_id"]
+        async with factory() as session:
+            version = (
+                await session.execute(
+                    select(MistakeVersion).where(MistakeVersion.mistake_id == mistake_id)
+                )
+            ).scalar_one()
+            assert version.confirmed_by is None
+            assert version.suggested_error_cause == "calculation"
+            assert version.confirmed_error_cause is None
+
+        response = await client.get(f"/api/dashboard?today={today.isoformat()}")
+        assert response.status_code == 200, response.text
+        distribution = response.json()["error_cause_distribution"]
+
+    assert distribution == [{"cause": "calculation", "label": "计算失误", "count": 1}]
+
+
+@pytest.mark.integration
+async def test_error_cause_distribution_mixed_and_self_consistent(tmp_path) -> None:
+    """P2-11 主锚点：confirmed/suggested/unlabeled/other 混合 + 毕业/作废排除 + 自洽算式。
+
+    口径与学科卡共用同一份 _mistake_rows 与同一个 graduated_ids：
+    `sum(各错因桶) + unlabeled == sum(subjects[].active)`（右端**不是** inventory.active，
+    后者含已毕业）。other 与 unlabeled 分列；confirmed 优先于 suggested。
+    """
+
+    factory = _migrated(tmp_path)
+    await _seed_topic(factory, topic_id="cnm_test_equation", name="一元一次方程")
+    await _seed_topic(factory, topic_id="cnm_test_english", name="词汇", subject="英语")
+    today = date.today()
+    async with _client(factory) as client:
+        # M1 confirmed concept_unclear（suggested 是 calculation，确认值优先）。
+        m1 = (await _create_cause_mistake(
+            client, primary_topic_id="cnm_test_equation",
+            suggestion="计算失误", confirm_error_cause="concept_unclear",
+        ))["mistake_id"]
+        # M2 suggested-only calculation（confirmed_by=NULL，未挂考点）。
+        m2 = (await _create_cause_mistake(
+            client, primary_topic_id=None, suggestion="计算失误", confirm_topic=False,
+        ))["mistake_id"]
+        # M3 unlabeled：confirmed_by=student 但 confirmed_error_cause=None，
+        #    suggested=calculation 被确认值（None）压过 → 落 unlabeled，绝不落 calculation。
+        m3 = (await _create_cause_mistake(
+            client, primary_topic_id="cnm_test_equation", suggestion="计算失误",
+        ))["mistake_id"]
+        # M4 confirmed other（英语）。
+        m4 = (await _create_cause_mistake(
+            client, primary_topic_id="cnm_test_english",
+            suggestion="其他", confirm_error_cause="other",
+        ))["mistake_id"]
+        # M5 confirmed careless 但毕业 → 排除出错因聚合（仍计学科 graduated）。
+        m5 = (await _create_cause_mistake(
+            client, primary_topic_id="cnm_test_equation",
+            suggestion="审题粗心", confirm_error_cause="careless",
+        ))["mistake_id"]
+        await _graduate(client, factory, m5, today)
+        # M6 suggested-only expression 但作废 → 排除。
+        m6 = (await _create_cause_mistake(
+            client, primary_topic_id=None, suggestion="表达书写", confirm_topic=False,
+        ))["mistake_id"]
+        voided = await client.post(f"/api/mistakes/{m6}/void", json={"actor": "parent"})
+        assert voided.status_code == 200, voided.text
+
+        before = await _row_counts(factory)
+        response = await client.get(f"/api/dashboard?today={today.isoformat()}")
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        after = await _row_counts(factory)
+        assert before == after  # 错因聚合同样零写入
+
+        distribution = payload["error_cause_distribution"]
+        # 在册未掌握 = M1/M2/M3/M4（M5 毕业、M6 作废排除）；count 降序、cause 升序。
+        assert distribution == [
+            {"cause": "calculation", "label": "计算失误", "count": 1},
+            {"cause": "concept_unclear", "label": "概念不清", "count": 1},
+            {"cause": "other", "label": "其他", "count": 1},
+            {"cause": "unlabeled", "label": "未标注", "count": 1},
+        ]
+        by_cause = {item["cause"]: item["count"] for item in distribution}
+        # other 与 unlabeled 分列各有断言（防"没标"被读成"其他原因"）。
+        assert by_cause["other"] == 1
+        assert by_cause["unlabeled"] == 1
+        assert "other" in by_cause and "unlabeled" in by_cause
+        # M3 的 suggested=calculation 被确认 None 压过：calculation 只来自 M2，不重复计。
+        assert by_cause["calculation"] == 1
+        # 毕业 M5 的 careless 不进聚合。
+        assert "careless" not in by_cause
+
+        subjects = payload["subjects"]
+        assert subjects == [
+            {"subject": "数学", "active": 2, "graduated": 1, "total": 3},
+            {"subject": "未挂考点", "active": 1, "graduated": 0, "total": 1},
+            {"subject": "英语", "active": 1, "graduated": 0, "total": 1},
+        ]
+        # 自洽算式：右端用 subjects[].active（=4），不是 inventory.active（=5，含毕业 M5）。
+        active_total = sum(item["active"] for item in subjects)
+        assert active_total == 4
+        assert payload["inventory"]["active"] == 5  # 含已毕业，故不能当右端
+        labeled_sum = sum(item["count"] for item in distribution if item["cause"] != "unlabeled")
+        unlabeled = by_cause.get("unlabeled", 0)
+        assert labeled_sum + unlabeled == active_total
+        assert sum(item["count"] for item in distribution) == active_total
+        # 学科卡既有算式不被破坏。
+        assert sum(item["total"] for item in subjects) == payload["inventory"]["active"]
+
+        # 独立重算：对 active 非毕业 id 跑 effective_labels，双向对齐（不写死期望迁就实现）。
+        events = await _recompute_events(factory)
+        active_ids = (m1, m2, m3, m4)
+        assert all(not is_graduated(events, mid) for mid in active_ids)
+        assert is_graduated(events, m5)
+
+
+@pytest.mark.integration
+async def test_error_cause_distribution_reclassification_changes_counts(tmp_path) -> None:
+    """改判后数字随之变、不重复计：confirmed 错因从 concept_unclear 改 method_missing。"""
+
+    factory = _migrated(tmp_path)
+    await _seed_topic(factory, topic_id="cnm_test_equation", name="一元一次方程")
+    today = date.today()
+    async with _client(factory) as client:
+        mistake_id = (await _create_cause_mistake(
+            client, primary_topic_id="cnm_test_equation",
+            suggestion="计算失误", confirm_error_cause="concept_unclear",
+        ))["mistake_id"]
+
+        first = await client.get(f"/api/dashboard?today={today.isoformat()}")
+        assert first.status_code == 200, first.text
+        assert first.json()["error_cause_distribution"] == [
+            {"cause": "concept_unclear", "label": "概念不清", "count": 1}
+        ]
+
+        relabeled = await client.post(
+            f"/api/mistakes/{mistake_id}/labels",
+            json={"base_version": 1, "error_cause": "method_missing"},
+        )
+        assert relabeled.status_code == 200, relabeled.text
+        assert relabeled.json()["current_version"] == 2
+
+        second = await client.get(f"/api/dashboard?today={today.isoformat()}")
+        assert second.status_code == 200, second.text
+        payload = second.json()
+        # 改判后旧桶消失、新桶出现，总数仍 1（不重复计）。
+        assert payload["error_cause_distribution"] == [
+            {"cause": "method_missing", "label": "方法不会", "count": 1}
+        ]
+        assert sum(item["count"] for item in payload["error_cause_distribution"]) == sum(
+            item["active"] for item in payload["subjects"]
+        ) == 1

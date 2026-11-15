@@ -43,6 +43,12 @@ class SubjectInventoryView(BaseModel):
     total: int
 
 
+class ErrorCauseView(BaseModel):
+    cause: str
+    label: str
+    count: int
+
+
 class ConceptMasteryView(BaseModel):
     concept_id: int
     name: str
@@ -129,6 +135,7 @@ class DashboardResponse(BaseModel):
     weak_topics: list[TopicWeaknessView]
     weak_subjects: list[SubjectWeaknessView]
     subjects: list[SubjectInventoryView]
+    error_cause_distribution: list[ErrorCauseView]
     mastery: MasteryView
     due: DueView
     completion: CompletionView
@@ -172,6 +179,10 @@ def _to_response(snapshot: DashboardSnapshot) -> DashboardResponse:
                 total=item.total,
             )
             for item in snapshot.subjects
+        ],
+        error_cause_distribution=[
+            ErrorCauseView(cause=item.cause, label=item.label, count=item.count)
+            for item in snapshot.error_cause_distribution
         ],
         mastery=MasteryView(
             overall=snapshot.overall_mastery,

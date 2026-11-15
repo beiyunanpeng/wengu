@@ -588,6 +588,12 @@ export interface DashboardSubjectInventory {
   total: number;
 }
 
+export interface DashboardErrorCause {
+  cause: string;
+  label: string;
+  count: number;
+}
+
 export interface DashboardConceptMastery {
   concept_id: number;
   name: string;
@@ -674,6 +680,7 @@ export interface DashboardResponse {
   weak_topics: DashboardTopicWeakness[];
   weak_subjects: DashboardSubjectWeakness[];
   subjects: DashboardSubjectInventory[];
+  error_cause_distribution: DashboardErrorCause[];
   mastery: DashboardMastery;
   due: DashboardDue;
   completion: DashboardCompletion;
