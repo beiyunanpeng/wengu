@@ -644,3 +644,34 @@ P1-18b 卡的投单纪律把改动范围写成"只应碰 `services/mistakes.py` 
   （绕过 `effective_labels`、错因聚合不排除已毕业、把 `unlabeled` 折进 `other`），还原 sha256 逐字节一致。
   卡里点名的"照抄 `_confirmed_concept_ids` 的 `confirmed_by IS NOT NULL`"陷阱**确实被一条专门反例钉住**，
   这是本轮唯一一处"预防性写进卡的陷阱被测试接住"的实例。
+
+### L. 枚举/白名单类断言的写法纪律（2026-11-15，P2-12 守卫补强返工得出，PR#58 → main `4156e60`）
+
+P2-12 的实现一次通过、三条坑都守住了，但审核方在验收时发现**守卫本身有洞**，为此打回补了一轮测试。
+由此固化四条纪律，后续凡涉及"集合成员完整性"的断言（事件 type 白名单、错因 7 键、seed 学科集合、
+转录契约 10 字段、NAV 条目）都按此写：
+
+1. **钉死集合成员时，断言右侧必须用字面串，不得引用被测常量。**
+   写 `assert CALENDAR_EVENT_TYPES == {ATTEMPT_CORRECT, ...}` 等于没写——常量与断言同源，
+   将来谁从 frozenset 里删掉一个成员，断言那侧会跟着一起变，**永远绿**。
+   正确写法是 `assert set(CALENDAR_EVENT_TYPES) == {"attempt_correct", ...}`：字面串独立于实现，
+   增删或改名都独立变红。（`set(...)` 包裹不是花招：裸形式会触发 ruff `SIM300`，
+   审核方实测确认后才采纳；也不要用 `noqa` 压掉。）
+2. **"某一类会被整类漏掉"的风险，必须逐类各一条断言，不能用一类代表全部。**
+   首轮只有 `review_scheduled` 被回退测试覆盖，而坑一的对象是 **5 类**无 `completed_on` 的事件；
+   审核方删掉 `mistake_primary_topic_set` 时全绿，就是这个洞的实证。补强后 5 类各占**不同的** `occurred_at` 日
+   （避免互相掩盖）再加"每类恰一条"的总量断言（防漏也防重）。
+3. **变异要换靶点，不能只重复施工方演示过的那一个。**
+   审核方除了删 `mistake_primary_topic_set`（2 红），又删了 `mistake_voided`（同样 2 红）——
+   后者才是"逐类独立看守"的证据。只复现对方已做的变异，等于把验收外包给了被验收方。
+4. **"实现一字未改"这类自报，用 sha256 验、不靠读 diff 目测。**
+   本轮 `calendar.py` 补强前后与审核方上一轮存档逐字节相同（`62fa8edb…`），该声明才成立。
+
+- 附带登记本票造成的漂移（只列实读到的定义起始行）：`services/review.py` `due_queue` 915 → **937**、
+  逾期判定 951 → **973**，新增共用入口 `task_pick` **915** / `task_kind` **927**；`nav.ts` NAV 11 项 → **12 项**。
+  `quiz_seed` 865 未变，`models/review.py`、`dashboard.py`、`mistakes.py`、`streak.py`、`SchedulePage.tsx` 未被触碰。
+- 口径裁定（保留，不返工）：日历 `planned` 按 `Mistake.status=active` 过滤 ⇒ **已作废错题的历史排期行不进日历**，
+  与看板/到期同一把尺；若将来要求"作废题的旧排期仍可见"，属另一张票。
+- 记账不施工的两项：`build_calendar` 按 type 白名单全量扫事件表再在 Python 侧截日（`occurred_at` 是 UTC、
+  `completed_on` 是本地日期，SQL 截日会错，故如此）——单家庭规模无碍，事件量真上来再开票做窗口裁剪；
+  测试夹具 `_set_primary_topic` 直写 `row.primary_topic_id` 绕过 P1-18 端点与审计事件，不得当端到端样板复用。

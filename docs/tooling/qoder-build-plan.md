@@ -2040,6 +2040,25 @@ ruff --no-cache；UI 改动带 CDP/真机取证；不一致上报不硬凑）。
 直接复用 `streak._learning_day`；把 PIN 写操作混进只读页；另建第二套逾期/kind 判定。
 ```
 
+> **交付后补记（审核方，2026-11-15；PR#58 squash → main `4156e60`，以下不是投单内容）**
+>
+> 1. **本卡漏写了一条 DoD，导致一次返工**：卡里把"5 类无 `completed_on` 的事件会整类消失"写成了坑一的事实，
+>    但 DoD 只要求"造一条没有 `completed_on` 的事件断言按 `occurred_at` 归日"——**用一类代表五类**。
+>    施工方首轮照卡做完、实现全对，审核方变异"删掉白名单里一个 type"却全绿，才暴露守卫是空的。
+>    返工只加了两条测试（`calendar.py` 补强前后 sha256 逐字节相同 `62fa8edb…`）：
+>    `set(CALENDAR_EVENT_TYPES) == {9 个字面串}` + 5 类各占不同 `occurred_at` 日逐类断言 + 每类恰一条总量断言。
+>    → 出卡纪律：**凡"某一类会整类消失/整类算错"的风险，DoD 必须逐类点名，不得以一类代全部**。
+>    完整四条见设计文档 §19-L。
+> 2. **审核方复验换过靶点**：删 `mistake_primary_topic_set` → 2 红；**换删** `mistake_voided` → 同样 2 红。
+>    只重复施工方已演示的变异，等于把验收外包给被验收方。
+> 3. 本票造成的行号漂移（实读起始行）：`services/review.py` `due_queue` 915 → **937**、逾期判定 951 → **973**、
+>    新增 `task_pick` **915** / `task_kind` **927**；`nav.ts` NAV **12 项**。
+>    `quiz_seed` 865、`models/review.py`、`dashboard.py`、`mistakes.py`、`streak.py`、`SchedulePage.tsx` 未变。
+> 4. 独立实跑：全量 **763 passed**、`ruff --no-cache` 全仓绿、`tsc` 干净、`npm test` **33/33**、build ✓、
+>    CI 三 job 绿；11 文件 +1354/−15、无迁移、无依赖改动、CR 全 0；新页面 `grep` 无硬编码色无 localStorage。
+> 5. 保留的口径裁定：`planned` 按 `status=active` 过滤 ⇒ 已作废错题的历史排期行不进日历（与看板/到期同尺）；
+>    将来若要"作废题旧排期仍可见"，另开票。
+
 ## P2-14 —— 主题切换（v2.7 D10；纯前端，后端零改动）
 
 > **卡面校对（审核方，2026-11-15，基线 main `a324174`）**：`main.tsx:17`、`package.json:15`、

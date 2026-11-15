@@ -652,6 +652,20 @@
   为聚合结果存列或建缓存表；用 `other` 兜底空值；照抄 `_confirmed_concept_ids` 的 `confirmed_by IS NOT NULL` 过滤。
 
 ### P2-12 复习日历（v2.7 D9；只读投影，非自动排课）
+- **状态：已合并（2026-11-15，PR#58 squash → main `4156e60`；原分支 `feat/p2-12-review-calendar` 已删）**。
+  验收：审核方自跑 **763 passed** / `ruff --no-cache` 全仓绿 / `tsc` 干净 / `npm test` **33** / build ✓ / CI 三 job 绿；
+  范围 11 文件 +1354/−15（3 新建），无迁移、无依赖改动、CR 全 0。
+  - **本票发生过一次守卫补强返工（审核方变异发现）**：首轮实现是对的，但"删掉白名单里一个 type"全绿
+    —— 9 个 type 齐不齐**没有测试看守**，而卡里坑一讲的是 **5 类**无 `completed_on` 的事件会整类消失，
+    当时只有 `review_scheduled` 一类被覆盖。打回补两条守卫（同分支、**只加测试不碰实现**，
+    `calendar.py` 补强前后 sha256 逐字节相同 `62fa8edb…`）：
+    ① `set(CALENDAR_EVENT_TYPES) == {9 个字面串}`；② 5 类各造一条无 `completed_on` 事件、**各占不同** `occurred_at` 日
+    + 每类恰一条总量断言。审核方复验：删 `mistake_primary_topic_set` → 2 红；**换删** `mistake_voided` → 同样 2 红
+    （证明逐类独立生效，不是只守演示过那一类）。→ 纪律见 §19-L。
+  - 卡里【现状】行号为交付前快照，本票自身造成漂移（只列实读到的定义起始行）：
+    `services/review.py` `due_queue` 915 → **937**、逾期判定 951 → **973**、新增 `task_pick` **915** / `task_kind` **927**；
+    `nav.ts` NAV 由 11 项变 **12 项**。`quiz_seed` 865 未变；`models/review.py`、`dashboard.py`、
+    `mistakes.py`、`streak.py`、`App.tsx` 打印路由行、`SchedulePage.tsx` 未被本票触碰。
 - **现状（2026-11-14 读盘）**：`review_schedules` 列（`models/review.py:16-47`）为
   `id / mistake_id / rung / base_interval_days / due_date(NOT NULL) / source_event_id(FK, unique) /
   completed_attempt_id / completed_at / created_at`——**没有 status 列**；"下一次排期" =
