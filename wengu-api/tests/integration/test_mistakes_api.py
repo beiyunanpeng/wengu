@@ -406,13 +406,13 @@ async def test_void_and_unvoid_mistake_lifecycle(tmp_path) -> None:
         "mistake_reactivated",
     ]
     void_event = events[2]
-    assert void_event.idempotency_key == f"mistake:{mistake_id}:void"
+    assert void_event.idempotency_key == f"mistake:{mistake_id}:void:0"
     assert void_event.actor == "parent"
     payload = json.loads(void_event.payload)
     assert payload["actor"] == "parent"
     assert payload["reason"] == "已当面讲通，暂不复习"
     assert payload["mistake_id"] == mistake_id
-    assert events[3].idempotency_key == f"mistake:{mistake_id}:reactivate"
+    assert events[3].idempotency_key == f"mistake:{mistake_id}:reactivate:0"
     assert events[3].actor == "student"
 
 
@@ -1957,7 +1957,7 @@ async def test_primary_topic_set_writes_root_and_audit_event_only(tmp_path) -> N
         assert event.type == "mistake_primary_topic_set"
         assert event.mistake_id == mistake_id
         assert event.idempotency_key == (
-            f"mistake:{mistake_id}:primary-topic:1:cnm_test_equation"
+            f"mistake:{mistake_id}:primary-topic:1:0:cnm_test_equation"
         )
         assert json.loads(event.payload) == {
             "from_topic_id": None,
@@ -1986,7 +1986,7 @@ async def test_primary_topic_set_writes_root_and_audit_event_only(tmp_path) -> N
         assert repeat.json()["updated_at"] == math_body["updated_at"]
         assert len(await _event_rows(factory)) == len(after_math)
 
-        # 数学 → 英语：同 base_version 再恰新增 1 条（键含 to_topic_id 不撞）
+        # 数学 → 英语：同 base_version 再恰新增 1 条（n 递增 + to_topic_id 不同，键不撞）
         set_eng = await client.post(
             f"/api/mistakes/{mistake_id}/primary-topic",
             json={
@@ -2000,7 +2000,7 @@ async def test_primary_topic_set_writes_root_and_audit_event_only(tmp_path) -> N
         after_eng = await _event_rows(factory)
         assert len(after_eng) == len(after_math) + 1
         assert after_eng[-1].idempotency_key == (
-            f"mistake:{mistake_id}:primary-topic:1:cnm_test_english"
+            f"mistake:{mistake_id}:primary-topic:1:1:cnm_test_english"
         )
         assert json.loads(after_eng[-1].payload)["from_topic_id"] == (
             "cnm_test_equation"
@@ -2017,7 +2017,7 @@ async def test_primary_topic_set_writes_root_and_audit_event_only(tmp_path) -> N
         after_clear = await _event_rows(factory)
         assert len(after_clear) == len(after_eng) + 1
         assert after_clear[-1].idempotency_key == (
-            f"mistake:{mistake_id}:primary-topic:1:null"
+            f"mistake:{mistake_id}:primary-topic:1:2:null"
         )
         assert json.loads(after_clear[-1].payload)["to_topic_id"] is None
 
@@ -2031,10 +2031,11 @@ async def test_primary_topic_set_writes_root_and_audit_event_only(tmp_path) -> N
 
 @pytest.mark.integration
 async def test_primary_topic_idempotency_key_includes_to_topic(tmp_path) -> None:
-    """P1-18 可证伪锚点：同 base_version 两次不同目标 → 恰 2 条事件。
+    """P1-18 锚点（保留不弱化）：同 base_version 两次不同目标 → 恰 2 条事件。
 
-    幂等键含 to_topic_id 时两键不撞、各记 1 条；若把 to_topic_id 从键里拿掉，
-    第二次会被 UNIQUE 去重 → 只剩 1 条，本断言变红（还原后复绿）。
+    P1-18b 补往返维度 n 后，旧证伪口径"去掉 to_topic_id 会塌成 1 条"已失效
+    （n=0/n=1 本就不撞），但本断言仍须为绿。to_topic_id 的包含改由下方字面键
+    相等断言钉住；"往返塌缩"的防线移到 n 维度（见 A→B→A→B 往返锚点用例）。
     """
 
     factory = _migrated(tmp_path)
@@ -2061,7 +2062,7 @@ async def test_primary_topic_idempotency_key_includes_to_topic(tmp_path) -> None
             json={"base_version": 1, "primary_topic_id": "cnm_test_english"},
         )
         assert second.status_code == 200, second.text
-        # 改一次恰新增 1 条：两次不同目标共 2 条（去掉 to_topic_id 会塌成 1 条）
+        # 改一次恰新增 1 条：两次不同目标共 2 条（n=0/n=1 不撞；to_topic_id 由字面键断言钉）
         assert len(await _event_rows(factory)) == baseline + 2
 
     async with factory() as session:
@@ -2073,8 +2074,8 @@ async def test_primary_topic_idempotency_key_includes_to_topic(tmp_path) -> None
             )
         ).all()
     assert set(keys) == {
-        f"mistake:{mistake_id}:primary-topic:1:cnm_test_equation",
-        f"mistake:{mistake_id}:primary-topic:1:cnm_test_english",
+        f"mistake:{mistake_id}:primary-topic:1:0:cnm_test_equation",
+        f"mistake:{mistake_id}:primary-topic:1:1:cnm_test_english",
     }
 
 
@@ -2273,3 +2274,175 @@ async def test_primary_topic_keeps_mastery_schedule_streak_and_moves_due_kind(
         assert gap_item["task"] == "redo"
         assert gap_item["bank_gap"] is True
         assert gap_item["quiz"] is None
+
+
+@pytest.mark.integration
+async def test_primary_topic_round_trip_a_b_a_b_writes_four_events(tmp_path) -> None:
+    """P1-18b 往返锚点：A→B→A→B 恰 4 条审计，from/to 逐条正确、n 单调递增。
+
+    旧键（无 n）会让第 3/4 次撞第 1/2 次的键被 UNIQUE 吞掉 → 只剩 2 条；
+    补 n 后四次动作各落 1 条。中途同值重试仍 0 增（n 不是重复计数器）。
+    """
+
+    factory = _migrated(tmp_path)
+    await _seed_topic(factory)
+    await _seed_topic(
+        factory, topic_id="cnm_test_english", name="词汇", subject="英语"
+    )
+    topic_a = "cnm_test_equation"
+    topic_b = "cnm_test_english"
+
+    async with _client(factory) as client:
+        mistake_id = (await _create_mistake(client, primary_topic_id=None))[
+            "mistake_id"
+        ]
+        baseline = len(await _event_rows(factory))
+        versions_before = await _count(factory, MistakeVersion)
+
+        async def set_topic(value: str | None) -> dict:
+            resp = await client.post(
+                f"/api/mistakes/{mistake_id}/primary-topic",
+                json={"base_version": 1, "primary_topic_id": value},
+            )
+            assert resp.status_code == 200, resp.text
+            return resp.json()
+
+        await set_topic(topic_a)  # n=0
+        await set_topic(topic_b)  # n=1
+        retry = await set_topic(topic_b)  # 同值早退，0 增
+        assert len(await _event_rows(factory)) == baseline + 2
+        await set_topic(topic_a)  # n=2
+        await set_topic(topic_b)  # n=3
+
+        rows = await _event_rows(factory)
+        sets = [r for r in rows if r.type == "mistake_primary_topic_set"]
+        assert len(sets) == 4
+        assert [
+            (
+                json.loads(r.payload)["from_topic_id"],
+                json.loads(r.payload)["to_topic_id"],
+            )
+            for r in sets
+        ] == [
+            (None, topic_a),
+            (topic_a, topic_b),
+            (topic_b, topic_a),
+            (topic_a, topic_b),
+        ]
+        assert [r.idempotency_key for r in sets] == [
+            f"mistake:{mistake_id}:primary-topic:1:0:{topic_a}",
+            f"mistake:{mistake_id}:primary-topic:1:1:{topic_b}",
+            f"mistake:{mistake_id}:primary-topic:1:2:{topic_a}",
+            f"mistake:{mistake_id}:primary-topic:1:3:{topic_b}",
+        ]
+        assert retry["primary_topic_id"] == topic_b
+
+    assert await _count(factory, MistakeVersion) == versions_before == 1
+    async with factory() as session:
+        root = await session.get(Mistake, mistake_id)
+        assert root.current_version == 1
+        assert root.primary_topic_id == topic_b
+    assert "mistake_primary_topic_set" not in streak.LEARNING_EVENT_TYPES
+
+
+@pytest.mark.integration
+async def test_void_unvoid_round_trip_two_plus_two_and_dashboard_aligns(
+    tmp_path,
+) -> None:
+    """P1-18b 往返锚点：作废→撤销→作废→撤销 恰 2+2 条；看板与独立重算双向对齐。"""
+
+    factory = _migrated(tmp_path)
+    await _seed_topic(factory)
+
+    async with _client(factory) as client:
+        mistake_id = (await _create_mistake(client))["mistake_id"]
+        versions_before = await _count(factory, MistakeVersion)
+
+        async def post(path: str) -> dict:
+            resp = await client.post(
+                f"/api/mistakes/{mistake_id}/{path}", json={"actor": "parent"}
+            )
+            assert resp.status_code == 200, resp.text
+            return resp.json()
+
+        first_void = await post("void")
+        assert first_void["status"] == "voided"
+        repeat_void = await post("void")  # 已作废再 void：早退，0 增
+        assert repeat_void["updated_at"] == first_void["updated_at"]
+        await post("unvoid")
+        second_void = await post("void")
+        assert second_void["status"] == "voided"
+        await post("unvoid")
+
+        rows = await _event_rows(factory)
+        voids = [r for r in rows if r.type == "mistake_voided"]
+        reacts = [r for r in rows if r.type == "mistake_reactivated"]
+        assert len(voids) == 2
+        assert len(reacts) == 2
+        assert [r.idempotency_key for r in voids] == [
+            f"mistake:{mistake_id}:void:0",
+            f"mistake:{mistake_id}:void:1",
+        ]
+        assert [r.idempotency_key for r in reacts] == [
+            f"mistake:{mistake_id}:reactivate:0",
+            f"mistake:{mistake_id}:reactivate:1",
+        ]
+
+        # 看板读数 == 现场行数 == recompute 独立重算（双向对齐，不写死期望迁就实现）
+        raw_void = sum(1 for r in rows if r.type == "mistake_voided")
+        raw_react = sum(1 for r in rows if r.type == "mistake_reactivated")
+        stats = recompute.stats(_recompute_events(rows))
+        dash = (await client.get("/api/dashboard")).json()
+        assert dash["governance"]["void_events"] == raw_void
+        assert dash["governance"]["reactivate_events"] == raw_react
+        assert stats["by_type"]["mistake_voided"] == raw_void
+        assert stats["by_type"]["mistake_reactivated"] == raw_react
+        assert dash["event_stats"]["by_type"]["mistake_voided"] == raw_void
+        assert dash["event_stats"]["by_type"]["mistake_reactivated"] == raw_react
+
+    assert await _count(factory, MistakeVersion) == versions_before
+    assert "mistake_voided" not in streak.LEARNING_EVENT_TYPES
+    assert "mistake_reactivated" not in streak.LEARNING_EVENT_TYPES
+
+
+@pytest.mark.integration
+async def test_same_value_and_same_state_retries_add_no_events(tmp_path) -> None:
+    """P1-18b：n 不是重复计数器——同值/同态重试走状态级早退，0 增、updated_at 不变。"""
+
+    factory = _migrated(tmp_path)
+    await _seed_topic(factory)
+
+    async with _client(factory) as client:
+        mistake_id = (await _create_mistake(client))["mistake_id"]
+        baseline = len(await _event_rows(factory))
+
+        detail = (await client.get(f"/api/mistakes/{mistake_id}")).json()
+        same = await client.post(
+            f"/api/mistakes/{mistake_id}/primary-topic",
+            json={
+                "base_version": 1,
+                "primary_topic_id": detail["primary_topic_id"],
+            },
+        )
+        assert same.status_code == 200, same.text
+        assert same.json()["updated_at"] == detail["updated_at"]
+        assert len(await _event_rows(factory)) == baseline
+
+        voided = (
+            await client.post(f"/api/mistakes/{mistake_id}/void", json={})
+        ).json()
+        again_void = (
+            await client.post(f"/api/mistakes/{mistake_id}/void", json={})
+        ).json()
+        assert again_void["updated_at"] == voided["updated_at"]
+        active = (
+            await client.post(f"/api/mistakes/{mistake_id}/unvoid", json={})
+        ).json()
+        again_active = (
+            await client.post(f"/api/mistakes/{mistake_id}/unvoid", json={})
+        ).json()
+        assert again_active["updated_at"] == active["updated_at"]
+
+        rows = await _event_rows(factory)
+        assert len(rows) == baseline + 2  # 仅一对 void+unvoid
+        assert not [r for r in rows if r.type == "mistake_primary_topic_set"]

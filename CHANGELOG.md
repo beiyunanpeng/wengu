@@ -9,6 +9,25 @@
 
 ### Added
 
+- **P1-18b 审计事件幂等键的"往返维度"纠偏（v2.8 §19-J；零迁移、纯服务层）**（2026-11-14）：
+  - **成因（审核方出卡错，§19-J）**：P1-18 键 `mistake:{id}:primary-topic:{base_version}:{to}` 中 `base_version`
+    对该端点恒定（不 bump `current_version`），区分度只剩 `to` → `A→B→A→B` 第 3/4 次撞键被
+    `_insert_or_fetch` 静默吞掉，四次动作只落 2 条审计；`mistake:{id}:void`/`:reactivate` 连变化维度都没有，
+    第二次作废同样被吞。**后果不止审计链**：`dashboard.void_events/reactivate_events` 与
+    `event_stats.by_type` 按事件行数计数会少计。
+  - **修复**：三处键各补单调序号 `n` = 同 mistake 同 type 已有 `learning_events` 行数（同事务 `select func.count()`，
+    新增 `_next_event_seq`）：`...:primary-topic:{base_version}:{n}:{to|null}`、`...:void:{n}`、`...:reactivate:{n}`。
+    **不用 uuid/时钟桶**（序号是事实推导值、可确定性重放，与 `v{version}` 同构）；**不关去重**——三处状态级早退
+    保证同值/同态重试走不到 `record_event`，n 不是重复计数器。
+  - **历史事件一字不动**：不回填旧键、不改 payload、不删行；新旧键天然不撞、历史链不回溯补齐（有意）。
+    键之外一字不改：payload、根表写入、409/422/乐观锁、版本表与 `current_version`、streak 白名单均保持现状。
+    **明确不动** `review:schedule:{id}:init`、recitation 按日粒度、`grading:v{n}`/`mistake:v{n}`（本就含变化维度）。
+  - **测试只紧不松**：7 处字面键断言按新格式补全（n=0 起，禁 startswith/正则/删断言）；新增三组锚点
+    （`A→B→A→B` 恰 4 条且 from/to 逐条正确、`作废→撤销→作废→撤销` 恰 2+2、同值/同态重试 0 增且 `updated_at` 不变）
+    + 看板计数与现场行数/`recompute.stats` 独立重算双向对齐；P1-18 既有锚点保留，:2033 docstring 改口径
+    （to_topic_id 由字面键相等钉、往返防线移到 n）。
+  - **验证**：全量 `pytest -q` 752 passed、`ruff check --no-cache .` 绿、`npm lint/test/build` 绿（前端零改动）；
+    可证伪四次（primary 去 n→`assert 2==4` 红/还原绿；void 去 n→`assert 1==2` 红/还原绿）；零迁移（head 仍 0023）。
 - **P1-18 主考点可设定与更正（v2.8 §19-I；零迁移、零新依赖）**（2026-11-14）：
   - **新端点 `POST /api/mistakes/{id}/primary-topic`**（孩子区免 PIN，与 `/labels`/`/notes`/`/images` 同级）：
     body `{primary_topic_id: str|null, actor∈{student,parent}, base_version}`；`base_version≠current_version`→409、

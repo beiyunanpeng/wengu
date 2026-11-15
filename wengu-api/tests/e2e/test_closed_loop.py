@@ -706,8 +706,8 @@ async def test_void_unvoid_does_not_rewrite_history(tmp_path) -> None:
         "mistake_reactivated",
     ]
     assert [row[6] for row in appended] == [
-        f"mistake:{keep}:void",
-        f"mistake:{keep}:reactivate",
+        f"mistake:{keep}:void:0",
+        f"mistake:{keep}:reactivate:0",
     ]
     assert [row[2] for row in appended] == ["parent", "student"]
     # 幂等重复请求不重复写审计事件：只追加这一对。
