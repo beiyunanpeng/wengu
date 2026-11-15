@@ -20,6 +20,7 @@ export const NAV: NavItem[] = [
   { to: "/review", label: "复习考核" },
   { to: "/recitations", label: "英语背诵" },
   { to: "/schedule", label: "课表/日历" },
+  { to: "/review-calendar", label: "复习日历" },
   { to: "/records", label: "练习记录" },
   { to: "/bank", label: "题库审核", parentOnly: true },
   { to: "/local-seed", label: "学科 seed", parentOnly: true },

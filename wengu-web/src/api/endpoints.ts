@@ -58,6 +58,7 @@ import type {
   RecitationItem,
   RecitationListResponse,
   RecitationReviewResponse,
+  ReviewCalendarResponse,
   ReviewQuizResponse,
   SeedSummary,
   SessionStatus,
@@ -299,6 +300,25 @@ export function getDueReviews(today?: string): Promise<DueReviewResponse> {
   const query = params.toString();
   return apiRequest<DueReviewResponse>(
     `/api/reviews/due${query ? `?${query}` : ""}`,
+  );
+}
+
+export function getReviewCalendar(
+  filters: { from?: string; to?: string; today?: string } = {},
+): Promise<ReviewCalendarResponse> {
+  const params = new URLSearchParams();
+  if (filters.from) {
+    params.set("from", filters.from);
+  }
+  if (filters.to) {
+    params.set("to", filters.to);
+  }
+  if (filters.today) {
+    params.set("today", filters.today);
+  }
+  const query = params.toString();
+  return apiRequest<ReviewCalendarResponse>(
+    `/api/reviews/calendar${query ? `?${query}` : ""}`,
   );
 }
 

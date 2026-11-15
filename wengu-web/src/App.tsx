@@ -14,6 +14,7 @@ import PrintPaperPage from "./pages/PrintPaperPage";
 import PracticePage from "./pages/PracticePage";
 import RecitationsPage from "./pages/RecitationsPage";
 import RecordsPage from "./pages/RecordsPage";
+import ReviewCalendarPage from "./pages/ReviewCalendarPage";
 import ReviewPage from "./pages/ReviewPage";
 import SchedulePage from "./pages/SchedulePage";
 import SetupPage from "./pages/SetupPage";
@@ -38,6 +39,7 @@ export default function App() {
             <Route path="review" element={<ReviewPage />} />
             <Route path="recitations" element={<RecitationsPage />} />
             <Route path="schedule" element={<SchedulePage />} />
+            <Route path="review-calendar" element={<ReviewCalendarPage />} />
             <Route path="records" element={<RecordsPage />} />
             <Route path="bank" element={<BankPage />} />
             <Route path="local-seed" element={<LocalSeedPage />} />
