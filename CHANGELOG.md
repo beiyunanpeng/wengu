@@ -9,6 +9,25 @@
 
 ### Added
 
+- **P2-11 错因聚合卡（v2.7 §18 D9；只读聚合、零新增状态、零迁移、零新依赖）**（2026-11-15）：
+  - **`GET /api/dashboard` 新增 `error_cause_distribution: [{cause,label,count}]`**：口径=**在册未掌握**
+    （`status=active` 且非 `is_graduated`，与 P2-13 学科卡同一把尺），按**当前版本 `effective_labels().error_cause`**
+    计数（确认值优先、未确认回退建议值，唯一入口不绕过）；未填错因**单列 `unlabeled`（未标注）、不塞进 `other`**；
+    只输出 `count>0` 的桶，按 count 降序、cause 升序。
+  - **避开照抄陷阱**：`_mistake_rows` 扩到版本列时**不照抄** `_confirmed_concept_ids` 的
+    `confirmed_by IS NOT NULL` 过滤——那会把"只被外部 agent 建议、孩子未确认"的题整类漏掉；
+    行不按 confirmed_by 过滤、只对**取值**用 confirmed-else-suggested。
+  - **自洽算式**：`sum(error_cause_distribution 各项) == sum(subjects[].active)`，与学科卡**共用同一份
+    `_mistake_rows` 输入与同一个 `graduated_ids`**；右端**不用** `inventory.active`（含已毕业、不按 status 过滤）。
+  - **前端看板新增「错因分布」横向条卡**（与薄弱分布同区域同风格）：7 错因条可点跳
+    `/mistakes?error_cause=<键>`（**复用 P2-9 既有筛选、不新增端点**）；`unlabeled` 仅展示不可点（现有筛选无法表达"无错因"）。
+  - **`MistakesPage` 错因筛选改以 URL 为唯一真源**（镜像 subject）：页内 Select 回写 `?error_cause=`，
+    深链进来即已筛选；「清除筛选」**一次性删除 subject+error_cause**（避免两次 `setSearchParams` 基于旧闭包互相覆盖）；
+    「导出打印」顺带尊重深链错因。
+  - **测试**：+3 集成（suggested-only 反例钉照抄陷阱、confirmed/suggested/unlabeled/other 混合+自洽+零写入、
+    改判后数字变）；**可证伪**：临时把取值改成只取 `confirmed_error_cause`→suggested-only 断言红、还原绿。
+  - **验证**：全量 `pytest -q` 755 passed、`ruff check --no-cache .`（全仓）绿、`npm lint/test/build` 绿；
+    零迁移（head 仍 0023）；CDP 360/412 无横向溢出 + 错因条点击穿透（概念不清→`concept_unclear`→共 2 道）取证存档。
 - **P1-18b 审计事件幂等键的"往返维度"纠偏（v2.8 §19-J；零迁移、纯服务层）**（2026-11-14）：
   - **成因（审核方出卡错，§19-J）**：P1-18 键 `mistake:{id}:primary-topic:{base_version}:{to}` 中 `base_version`
     对该端点恒定（不 bump `current_version`），区分度只剩 `to` → `A→B→A→B` 第 3/4 次撞键被

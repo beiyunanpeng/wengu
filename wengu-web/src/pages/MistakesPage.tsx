@@ -50,7 +50,6 @@ export default function MistakesPage() {
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
   const [categoryId, setCategoryId] = useState<string | null>(null);
-  const [errorCause, setErrorCause] = useState<string | null>(null);
   const [errorCauses, setErrorCauses] = useState<ErrorCauseOption[]>([]);
   const [search, setSearch] = useState("");
   const [masteryState, setMasteryState] = useState<MistakeMasteryState | null>(
@@ -72,10 +71,23 @@ export default function MistakesPage() {
 
   // 学科筛选的唯一真源是 URL：看板卡片深链进来即已筛选，清除时回写 URL。
   const subject = searchParams.get("subject");
+  // 错因筛选同样以 URL 为唯一真源：看板错因卡深链 ?error_cause=<键>，页内 Select 回写 URL。
+  const errorCause = searchParams.get("error_cause");
 
   function clearSubject() {
     const next = new URLSearchParams(searchParams);
     next.delete("subject");
+    setSearchParams(next, { replace: true });
+    setOffset(0);
+  }
+
+  function writeErrorCause(value: string | null) {
+    const next = new URLSearchParams(searchParams);
+    if (value) {
+      next.set("error_cause", value);
+    } else {
+      next.delete("error_cause");
+    }
     setSearchParams(next, { replace: true });
     setOffset(0);
   }
@@ -111,7 +123,7 @@ export default function MistakesPage() {
 
   useEffect(() => {
     setOffset(0);
-  }, [debouncedSearch, masteryState, subject, view]);
+  }, [debouncedSearch, masteryState, subject, errorCause, view]);
 
   useEffect(() => {
     let active = true;
@@ -305,8 +317,7 @@ export default function MistakesPage() {
                 }))}
                 value={errorCause}
                 onChange={(value) => {
-                  setErrorCause(value);
-                  setOffset(0);
+                  writeErrorCause(value);
                 }}
                 clearable
                 placeholder="全部错因"
@@ -342,12 +353,14 @@ export default function MistakesPage() {
                 variant="subtle"
                 onClick={() => {
                   setCategoryId(null);
-                  setErrorCause(null);
                   setSearch("");
                   setMasteryState(null);
-                  if (subject) {
-                    clearSubject();
-                  }
+                  // subject 与 error_cause 同以 URL 为真源：一次性删除，避免两次
+                  // setSearchParams 各自基于旧闭包互相覆盖。
+                  const next = new URLSearchParams(searchParams);
+                  next.delete("subject");
+                  next.delete("error_cause");
+                  setSearchParams(next, { replace: true });
                   setOffset(0);
                 }}
               >

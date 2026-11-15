@@ -54,7 +54,12 @@ from app.models import (
 )
 from app.models.mistakes import MISTAKE_ACTIVE, MISTAKE_VOIDED
 from app.services.bank import get_runtime_bank
-from app.services.mistakes import MISTAKE_REACTIVATED_EVENT, MISTAKE_VOIDED_EVENT
+from app.services.mistakes import (
+    MISTAKE_REACTIVATED_EVENT,
+    MISTAKE_VOIDED_EVENT,
+    effective_labels,
+    error_cause_label,
+)
 from app.services.pomodoro import summarize_pomodoros
 from app.services.recompute import (
     ATTEMPT_CORRECT,
@@ -71,6 +76,10 @@ from app.services.subjects import load_topics, subject_for_topic
 DEFAULT_CURVE_DAYS = 30
 MAX_CURVE_DAYS = 90
 REVIEW_EVENT_KIND = "review"
+
+# P2-11 错因聚合：未填错因单列 unlabeled，绝不塞进 other（"没标"≠"其他原因"）。
+UNLABELED_CAUSE = "unlabeled"
+UNLABELED_LABEL = "未标注"
 
 
 @dataclass(frozen=True)
@@ -95,6 +104,15 @@ class SubjectInventory:
     active: int
     graduated: int
     total: int
+
+
+@dataclass(frozen=True)
+class ErrorCauseCount:
+    """错因聚合卡（P2-11）：cause=7 键之一或 unlabeled，label=中文展示名，count=在册未掌握数。"""
+
+    cause: str
+    label: str
+    count: int
 
 
 @dataclass(frozen=True)
@@ -131,6 +149,7 @@ class DashboardSnapshot:
     weak_topics: tuple[TopicWeakness, ...]
     weak_subjects: tuple[SubjectWeakness, ...]
     subjects: tuple[SubjectInventory, ...]
+    error_cause_distribution: tuple[ErrorCauseCount, ...]
     unassigned_active: int
     overall_mastery: float
     concept_mastery: tuple[ConceptMastery, ...]
@@ -228,9 +247,32 @@ async def _load_events(session: AsyncSession) -> list[Event]:
 
 async def _mistake_rows(
     session: AsyncSession,
-) -> list[tuple[int, str, str | None]]:
+) -> list[tuple[int, str, str | None, str | None]]:
+    """根表三列 + 当前版本有效错因（P2-11 扩到版本列）。
+
+    错因取值唯一入口是 `effective_labels`（确认值否则建议值），**不照抄**
+    `_confirmed_concept_ids` 的 `confirmed_by IS NOT NULL` 过滤——那会把
+    "只被外部 agent 建议、孩子还没确认"的题整类漏掉。版本行缺失时错因为
+    None（下游单列 unlabeled）。与学科卡共用这一份输入。
+    """
+
     rows = (await session.execute(select(Mistake.id, Mistake.status, Mistake.primary_topic_id))).all()
-    return [(row[0], row[1], row[2]) for row in rows]
+    versions = {
+        version.mistake_id: version
+        for version in (
+            await session.scalars(
+                select(MistakeVersion)
+                .join(Mistake, Mistake.id == MistakeVersion.mistake_id)
+                .where(MistakeVersion.version == Mistake.current_version)
+            )
+        ).all()
+    }
+    result: list[tuple[int, str, str | None, str | None]] = []
+    for mistake_id, status, topic_id in rows:
+        version = versions.get(mistake_id)
+        cause = effective_labels(version).error_cause if version is not None else None
+        result.append((mistake_id, status, topic_id, cause))
+    return result
 
 
 async def _confirmed_concept_ids(
@@ -358,7 +400,7 @@ def _weak_distribution(
 
 
 def _subject_inventory(
-    mistakes: list[tuple[int, str, str | None]],
+    mistakes: list[tuple[int, str, str | None, str | None]],
     graduated_ids: set[int],
     topics: dict[str, KnowledgeSeed],
 ) -> tuple[SubjectInventory, ...]:
@@ -366,7 +408,7 @@ def _subject_inventory(
 
     active: Counter[str] = Counter()
     graduated: Counter[str] = Counter()
-    for mistake_id, status, topic_id in mistakes:
+    for mistake_id, status, topic_id, _cause in mistakes:
         if status != MISTAKE_ACTIVE:
             continue
         subject = subject_for_topic(topic_id, topics)
@@ -385,6 +427,36 @@ def _subject_inventory(
         for subject in sorted(
             subjects, key=lambda item: (-(active[item] + graduated[item]), item)
         )
+    )
+
+
+def _error_cause_distribution(
+    mistakes: list[tuple[int, str, str | None, str | None]],
+    graduated_ids: set[int],
+) -> tuple[ErrorCauseCount, ...]:
+    """在册未掌握（active 且非 graduated，与学科卡同一把尺）按有效错因计数。
+
+    与 `_subject_inventory` 共用同一份 `mistakes` 输入与同一个 `graduated_ids`，
+    故 `sum(各项 count) == sum(subjects[].active)`（每题恰落一个桶）。未填错因
+    单列 unlabeled、不塞进 other；只输出 count>0 的桶，按 count 降序、cause 升序。
+    """
+
+    counts: Counter[str] = Counter()
+    for mistake_id, status, _topic_id, cause in mistakes:
+        if status != MISTAKE_ACTIVE or mistake_id in graduated_ids:
+            continue
+        counts[cause if cause is not None else UNLABELED_CAUSE] += 1
+    return tuple(
+        ErrorCauseCount(
+            cause=cause,
+            label=(
+                UNLABELED_LABEL
+                if cause == UNLABELED_CAUSE
+                else (error_cause_label(cause) or cause)
+            ),
+            count=count,
+        )
+        for cause, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))
     )
 
 
@@ -478,10 +550,10 @@ async def build_dashboard(
     events = await _load_events(session)
     mistakes = await _mistake_rows(session)
     active_topic_counts: Counter[str | None] = Counter(
-        primary_topic_id for _, status, primary_topic_id in mistakes if status == MISTAKE_ACTIVE
+        primary_topic_id for _, status, primary_topic_id, _cause in mistakes if status == MISTAKE_ACTIVE
     )
     active_mistakes = sum(active_topic_counts.values())
-    voided_mistakes = sum(1 for _, status, _ in mistakes if status == MISTAKE_VOIDED)
+    voided_mistakes = sum(1 for _, status, _, _cause in mistakes if status == MISTAKE_VOIDED)
 
     topics = await load_topics(session, active_topic_counts)
     weak_topics, weak_subjects, unassigned_active = _weak_distribution(active_topic_counts, topics)
@@ -502,6 +574,7 @@ async def build_dashboard(
     mistake_ids = {event.mistake_id for event in events if event.mistake_id is not None}
     graduated_ids = {mistake_id for mistake_id in mistake_ids if is_graduated(events, mistake_id)}
     subjects = _subject_inventory(mistakes, graduated_ids, topics)
+    error_cause_distribution = _error_cause_distribution(mistakes, graduated_ids)
 
     bank_gap_topics, bank_gap_unassigned_open = await _bank_gap(session, active_topic_counts, topics)
     appeal_count, appealed_gradings = await _appeal_counts(session)
@@ -524,6 +597,7 @@ async def build_dashboard(
         weak_topics=weak_topics,
         weak_subjects=weak_subjects,
         subjects=subjects,
+        error_cause_distribution=error_cause_distribution,
         unassigned_active=unassigned_active,
         overall_mastery=overall_mastery,
         concept_mastery=concept_mastery,
