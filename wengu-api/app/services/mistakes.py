@@ -22,6 +22,7 @@ from app.models import (
     Concept,
     GradingResult,
     KnowledgeSeed,
+    LearningEvent,
     Mistake,
     MistakeVersion,
     ProblemBankItem,
@@ -345,6 +346,27 @@ def _clean_void_reason(reason: str | None) -> str | None:
     return cleaned
 
 
+async def _next_event_seq(
+    session: AsyncSession, mistake_id: int, event_type: str
+) -> int:
+    """P1-18b 往返维度 n：同 mistake 同 type 已有事件行数（同事务内 count）。
+
+    事实推导值、可确定性重放（与 `v{version}` 同构）；不用时钟桶/UUID。
+    状态级早退保证同值重试走不到这里，故 n 不是重复计数器。
+    """
+
+    return (
+        await session.execute(
+            select(func.count())
+            .select_from(LearningEvent)
+            .where(
+                LearningEvent.mistake_id == mistake_id,
+                LearningEvent.type == event_type,
+            )
+        )
+    ).scalar_one()
+
+
 async def void_mistake(
     session: AsyncSession,
     mistake_id: int,
@@ -374,7 +396,10 @@ async def void_mistake(
         session,
         MISTAKE_VOIDED_EVENT,
         actor,
-        idempotency_key=f"mistake:{mistake.id}:void",
+        idempotency_key=(
+            f"mistake:{mistake.id}:void:"
+            f"{await _next_event_seq(session, mistake.id, MISTAKE_VOIDED_EVENT)}"
+        ),
         mistake_id=mistake.id,
         payload={
             "mistake_id": mistake.id,
@@ -409,7 +434,10 @@ async def unvoid_mistake(
         session,
         MISTAKE_REACTIVATED_EVENT,
         actor,
-        idempotency_key=f"mistake:{mistake.id}:reactivate",
+        idempotency_key=(
+            f"mistake:{mistake.id}:reactivate:"
+            f"{await _next_event_seq(session, mistake.id, MISTAKE_REACTIVATED_EVENT)}"
+        ),
         mistake_id=mistake.id,
         payload={"mistake_id": mistake.id, "actor": actor},
     )
@@ -560,6 +588,7 @@ async def set_primary_topic(
         actor,
         idempotency_key=(
             f"mistake:{mistake.id}:primary-topic:{base_version}:"
+            f"{await _next_event_seq(session, mistake.id, MISTAKE_PRIMARY_TOPIC_SET)}:"
             f"{cleaned if cleaned is not None else 'null'}"
         ),
         mistake_id=mistake.id,
