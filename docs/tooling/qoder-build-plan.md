@@ -2153,3 +2153,17 @@ current_version**（那是 §19-I 的正确设计），于是 `base_version` 在
 - 为凑断言去改 dashboard 的计数口径（那是另一张票的事，会动用户面指标）；
 - 把本票和 P2-11/P2-12/P2-14 挤进同一个 PR。
 ```
+
+> **交付后补记（审核方，2026-11-15；PR#56 squash → main `27b1c0f`，以下不是投单内容）**
+>
+> 1. **卡面范围口径写窄了**：上面【投单纪律】第 2 条说"本票只应碰 `services/mistakes.py` + 相应测试文件"，
+>    但 AGENTS §8 的 DoD 本就要求更新 CHANGELOG。施工方把它单列成复核点并给出剔除命令，裁定**保留**
+>    （最终 4 文件 +237/−16）。以后出卡列"允许改哪些文件"必须先与 §8 DoD 对齐。
+> 2. **验收比票面多做一次变异**：删 primary 的 `n` → 3 红；删 void 的 `n` → 3 红（含 e2e）；
+>    **把 `set_primary_topic` 的同值状态级早退改成恒假 → 2 红**。
+>    由此确认并登记一条耦合（设计文档 §19-J-1）：**补 `n` 后重试去重靠的是状态级早退，不是键**；
+>    谁删那几个 `return mistake`，同值重试就会各落一条事件。防线由
+>    `test_same_value_and_same_state_retries_add_no_events` 钉住。
+> 3. 审核方自跑数字（非采信自报）：全量 752 passed / `ruff --no-cache` 绿 / `tsc --noEmit` 干净 /
+>    `npm test` 32 / `selfcheck --strict` 18 OK 0 DRIFT / CI 三 job 绿；变异前后 sha256 逐字节一致
+>    （备份在仓库外，未提交交付一律不用 `git checkout --`）。
