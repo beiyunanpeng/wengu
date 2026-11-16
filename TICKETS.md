@@ -612,6 +612,21 @@
   把 dashboard 变成写路径；给卡片加"点击后还要再选一次"的中间步骤。
 
 ### P2-13b 打印导出接 `subject`（v2.7 D2 补口；纯前端、零后端改动、零迁移）
+- **状态：已合并（2026-11-16，PR#60 squash → main `10c6ec3`；原分支 `feat/p2-13b-print-subject` 已删）**。
+  验收：审核方自跑 `npm test` **55/55**、`tsc` exit 0、build ✓、`ruff --no-cache` 全仓绿、
+  后端全量 **763 passed / 355.30s**（`git diff -- wengu-api/` = 0 字节）、CI 三 job 绿；
+  `groupMistakes` 按**函数体提取后 diff** 证实逐字节未变。
+  审核方自主变异：无视 `subject` 解析 → **7 fail**；日期标签只看 `from` 不看 `to` → **1 fail**；
+  知识点缺省标签改空串 → **4 fail**；**负变异**（从 `useEffect` 依赖删 `subject`）→ **55/55 仍全绿**。
+  - ⚠️ **观察项（带触发条件，暂不排期）**：`PrintMistakesPage.tsx:134` 的 `useEffect` 依赖数组
+    **只由 CDP 断言看守、不进 CI**（负变异实证）。现在**不**改造成"单一 `queryKey` 依赖"——
+    本票【禁止】已把参数集合冻在 5 个，为假想的第 6 个参数加机制正是反过度工程要挡的。
+    **触发条件写死在此**：谁要给打印页加第 6 个筛选参数，**必须先改成单一 `queryKey` 依赖、再加参数**，
+    否则新参数会静默漏进依赖数组之外、页眉与实际再次不符。
+  - 现行锚点（合并后 `10c6ec3` 实读）：`parsePrintQuery` 调用 `:58`、依赖数组 `:134`、文档头标签 `:174`；
+    `MistakesPage` 导出按钮 `:253`；纯函数面 `src/lib/printQuery.ts`（四个缺省字面串 `:10-13`、
+    `parsePrintQuery:27`、`printLabels:46`、`printToolbarSummary:65`、`printDocMeta:70`、
+    `buildPrintMistakesQuery:83`）。
 - **现状（2026-11-16 读盘 main `0e960a3`）**：
   - `PrintMistakesPage.tsx:57-60` 只读 `category_id / error_cause / from / to`；`useEffect` 依赖 `:134` 同样只有这四个
     → 传了 `subject` 也不会重新拉数。
