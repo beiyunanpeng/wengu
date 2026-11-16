@@ -29,6 +29,7 @@ import {
 import type { ErrorCauseOption, MistakeDetail } from "../api/types";
 import CategoryPicker from "../components/CategoryPicker";
 import MathText from "../components/MathText";
+import { buildPrintMistakesQuery } from "../lib/printQuery";
 import { useParentSession } from "../parent/ParentSession";
 
 const PAGE_SIZE = 20;
@@ -249,14 +250,11 @@ export default function MistakesPage() {
               size="compact-sm"
               variant="light"
               onClick={() => {
-                const params = new URLSearchParams();
-                if (categoryId) {
-                  params.set("category_id", categoryId);
-                }
-                if (errorCause) {
-                  params.set("error_cause", errorCause);
-                }
-                const query = params.toString();
+                const query = buildPrintMistakesQuery({
+                  subject,
+                  categoryId,
+                  errorCause,
+                });
                 navigate(`/print/mistakes${query ? `?${query}` : ""}`);
               }}
             >

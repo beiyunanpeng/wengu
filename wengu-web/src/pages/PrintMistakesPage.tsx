@@ -6,19 +6,20 @@ import { getMistakeOptions, listMistakes } from "../api/endpoints";
 import type { ErrorCauseOption, MistakeDetail } from "../api/types";
 import MathText from "../components/MathText";
 import { toISODate } from "../lib/dates";
+import {
+  parsePrintQuery,
+  printDocMeta,
+  printLabels,
+  printToolbarSummary,
+} from "../lib/printQuery";
 import "../print.css";
 
 const PAGE_SIZE = 200;
-const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 interface MistakeGroup {
   key: string;
   name: string;
   items: MistakeDetail[];
-}
-
-function cleanDate(value: string | null): string | null {
-  return value && DATE_PATTERN.test(value) ? value : null;
 }
 
 function createdDay(item: MistakeDetail): string {
@@ -54,10 +55,8 @@ function groupMistakes(items: MistakeDetail[]): MistakeGroup[] {
 export default function PrintMistakesPage() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
-  const categoryId = params.get("category_id");
-  const errorCause = params.get("error_cause");
-  const from = cleanDate(params.get("from"));
-  const to = cleanDate(params.get("to"));
+  const query = parsePrintQuery(params);
+  const { subject, categoryId, errorCause, from, to } = query;
 
   const [items, setItems] = useState<MistakeDetail[]>([]);
   const [options, setOptions] = useState<ErrorCauseOption[]>([]);
@@ -94,6 +93,7 @@ export default function PrintMistakesPage() {
           status: "active",
           categoryId,
           errorCause,
+          subject,
           limit: PAGE_SIZE,
           offset,
         });
@@ -131,20 +131,17 @@ export default function PrintMistakesPage() {
     return () => {
       active = false;
     };
-  }, [categoryId, errorCause, from, to]);
+  }, [subject, categoryId, errorCause, from, to]);
 
   const groups = useMemo(() => groupMistakes(items), [items]);
-  const categoryLabel = categoryId
-    ? (items.find((item) => item.labels.category_id === categoryId)?.labels
-        .category_name ??
-      categoryId)
-    : "全部知识点";
-  const errorLabel =
-    options.find((option) => option.id === errorCause)?.label ??
-    errorCause ??
-    "全部错因";
-  const dateLabel =
-    from || to ? `${from ?? "最早"} 至 ${to ?? "今天"}` : "全部日期";
+  const labels = printLabels(
+    query,
+    categoryId
+      ? (items.find((item) => item.labels.category_id === categoryId)?.labels
+          .category_name ?? null)
+      : null,
+    options.find((option) => option.id === errorCause)?.label ?? null,
+  );
   const today = toISODate(new Date());
 
   return (
@@ -152,9 +149,7 @@ export default function PrintMistakesPage() {
       <div className="print-toolbar">
         <div className="print-toolbar-title">
           <strong>错题四区块打印</strong>
-          <span>
-            {categoryLabel} · {errorLabel} · {dateLabel} · {items.length} 道
-          </span>
+          <span>{printToolbarSummary(labels, items.length)}</span>
         </div>
         <div className="print-actions">
           <button
@@ -176,8 +171,7 @@ export default function PrintMistakesPage() {
           <div>
             <h1 className="print-doc-title">错题四区块</h1>
             <div className="print-meta">
-              知识点：{categoryLabel} · 错因：{errorLabel} · 日期：{dateLabel}
-              {groups.length > 0 ? ` · 共 ${groups.length} 个知识点页组` : ""}
+              {printDocMeta(labels, groups.length)}
             </div>
           </div>
           <div className="print-meta">打印日期 {today}</div>
@@ -196,7 +190,7 @@ export default function PrintMistakesPage() {
               当前筛选下没有错题
             </div>
             <div>
-              可返回错题本清除筛选，或换个知识点 / 错因 / 日期范围再试。
+              可返回错题本清除筛选，或换个学科 / 知识点 / 错因 / 日期范围再试。
             </div>
           </div>
         )}

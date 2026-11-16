@@ -465,6 +465,34 @@
 
 ### Fixed
 
+- **P2-13b 打印导出接 subject（v2.7 D2 补口；纯前端、后端零改动、零迁移、零新依赖）**（2026-11-16）：
+  - **缺陷（"纸面撒谎"）**：错题本「导出打印」只转发 `category_id/error_cause`，丢弃 `subject`；
+    打印页也不读 `subject`——按学科筛选后导出的打印稿，页眉仍写"知识点：全部知识点 · 错因：全部错因"，
+    内容自述与实际筛选不符。只补参数不补标签会留下更坏的半真状态，故**学科标签同时进工具栏摘要与文档头两处**。
+  - **转发与读取**：`MistakesPage` 导出按钮改走 `buildPrintMistakesQuery({subject, categoryId, errorCause})`
+    （与既有两参同段构造）；`PrintMistakesPage` 经 `parsePrintQuery` 读 `subject`，进 `listMistakes` 入参
+    **和 `useEffect` 依赖数组**（subject 变化即重拉）。**不转发 `q/mastery_state`**——打印页没有这两个标签位，
+    转发=制造新的"内容自述与实际不符"；登记为观察项，等家长真在筛选态下导出再补文案设计。
+  - **纯函数模块 `src/lib/printQuery.ts`**（不 import React/Mantine/DOM）：`parsePrintQuery`/`cleanPrintDate`/
+    `printLabels`/`printToolbarSummary`/`printDocMeta`/`buildPrintMistakesQuery`；学科标签**只由 subject 参数驱动、
+    绝不从 items 反推**（否则 0 道时回落"全部学科"继续撒谎）。有值「学科：X」、无值「全部学科」。
+    打印页原 `DATE_PATTERN/cleanDate` 与三个标签 const 删除改由模块派生；**`groupMistakes` 一字未动**
+    （sha256 前后一致 `7d13ce18…c4e2e5`）——按学科导出仍按知识点分页组是正确行为（§19-I 旧口径已读盘推翻）。
+  - **测试**：新增 `tests/printQuery.test.ts` 15 条 node 单测（**禁 DOM 测试栈**，`node --test` 直跑 .ts）：
+    三组合各一条钉死断言（subject 单独 / subject+category_id / subject+error_cause，标签集合与参数一一对应；
+    subject 单独时知识点必须"全部知识点"）、导出 URL 中文百分号编码可解回、空态 0 道不回落、四标签缺省字面串。
+    `npm test` **55 passed / 0 fail**（40 既有 + 15 新）；`npm run lint` / `npm run build` 绿；
+    `ruff check --no-cache .` 全仓绿；`git diff -- wengu-api/` 空。
+  - **可证伪两处换靶点（RED→还原 GREEN）**：① 删 `buildPrintMistakesQuery` 的 subject 分支 → 2 fail
+    （导出 URL 转发/三键断言红）；② `printDocMeta` 摘掉学科前缀只留工具栏 → 5 fail（三组合/空态/文档头红，
+    **工具栏摘要断言保持绿**，证明两处标签独立）。还原后 55/0。
+  - **CDP 渲染层取证 31/31 断言绿**（headless Chrome 自有端口 + 临时夹具库，不碰生产）：三组合页眉两处标签、
+    导出按钮真点转发（`subject=%E6%95%B0%E5%AD%A6` 解回"数学"）、SPA 内换 subject 不重载且两次
+    `/api/mistakes` query 不同（依赖数组）、subject=数学 导出按知识点分 2 组无"数学"组、无筛选导出
+    `__none__`（未挂知识点）殿后、subject=化学 0 道页眉仍"学科：化学 · 0 道"+打印按钮禁用、
+    浅色/深色页眉截图各一（**P2-14 打印豁免不回退**：深色下纸张仍白底深字、红绿语义色不变、
+    `@media print` 全白+工具栏隐藏）。存档 `Temp/p213b-evidence/`（report.json + 6 张 PNG + cdp_print.mjs）。
+
 - **P2-2b 专注计时：进行中轮次服务端续走 + 时长可设（v2.7 D7，缺陷修复）**（2026-11-11）：
   - **缺陷**：P2-2 的倒计时是纯前端状态，刷新/切页/换设备即丢；时长硬编码
     `TOTAL_MINUTES = 25` 不可设。
