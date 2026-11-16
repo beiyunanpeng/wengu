@@ -507,6 +507,36 @@ X 深挖确认 v2.2 三条决定全部成立、可更具体。追加以下补丁
   表述为 **"MIT 代码 + CC BY-NC 数据"分层**（整体不称 OSI 开源软件）；核对 LICENSE 使 GitHub 可识别。
 - **P5-5 扩卡**：README 定位改写、克隆地址占位符修正、独立隐私声明、仓库 description/topics/homepage、首个 Release。
 
+#### F-1 A 方案定案与上游快照取证方法（2026-11-16，决策人点头）
+
+- **许可文件结构（A 方案）**：`LICENSE` 回到**纯 MIT 规范文本**，数据许可另置 **`LICENSE-data.md`**
+  （CC BY-NC 4.0 + 上游项目/作者署名 + 快照 commit + "已修改：仅取初中子集"标注 + 非商用声明 + 免责转述）。
+  起因实测：原 `LICENSE:15-17` 把第三方数据声明段**插在 MIT 正文中间**，GitHub 许可证识别器匹配失败，
+  仓库元数据 `license.spdx_id = NOASSERTION` —— 对一个目标受众是"会 clone 来自己装的家长"的开源仓库，
+  显示"无许可证"是最容易误导下游的信号。备选 B（段落后移）识别结果不确定、C（接受 NOASSERTION）不可接受，均否。
+  → 顺带一条通用规矩：**许可/合规类文件宁可多一个文件，也不要在规范文本中间插自定义段落**；
+  分层授权用分文件表达，README 与 `THIRD-PARTY-NOTICES.md` 只做指向。
+- **上游快照与作者（已取实，非推断）**：作者 **Aifeng**（GitHub `xiaoyang111222`、X `@hassanyehiaa`、pansgo.com），
+  许可 CC BY-NC 4.0（上游 `LICENSE` 首行即 Attribution-NonCommercial 4.0 International；
+  其 README 第 491 行指定署名方式 = "署名并注明来源（本仓库链接）"，我们现有署名格式已符合）。
+  所用快照 commit **`d58785cef744341bf02d41e5568ebb953595ab18`**（2026-10-23T12:40:17Z）。
+- **SHA 取证方法（可复核，写进 `_source.json` 的 `commit_evidence`）**：来源是 GitHub zip 解包目录、**无 `.git`**，
+  `import_*.py` 的 `git rev-parse HEAD` 探测只能返回 null——这才是 `_source.json` 里 `upstream_commit`
+  长期为 null 的真因（不是脚本坏）。改按**内容寻址反查**：本地 `git hash-object` 得到的 blob 与
+  GitHub contents API 在候选 ref 返回的 blob 逐一相等 —— `data/topics.json 79cd0a87…`、
+  `data/questions.json 76058ca5…`、`data/dependencies.json 28cee1a8…`、`README.md cc60a25e…`；
+  其父提交 `7dc3d6ad…` 的 README blob 是 `76db74d1…`（不等）→ **唯一锁定**；
+  另本地 `topics.json` 无任何 `cnl_`（语文）知识点，排除全部 2026-10-24 的语文提交。
+  `topics` 导入日 10-24、`questions` 导入日 10-29，**两次同一快照**（三个 blob 全等即证），日期差只是脚本重跑时间。
+- **红线（"不猜"的具体化）**：探测不到 commit 时**写 null 并告警**，新增 `--upstream-commit` 供 zip 来源显式传入；
+  **严禁**按导入日期反推/近似填写 SHA。署名完整性用**字面串**断言钉（§19-L 纪律①）。
+- **范围切分**：GitHub 仓库元数据（description/topics/homepage）、首个 Release、Discussions 属**审核方侧 gh 动作**，
+  不进工单、施工方不得声称完成。发布说明底稿 `tag-v0.6.0.txt` 在仓库外工作区，且其 alembic head 仍写 `0020`
+  （现 0023），发 Release 前须按当前 main 复核。
+- **本条顺带修的两处文档过实**：① 本票头行原写"v2.5 后无任何云转录/云推理，题目图片不进网络"——与 §19 外部转录口径自相矛盾，已删；
+  ② README 文档地图把本文档写成"v2.5，§16 定稿"——版本漂移的复发点，改为**不把版本号写死在第二份文档**
+  （"版本以该文件首行为准"），否则每升一版都要改两处、必然再次不一致。
+
 ### G. 票号与顺序
 
 - 第二批 **P1-16 → P1-17** → T1 **P5-7** → T2 **P5-8** → 技术债 **P4-4 / P4-5 / P4-6** → **P5-5**；

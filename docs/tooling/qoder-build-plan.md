@@ -2407,3 +2407,107 @@ current_version**（那是 §19-I 的正确设计），于是 `base_version` 在
 >    与"化学 0 道不回落 + 打印按钮禁用"）。
 > 5. 措辞校正：交付报告把 `DATE_PATTERN`/`cleanDate` 称作"删死代码"**不准确**，那是搬进纯函数模块的活动代码
 >    （日期过滤段未动、`from`/`to` 仍生效）；CHANGELOG 记在 **Fixed** 由审核方认可——本质是缺陷不是功能。
+
+## P5-5 —— 开源基线收口（v2.8 §19-F D16；A 方案：LICENSE 纯 MIT + 数据许可另置）
+
+```
+你在 wengu 仓库工作。开工前完整读：AGENTS.md §2.6（外部数据 License 归属：README/LICENSE/CHANGELOG 必须显式署名
++ 附原项目链接 + 声明限个人非商用；seed metadata 保留 unaudited: true 且 UI 要提示）、§7（开源分发护栏）、
+§8（一票一 PR、DoD 含 CHANGELOG）与 §9（数据与隐私）
++ 设计文档 §19-F 与 **§19-F-1（A 方案定案 + 上游快照取证方法，本票的事实来源）**
++ wengu/AGENTS.md §5 末条（转录可选包边界）+ transcribe/README.md §0（合规 checklist，PRIVACY.md 要与它口径一致）
++ LICENSE（**现第 15-17 行把第三方数据声明插在 MIT 正文中间，正是 GitHub 判 NOASSERTION 的原因**）
++ README.md（第 8 行署名段、**第 45 行克隆地址仍是占位符 `<你>`**、第 124-137 行文档地图
+  ——其中把设计文档写成"v2.5，§16 定稿"已过实、第 139-149 行安全与合规、第 156-158 行 License）
++ THIRD-PARTY-NOTICES.md（第 1 节 cn-math-taxonomy 归属）+ seeds/README.md（第 25 行分发要求、
+  **第 34 行"一次性 git clone"就是 zip 来源的成因**）
++ seeds/data/_source.json 与 seeds/data/questions_source.json（**两者 upstream_commit 均为 null**）
++ wengu-api/scripts/import_seed.py（**upstream_commit 探测在 :133**，写文件在 :151-156）
+  与 import_questions.py（探测 **:171**，写文件 :191-196）
++ wengu-api/app/seed/loader.py（:93 读 `_source.json` → :110 传入 `_build_index` → 存进 `SeedIndex.source`；
+  **现无任何消费方读它**，故"只增键"安全；`unaudited`/`blind_verified` 来自 topic 对象、不来自 `_source.json`）
++ wengu-api/tests/unit/test_import_seed.py（:87-89 现有断言）与 test_import_questions.py（:131-136 现有断言）
++ docs/STATUS.md 与 目录结构.md（两者均被 git 跟踪，含 seed/许可相关表述）+ TICKETS.md 的 P5-5 与 P5-6。
+
+【上游事实——已取实，不要重新推断、不要按日期猜】
+- 项目：cn-math-taxonomy，https://github.com/xiaoyang111222/cn-math-taxonomy
+- 作者：**Aifeng**（GitHub xiaoyang111222；X @hassanyehiaa；站点 pansgo.com）
+- 许可：**CC BY-NC 4.0**（SPDX `CC-BY-NC-4.0`）；上游 README 第 491 行指定的署名方式 =
+  "署名并注明来源（本仓库链接）"，我们现有格式已符合，别改成自创措辞。
+- 所用快照 commit：**d58785cef744341bf02d41e5568ebb953595ab18**（2026-10-23T12:40:17Z）
+- 取证证据（须原样写进 `commit_evidence`，只写 SHA 不算完成）：本地来源是 GitHub zip、无 .git，
+  故按内容寻址反查。blob 逐一相等：topics.json 79cd0a87c89e3575fcbac17c738882489305d676 /
+  questions.json 76058ca51f98bfaf6ec52aad998143d5dc40ada5 /
+  dependencies.json 28cee1a857b2a05cbb798c738212704addec4a8a / README.md cc60a25e66c45ddfa5b45118ea39162daf9fa426；
+  父提交 7dc3d6adf5ea6ad96be5c27761143fbc8060625d 的 README blob 为 76db74d1394e8e2084ae21753d03a73fc937e79c（不等）→ 唯一锁定；
+  本地 topics.json 无任何 cnl_（语文）知识点，排除全部 2026-10-24 的语文提交。
+  topics 导入 10-24、questions 导入 10-29 但同一快照，日期差只是脚本重跑时间——**不要写成两个 commit**。
+
+【投单纪律】1) git fetch origin; git switch -c feat/p5-5-oss-baseline origin/main
+2) 一票一 PR，分支冻结；提交前 `git diff --cached --name-only` 核对并贴清单。
+3) 中文 commit message 用 `git commit -F <仓库外 UTF-8 文件>`；lint 用 `ruff check --no-cache`。
+4) 交付给"你自己实跑"的数字 + 单列「审核方需复核的点」，**并把 GitHub 侧动作明确标为未做**。
+5) 代码与本卡不符时以实际代码为准，先读再改，不一致上报不要硬凑。
+允许改动的文件：`LICENSE`、新建 `LICENSE-data.md`、`README.md`、`THIRD-PARTY-NOTICES.md`、新建 `PRIVACY.md`、
+`seeds/README.md`、`seeds/data/_source.json`、`seeds/data/questions_source.json`、
+`wengu-api/scripts/import_seed.py`、`wengu-api/scripts/import_questions.py`、
+`wengu-api/tests/unit/test_import_seed.py`、`wengu-api/tests/unit/test_import_questions.py`、
+新建 `wengu-api/tests/unit/test_seed_provenance.py`、`docs/STATUS.md`、`目录结构.md`、
+**`CHANGELOG.md`**（AGENTS §8 DoD 必需项）。
+**不得**碰：`wengu-web/**`、`wengu-api/app/**`、`migrations/**`、依赖清单；零迁移、零新依赖。
+
+【范围切分（重要，防自述过实）】
+GitHub 仓库 `description` / `topics` / `homepage`、首个 Release、开启 Discussions **全部是审核方侧 gh 动作**，
+不在本票内。你改不到、也不要声称改过；`license.spdx_id` 是否从 NOASSERTION 变 MIT，由审核方在合并后跑 API 判定。
+
+【任务】
+1. `LICENSE` 恢复**纯 MIT 规范文本**（删掉第 15-17 行插在正文中间的第三方段），版权行保留
+   `Copyright (c) 2026 wengu (温故) contributors`。新建 `LICENSE-data.md`：CC BY-NC 4.0 及全文链接、
+   上游项目与作者署名、快照 commit、"已修改：仅取初中子集（grade 7-9），跨学段先修边已丢弃"、
+   非商用声明、上游自述"AI 生成初稿、未经一线教师审核"的免责转述。
+2. 两个 source 文件**只增键、不改既有键名与语义**，新增（两边键名必须一致）：
+   `upstream_commit`（上面那枚 SHA，从 null 改实值）、`upstream_commit_date`、`upstream_author`、
+   `upstream_spdx: "CC-BY-NC-4.0"`、`code_spdx: "MIT"`、`modified`、`disclaimer`、
+   `snapshot_source: "GitHub zip of main（无 .git），upstream_commit 由内容寻址反查钉死"`、
+   `commit_evidence`（字符串数组，装上面那段证据）。
+   `questions_source.json` 的 `modified` 改题目口径文案（仅取 topicId ∈ 初中 664 点的题）。
+3. 探测逻辑（两处同规则）：新增 CLI `--upstream-commit <sha>` 显式覆盖；未提供仍走 `git rev-parse HEAD`；
+   **探测失败写 null 并打印警告，严禁猜测/按日期近似填写**。`seeds/README.md` 第 34 行旁补一句：
+   zip 来源必须显式传 `--upstream-commit`。
+4. `README.md:45` 占位符改真实地址 `https://github.com/beiyunanpeng/wengu.git`。
+5. 新建 `PRIVACY.md`：数据本土化清单、**外部转录上云的真实字段清单与擦除指引**（对齐 transcribe §0 checklist）、
+   监护人告知与单独同意文案、离线 `/import` 一等公民、点名两部法规、公网暴露前须加鉴权/隔离或走 Tailscale。
+   ⚠️ 禁止沿用"题目图片不进网络""完全不上云"——内核零模型，但可选外部转录确实会把擦除 PII 的卷面送境内第三方 AI。
+6. README 口径校正 + 补行：文档地图里对设计文档的描述改成**不写死版本号**（"版本以该文件首行为准"，
+   盘上现写 v2.5、实际 v2.8）；补 `PRIVACY.md` 与 `LICENSE-data.md` 两行；License 一节改成分层表述
+   （代码 MIT + 数据 CC BY-NC，**整体不称 OSI 开源软件**）；`THIRD-PARTY-NOTICES.md` 第 1 节补作者/commit/新文件链接；
+   `docs/STATUS.md` Phase 5 行与 `目录结构.md` 按盘上事实同步（**不得**写"中英 README 已就位"）。
+
+【DoD——每条可变异证伪；外部事实由审核方复核】
+- **LICENSE 纯净化**：新增单测断言 LICENSE 文本不含 `CC BY-NC`、不含 `cn-math-taxonomy`，且含
+  `Permission is hereby granted, free of charge`。**变异**：把第三方段加回 → 必须红；还原 → 绿。
+- **署名完整性（字面串钉死，§19-L 纪律①）**：单测断言两个 source 文件的 `upstream_commit`
+  **等于字面串** `d58785cef744341bf02d41e5568ebb953595ab18`、`upstream_spdx == "CC-BY-NC-4.0"`、
+  `code_spdx == "MIT"`、`upstream_author` 同时含 `Aifeng` 与 `xiaoyang111222`、`commit_evidence` 非空。
+  **变异**：SHA 改错一位 → 必须红。
+- **探测不猜**：无 `.git` 且未传 `--upstream-commit` → 返回 `None` 且**不写任何猜测值**；显式传入 → 覆盖生效。
+  两条各一条单测。**变异**：把失败分支改成回退到日期字符串 → 必须红。
+- **占位符清除**：断言 README 全文不含 `<你>`，克隆地址行等于真实 URL 字面串。**变异**：改回占位符 → 必须红。
+- **隐私声明正负断言**：`PRIVACY.md` 存在且含"数据本土化 / 外部转录 / 监护人同意 / 离线"四类关键串；
+  同时断言**不含**"题目图片不进网络"与"完全不上云"。**变异**：把旧句加回 → 负断言必须红。
+- **口径一致**：`PRIVACY.md` 的上云字段清单与 `transcribe/README.md` §0 checklist 逐条对齐；
+  `transcribe/validate.py selfcheck --strict` 仍 **18 OK / 0 DRIFT / 0 WARN**（不许改探针凑绿）。
+- 全量 `pytest -q` 绿（当前基线 **763**，本票新增用例后如实报新数，不得沿用旧数）、
+  `ruff check --no-cache .` 全仓绿、`npm run lint/test/build` 绿（前端应零改动）；零迁移。
+- 交付须含"陌生人视角自检"：只读 README + PRIVACY.md，能否 5 分钟内判断"数据在哪、会不会上云、
+  代码与数据各自什么许可、能不能商用"，并照 README 一行命令装起来。逐条写清落点文件与行号。
+
+【禁止】
+- 做英文 README / 整站本地化（另票）；
+- 声称已完成 GitHub description/topics/homepage/Release/Discussions，或自证 `license.spdx_id` 已变 MIT；
+- 在 `_source.json` 编造/近似 SHA（探测不到就 null + 警告）；
+- 把整体许可称成"开源（OSI）软件"；沿用"完全不上云/题目图片不进网络"；
+- 删除或改写 CHANGELOG 历史条目来"统一口径"；
+- 为让 GitHub 识别而在 LICENSE 里塞额外说明文本（A 方案就是要它回到纯 MIT）；
+- 顺手把 `unaudited` UI 提示、seed 装载逻辑、`目录结构.md` 以外的架构文档大改一轮。
+```

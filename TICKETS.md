@@ -1137,8 +1137,19 @@
   **已完成（2026-10-31，v1）**：家长区「备份」页导出 `VACUUM INTO` 一致性快照 + `uploads/` + `seeds_local/`（含 `_id_counters.json`）+ 未处理 `inbox/` + `manifest.json`（各文件 sha256、alembic 版本、表计数），只留最近 10 份；导出全程只读、不写业务表。恢复走 `scripts/restore.ps1` + `docs/deploy/backup-restore.md`（停服 → 安全副本 → 整库替换 → `/health` 核对），**明确不做运行中热恢复**；三端点挂 `require_parent`，下载名做路径遍历防护。**剩余**：可选加密云备份/回滚、清空级联清理、在线导入 UI。
 - **P5-3 可选密码 session 鉴权开关**（默认关）；README/首页醒目警告公网须先加鉴权与隔离或走 Tailscale。禁：做用户体系/多租户。
 - **P5-4 教材 seed 包机制**：多教材 JSON/YAML 可安装可切换。
-- **P5-5 开源基线**：LICENSE + 中英 README（一行安装）+ 隐私声明（数据不出户；**v2.5 后无任何云转录/云推理，题目图片不进网络**——旧表述"云转录仅送题目图"已作废）+ CHANGELOG + `.env.example`；合规点名《个人信息保护法》《未成年人网络保护条例》；**第三方数据 License 署名 + NC 声明**强制。
-  **现状（2026-11-02 审计）**：LICENSE / 中文 README / CHANGELOG / `wengu-api/.env.example` / 第三方署名 / 合规点名 **已在盘上**；**英文 README 与独立隐私声明文档仍缺**（本票未完结）。
+- **P5-5 开源基线**：LICENSE + 中英 README（一行安装）+ 隐私声明 + CHANGELOG + `.env.example`；合规点名《个人信息保护法》《未成年人网络保护条例》；**第三方数据 License 署名 + NC 声明**强制。
+  ⚠️ **本行原有括注"v2.5 后无任何云转录/云推理，题目图片不进网络"已删除**（审核方 2026-11-16）：
+  内核确实零模型，但**可选外部转录会把擦除 PII 后的卷面送进境内第三方 AI**，该句是文档过实、
+  与本票 ③/⑦ 的口径自相矛盾。准确表述：wengu 内核零云推理；上云只发生在家长自行启用的外部转录，
+  须过 `transcribe/README.md` §0 checklist，或走离线 `/import`。
+  **现状（2026-11-16 复核 main `545ca3d`）**：`LICENSE` / 中文 `README.md` / `CHANGELOG` /
+  `wengu-api/.env.example` / `THIRD-PARTY-NOTICES.md` / 合规点名（README:149 一句）**已在盘上**；
+  仍缺 = 英文 README、独立 `PRIVACY.md`、GitHub 仓库元数据与 Release；
+  另实测到三处**盘上不一致**：① `README.md:45` 克隆地址仍是占位符 `https://github.com/<你>/wengu.git`
+  （`docs/deploy/docker.md:15`、`from-zero.md:46` 已是真地址——旧卡 ② 记成已完成项，属半拉子当完成）；
+  ② `LICENSE:15-17` 把第三方数据声明段**插在 MIT 正文中间**，导致 GitHub
+  `license.spdx_id = NOASSERTION`（仓库对外看像"未声明许可"）；
+  ③ README 文档地图把唯一事实来源写成"v2.5，§16 定稿"，盘上已是 **v2.8（含 §18/§19）**。
   - **v2.8 扩卡（§19-F，2026-11-12 确认）**：
     ① README 前三行定位改"本地优先的错题复习工作台（AI 转录为可选外挂）"，明写不判真实作业、不生成讲解、零模型内核；
     ② 克隆地址 `<你>/wengu.git` 改真实地址 `beiyunanpeng/wengu`；
@@ -1147,10 +1158,27 @@
     ④ CC BY-NC §3(a)(1) 全项：原作者姓名、版权声明、许可通知、免责声明、原始 URI、"已修改（转换初中子集）"标注、
        `upstream_commit` 钉死为具体 SHA；补 SPDX；表述为 **"MIT 代码 + CC BY-NC 数据"分层**（整体不称 OSI 开源）；
        核对 LICENSE 使 GitHub API `license` 不再为 `NOASSERTION`；
-    ⑤ 仓库 `description` / `topics` / `homepage`、首个 GitHub Release（说明可复用 `tag-v0.6.0.txt`）、开启 Discussions；
+    ⑤ 仓库 `description` / `topics` / `homepage`、首个 GitHub Release、开启 Discussions
+       —— **均为审核方侧 gh 动作，不进本票**；施工方不得声称完成。发布说明底稿 `tag-v0.6.0.txt`
+       在**仓库外**工作区（不在 git 内），且其 head 仍写 `0020_recitation`（现 0023），发 Release 前须按当前 main 复核；
     ⑥ DoD：陌生人 5 分钟内从 README 完成合规判断并装起来；克隆地址可直接复制；隐私声明与 transcribe checklist 口径一致；
        CC 署名可人工核对；GitHub 识别 MIT；Release 可下载。
     ⑦ 禁：声称"完全不上云"；隐瞒外部转录；删除历史条目。
+  - **2026-11-16 定案（A 方案）+ 上游事实取证**：
+    **A 方案** = `LICENSE` 回到**纯 MIT 规范文本**，数据许可另置新文件 `LICENSE-data.md`
+    （GitHub 可识别 MIT、下游合规扫描判对，"代码 MIT + 数据 CC BY-NC"分层更清楚；
+    备选 B"段落后移"识别结果不确定、C"接受 NOASSERTION"对目标受众最易误读，均否）。
+    上游事实（已取实，非推断）：作者 **Aifeng**（GitHub `xiaoyang111222`、X `@hassanyehiaa`、pansgo.com），
+    许可 **CC BY-NC 4.0**，所用快照 commit
+    **`d58785cef744341bf02d41e5568ebb953595ab18`**（2026-10-23T12:40:17Z）。
+    **SHA 取证方法**（来源是 GitHub zip、无 `.git`，故 `upstream_commit` 才一直是 null）：
+    按内容寻址反查——本地 `git hash-object` 的 blob 与 GitHub contents API 在该 ref 返回的 blob 逐一相等
+    （`topics.json 79cd0a87…`、`questions.json 76058ca5…`、`dependencies.json 28cee1a8…`、`README.md cc60a25e…`），
+    父提交 `7dc3d6ad…` 的 README blob 为 `76db74d1…`（不等）→ 唯一锁定；
+    本地 `topics.json` 无任何 `cnl_` 语文知识点，排除全部 10-24 的语文提交。
+    `topics` 导入 10-24、`questions` 导入 10-29 但**同一快照**（三个 blob 全等即证）。
+    ⚠️ 纪律：**探测不到就写 null + 警告，严禁按日期猜 SHA**；`import_seed.py:133` / `import_questions.py:171`
+    新增 `--upstream-commit` 显式覆盖。可投单正文见 `docs/tooling/qoder-build-plan.md` 的 P5-5 块。
 - **P5-6 交付口径与盘上一致性清理（v2.6 审计新增）**：把审计报告里 B/C 类"文档说的和代码不一致"一次性收干。
   - **孤儿表退役**：`photo_captures` / `photo_capture_items` / `problem_extractions` 是 v2.5 视觉栈退役后的遗留
     （迁移仍建表、但业务代码**零引用**；`problem_extractions` 的两个 FK 还指向另两表）→ 出**可逆迁移 0019**
