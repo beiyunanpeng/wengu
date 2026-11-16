@@ -1,11 +1,11 @@
 # wengu · 温故
 
-> 面向中国初中家庭的**自托管** AI 学习工作台：已批改错题转录归集 → 错因/知识点分类 → 跨科复习调度 → 每日任务 → 家长复盘。
-> 不是又一个拍照答疑 App——那部分现成工具够好了。**wengu 做的是个性化错题闭环**，每个家庭部署自己的一份，数据不出家门。
+> **本地优先的错题复习工作台（AI 转录为可选外挂）**，面向中国初中家庭、每个家庭自托管自己的一份：**不判真实作业、不生成讲解、内核零模型**。闭环：已批改错题转录归集 → 错因/知识点分类 → 跨科复习调度 → 每日任务 → 家长复盘。
+> 不是又一个拍照答疑 App——那部分现成工具够好了。**wengu 做的是个性化错题闭环**，每个家庭部署自己的一份，数据默认只留在本机（唯一例外：你主动启用的外部转录，见 [`PRIVACY.md`](./PRIVACY.md)）。
 
-**A self-hosted AI learning workbench for Chinese junior-high families**: confirmed mistake intake → knowledge tagging → cross-subject spaced review → same-type quizzes → parent dashboard. Every family runs their own instance; data stays home.
+**A local-first mistake-review workbench for Chinese junior-high families (AI transcription as an optional add-on)** — no grading of real homework, no generated explanations, zero-model core: confirmed mistake intake → knowledge tagging → cross-subject spaced review → same-type quizzes → parent dashboard. Every family runs their own instance; data stays local by default (the optional external transcription step is documented in [`PRIVACY.md`](./PRIVACY.md)).
 
-> 内部代号 StudyDesk。License = MIT（代码）；知识点树与题库 seed 数据来自 [`cn-math-taxonomy`](https://github.com/xiaoyang111222/cn-math-taxonomy)（CC BY-NC 4.0，**限个人非商用**），详见 [`THIRD-PARTY-NOTICES.md`](./THIRD-PARTY-NOTICES.md)。
+> 内部代号 StudyDesk。许可分层：**代码 MIT**（[`LICENSE`](./LICENSE)）+ **数据 CC BY-NC 4.0**（[`LICENSE-data.md`](./LICENSE-data.md)，**限个人非商用**；整体不称 OSI 开源软件）。知识点树与题库 seed 数据来自 [`cn-math-taxonomy`](https://github.com/xiaoyang111222/cn-math-taxonomy)（作者 Aifeng），详见 [`THIRD-PARTY-NOTICES.md`](./THIRD-PARTY-NOTICES.md)。
 
 ---
 
@@ -35,14 +35,14 @@
 | 内核 | **零模型**：后端不调用任何云端 VLM/OCR/文本模型，无 provider 抽象、无模型审计表 |
 | 判分 | 系统只判自造同类题：运行时 `judgeAnswer` 归一化比对；**AST 白名单沙箱跑 `verify`**（题库入库时） |
 | 部署 | Docker Compose 一键起；端口默认只绑回环；远程访问 **Tailscale（tailnet 私有网）** |
-| 分发 | 开源，**每个家长自托管自己的一份**（单用户实例） |
+| 分发 | 代码开源（MIT）+ 数据 CC BY-NC 4.0，**每个家长自托管自己的一份**（单用户实例） |
 
 ## 🚀 快速开始（面向"会装 Docker 不写代码"的家长）
 
 **前置**：Docker Desktop（[官网](https://www.docker.com/products/docker-desktop/)）+ 至少 2 GB 空闲内存。
 
 ```bash
-git clone https://github.com/<你>/wengu.git
+git clone https://github.com/beiyunanpeng/wengu.git
 cd wengu
 cp wengu-api/.env.example wengu-api/.env   # 可选；v2.5 零模型通常无需任何 Key
 docker compose up -d --build --wait
@@ -117,7 +117,7 @@ Windows 上若 `make` 不在 PATH，重开终端或安装 [GNU Make](https://win
 - ✅ **P5-1a 配置持久化修复 + 家长配置端点**（2026-11-04）：修掉 **Docker 形态下运行时配置永远读不到**的缺陷（旧逻辑读 `PROJECT_ROOT/config/app-config.json`，容器里 `PROJECT_ROOT=/` 而该目录既未 COPY 也未挂载，三个参数静默走默认）。解析顺序改为 `WENGU_APP_CONFIG` → **`<data_dir>/app-config.json`**（Docker 即 `<仓库>/data/app-config.json`，**随 data 卷持久、无需额外挂载**）→ 仓库根 `config/app-config.json`（原生老用户**只读兼容回退**，`GET /api/config` 返回 `legacy` 与迁移提示，**不自动搬运/删除**）；写入一律落 data_dir（同目录 tmp + fsync + `os.replace` + 进程内锁）。新增 `GET/PUT /api/config`（均 `require_parent`）：GET 返回生效值 + 每项来源 + 读写路径 + 兼容提示；PUT 只收 `daily_review_limit 1..200` / `daily_recitation_limit 1..20` / `exam_day_limit_factor 1..3`，非法 422 **不写盘**、未知键与布尔值拒绝，改完不重启即生效。备份包纳入 `<data>/app-config.json`（manifest 记 sha256），`restore.ps1` 同步替换。**无迁移、无新依赖；`/setup` 向导 UI 归 P5-1b**。
 - ✅ **P4-1 默认只绑回环 + Tailscale 可达性**（2026-11-04）：Docker 的 api/web 端口默认只发布到 `127.0.0.1`（`WENGU_BIND_ADDR` 可覆盖），原生 Vite 的 `server.host` 同步改回环；新增 `deploy/tailscale/serve.json`（官方 `TS_SERVE_CONFIG` 格式、`AllowFunnel=false`）与分平台 Tailscale 说明（Linux/群晖 sidecar；Windows/macOS 宿主机 `tailscale serve`）；新增只读 `scripts/remote-check.ps1` 与手机/平板接入指南。远程访问口径统一为只认 tailnet，无迁移、无新依赖。
 - ✅ **P4-1b 部署面命令体检**（2026-11-05）：删除死 `make backup` 目标与 `.PHONY` 里无规则的 `restore`（备份唯一入口仍是家长区「备份」页导出）；`make dev-api` 默认只绑 `127.0.0.1`，局域网调试用 `HOST=0.0.0.0` 显式覆盖；`make lint` 加 `--no-cache`；修 `seeds/README.md` 的 `--src` 层级与 `make help` 文案；清理 `docs/manuals/` 空骨架。无迁移、无新依赖。
-- ⏳ 下一步：**P4-1c 命令行备份入口**（需先定产物位置/权限模型/计划任务/告警四问）；P0-1 样本扩容 + P1-7b 前置回溯诊断仍待做；P5-5 剩英文 README + 独立隐私声明 + 发布打包。
+- ⏳ 下一步：**P4-1c 命令行备份入口**（需先定产物位置/权限模型/计划任务/告警四问）；P0-1 样本扩容 + P1-7b 前置回溯诊断仍待做；P5-5 剩英文 README（另票）与发布打包（仓库元数据/首个 Release 属审核方侧 GitHub 动作）。
 
 > 完整的工单状态、实测数字、阻塞项与下一步建议见 [`docs/STATUS.md`](./docs/STATUS.md)。
 
@@ -129,12 +129,14 @@ Windows 上若 `make` 不在 PATH，重开终端或安装 [GNU Make](https://win
 | [`TICKETS.md`](./TICKETS.md) | 分 Phase 工单（P0-1 到 P5-5），每条含 目标·依赖·交付·DoD·禁止事项 |
 | [`docs/STATUS.md`](./docs/STATUS.md) | 开发计划与完成情况快照（工单状态、实测数字、阻塞与下一步） |
 | [`docs/audit/pr1-24-retrospective.md`](./docs/audit/pr1-24-retrospective.md) | 交付回顾审计报告（PR#1–#24：票↔卡↔提交↔盘上证据映射、七条红线逐条核对、与设计不符的缺口与文档过实清单） |
-| [`docs/specs/architecture/StudyDesk-设计说明文档-v2.md`](./docs/specs/architecture/StudyDesk-设计说明文档-v2.md) | **唯一事实来源**（v2.5，§16 为零模型改向定稿）——16 轮拷问敲定的完整设计树 |
+| [`docs/specs/architecture/StudyDesk-设计说明文档-v2.md`](./docs/specs/architecture/StudyDesk-设计说明文档-v2.md) | **唯一事实来源**（版本以该文件首行为准，不在此写死）——多轮拷问敲定的完整设计树 |
 | [`docs/deploy/backup-restore.md`](./docs/deploy/backup-restore.md) | 备份导出与停机整库恢复（含 Windows 脚本、手动步骤、回滚与核对清单） |
 | [`docs/deploy/mobile-access.md`](./docs/deploy/mobile-access.md) | 手机/平板怎么连回家里那台机器（Tailscale tailnet，三步 + 只读自检） |
 | [`docs/methodology/phase0.md`](./docs/methodology/phase0.md) | Phase 0 实测方法论（手写识别 & 分题型判分，历史记录） |
 | [`docs/templates/`](./docs/templates/) | 外部 agent 转录模板（frontmatter `id`+`version`，改语义必递增） |
 | [`THIRD-PARTY-NOTICES.md`](./THIRD-PARTY-NOTICES.md) | 第三方数据源归属（`cn-math-taxonomy` CC BY-NC 4.0） |
+| [`PRIVACY.md`](./PRIVACY.md) | 隐私声明：数据本土化清单、外部转录上云字段与擦除指引、监护人单独同意文案、离线 `/import` 路径 |
+| [`LICENSE-data.md`](./LICENSE-data.md) | 数据许可（CC BY-NC 4.0）：上游署名、快照 commit 与取证、已修改标注、非商用与免责 |
 
 ## ⚠️ 安全与合规
 
@@ -146,8 +148,10 @@ Windows 上若 `make` 不在 PATH，重开终端或安装 [GNU Make](https://win
   也不做登录/账号/多租户。会话 cookie 用 `WENGU_SESSION_SECRET` 签名；未设置时首启生成
   `data/.session_secret`（多实例/公网部署必须显式设置）。
 - 密钥只走 `.env`（已在 `.gitignore` 里）；日志**不落题目全文、答案、文件 URL、个人信息**。
-- 遵守《个人信息保护法》《未成年人网络保护条例》——所有数据留在你自己家里。
-- 知识点树与题库 seed 数据（若你启用 `seeds/`）**限个人非商用**，见 `THIRD-PARTY-NOTICES.md`。
+- 遵守《个人信息保护法》《未成年人网络保护条例》——学习数据默认只留在你本机；**唯一会出机器的环节是可选的外部转录**
+  （擦除 PII、裁剪后的卷面送境内第三方 AI，须监护人单独同意），字段清单与擦除指引见 [`PRIVACY.md`](./PRIVACY.md)；
+  不接受就走离线 `/import` 手填路径，核心闭环照样完整。
+- 知识点树与题库 seed 数据（若你启用 `seeds/`）**限个人非商用**，见 [`LICENSE-data.md`](./LICENSE-data.md) 与 `THIRD-PARTY-NOTICES.md`。
 
 ## 🤝 贡献与联系
 
@@ -155,4 +159,11 @@ Windows 上若 `make` 不在 PATH，重开终端或安装 [GNU Make](https://win
 
 ## 📄 License
 
-代码：[MIT](./LICENSE)。第三方数据源归属见 `THIRD-PARTY-NOTICES.md`。
+**许可分层，整体不称 OSI 开源软件**：
+
+- **代码**：[MIT](./LICENSE)（可商用）。
+- **数据**（`seeds/data/` 知识点树 + 题库 + 先修边）：[CC BY-NC 4.0](./LICENSE-data.md)，来自
+  [`cn-math-taxonomy`](https://github.com/xiaoyang111222/cn-math-taxonomy)（作者 Aifeng），**限个人非商用**；
+  快照 commit、取证与"已修改"标注见 `LICENSE-data.md` 与 `seeds/data/_source.json`。
+- 第三方数据源归属与下游分发义务见 [`THIRD-PARTY-NOTICES.md`](./THIRD-PARTY-NOTICES.md)；
+  隐私与合规见 [`PRIVACY.md`](./PRIVACY.md)。商用请替换或移除 seed 数据（代码 MIT 不受影响）。

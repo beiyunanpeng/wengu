@@ -130,20 +130,34 @@ def convert(topics: list[dict], deps: list[dict]) -> ConvertResult:
     return result
 
 
-def upstream_commit(src: Path) -> str | None:
+def upstream_commit(src: Path, override: str | None = None) -> str | None:
+    if override:
+        return override
     try:
-        return subprocess.run(
-            ["git", "-C", str(src), "rev-parse", "HEAD"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=False,
-        ).stdout.strip() or None
+        commit = (
+            subprocess.run(
+                ["git", "-C", str(src), "rev-parse", "HEAD"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            ).stdout.strip()
+            or None
+        )
     except OSError:
-        return None
+        commit = None
+    if commit is None:
+        print(
+            f"警告：{src} 探测不到 git commit（无 .git 或非 git 仓库），upstream_commit 写 null；"
+            "zip 来源请显式传 --upstream-commit <sha>，严禁按导入日期猜测。",
+            file=sys.stderr,
+        )
+    return commit
 
 
-def write_out(out_dir: Path, result: ConvertResult, src: Path) -> None:
+def write_out(
+    out_dir: Path, result: ConvertResult, src: Path, commit_override: str | None = None
+) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     _write_json(out_dir / "topics.json", result.topics)
     _write_json(out_dir / "dependencies.json", result.dependencies)
@@ -152,7 +166,7 @@ def write_out(out_dir: Path, result: ConvertResult, src: Path) -> None:
         {
             "name": "cn-math-taxonomy（初中部分）",
             "upstream_url": UPSTREAM_URL,
-            "upstream_commit": upstream_commit(src),
+            "upstream_commit": upstream_commit(src, commit_override),
             "upstream_license": UPSTREAM_LICENSE,
             "nc_statement": NC_STATEMENT,
             "imported_at": date.today().isoformat(),
@@ -178,6 +192,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--src", type=Path, required=True, help="cn-math-taxonomy 仓库路径")
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT, help="输出目录")
+    parser.add_argument(
+        "--upstream-commit",
+        default=None,
+        help="显式指定上游快照 commit SHA（zip 来源无 .git 时必传；探测失败写 null，不猜）",
+    )
     args = parser.parse_args(argv)
 
     if not (args.src / "data" / "topics.json").exists():
@@ -185,7 +204,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     result = convert(*load_upstream(args.src))
-    write_out(args.out, result, args.src)
+    write_out(args.out, result, args.src, commit_override=args.upstream_commit)
     print(json.dumps(result.stats, ensure_ascii=False, indent=1))
     print(f"已写入 {args.out}")
     return 0

@@ -12,7 +12,7 @@ seeds/
 │  ├─ topics.json           #   664 个初中知识点（数学 315 + 英语 257 + 物理 92）
 │  ├─ dependencies.json     #   1018 条先修边（两端点均在初中集内；hard/soft）
 │  ├─ questions.json        #   2803 道初中题（数学 1407 + 英语 1028 + 物理 368；P1-10）
-│  ├─ _source.json          #   知识点/先修边署名：上游 URL / License / NC 声明 / 计数
+│  ├─ _source.json          #   知识点/先修边署名：上游 URL / License / NC 声明 / 计数 / 快照 commit 与取证
 │  └─ questions_source.json #   题库署名：同上 + 题目计数 / 配图 / verify 统计
 ├─ local/                   # 家长自建，不进 Git：化学/语文等同契约 seed 文件
 ├─ mappings/                # 家长自建，不进 Git：教材包对照（<版本id>.json）
@@ -22,7 +22,7 @@ seeds/
 ## 来源与许可：`cn-math-taxonomy`（data/ 目录）
 
 - **上游**：<https://github.com/xiaoyang111222/cn-math-taxonomy>
-- **许可**：**CC BY-NC 4.0**（署名 + 非商用）；分发时必须保留 `_source.json` 与仓库根 `THIRD-PARTY-NOTICES.md`
+- **许可**：**CC BY-NC 4.0**（署名 + 非商用）；分发时必须保留 `_source.json` 与仓库根 `THIRD-PARTY-NOTICES.md`、`LICENSE-data.md`（数据许可分层全文见后者）
 - **诚实标注**：上游自述"AI 生成的初稿、未经一线教师审核"（`unaudited: true`）；**仅初中数学做过二遍盲解**（`blind_verified: true`，mismatch=0），英语/物理的 `verify` 与答案**同源**、无二遍盲解（`blind_verified: false`）→ 英语/物理**仅作参考冷启动、家长复核后再用**，UI 必须透传这两枚标签。
 
 ## 重新生成 data/（开发者）
@@ -34,6 +34,16 @@ seeds/
 git clone https://github.com/xiaoyang111222/cn-math-taxonomy.git ../cn-math-taxonomy-main  # 一次性
 make seed-load   # 等价于 cd wengu-api && python -m scripts.import_seed --src ../../cn-math-taxonomy-main
 ```
+
+**zip 来源必须显式传 `--upstream-commit <sha>`**：若上游来自 GitHub zip 解包（无 `.git`），
+`git rev-parse HEAD` 探测不到 commit，脚本会写 `null` 并打印警告——**严禁按导入日期猜测 SHA**。
+两个脚本（`import_seed.py` / `import_questions.py`）同规则：`--upstream-commit` 显式覆盖优先，
+未提供才走 git 探测。当前分发快照的取证方法见设计文档 §19-F-1 与 `_source.json` 的 `commit_evidence`。
+
+**重跑会重写 `_source.json` / `questions_source.json`**：脚本只发射基础署名键；P5-5 策展的
+provenance 键（`upstream_commit_date` / `upstream_author` / `upstream_spdx` / `code_spdx` /
+`modified` / `disclaimer` / `snapshot_source` / `commit_evidence`）是**当前快照的取证工件**，
+换快照重跑后必须按 §19-F-1 重新取证、重新策展，不得沿用旧证据。
 
 转换规则：过滤初中（grade 7–9）→ 12 核心字段直映（camelCase→snake_case）→ 按 id 前缀显式化
 `subject`（cnm_=数学、cne_=英语、cnp_=物理）→ 打质量标签 → 先修边仅保留两端点均在初中集内的

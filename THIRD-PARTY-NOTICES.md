@@ -7,8 +7,10 @@
 ## 1. `cn-math-taxonomy`（知识点树 + 题库 + 先修边 seed）
 
 - **来源**：<https://github.com/xiaoyang111222/cn-math-taxonomy>
-- **许可**：**Creative Commons Attribution-NonCommercial 4.0 International (CC BY-NC 4.0)**
+- **作者**：**Aifeng**（GitHub `xiaoyang111222`；X `@hassanyehiaa`；站点 pansgo.com）。上游 README 指定的署名方式 =「署名并注明来源（本仓库链接）」，本文件与 README / CHANGELOG 的署名即按此格式。
+- **许可**：**Creative Commons Attribution-NonCommercial 4.0 International (CC BY-NC 4.0)**（SPDX `CC-BY-NC-4.0`）；数据许可分层全文与下游义务见仓库根 [`LICENSE-data.md`](./LICENSE-data.md)（代码 MIT 见 [`LICENSE`](./LICENSE)，整体不称 OSI 开源软件）
 - **许可全文**：<https://creativecommons.org/licenses/by-nc/4.0/legalcode>
+- **所用快照 commit**：`d58785cef744341bf02d41e5568ebb953595ab18`（2026-10-23T12:40:17Z）。来源为 GitHub zip（无 `.git`），commit 由内容寻址反查唯一锁定，取证证据见 `seeds/data/_source.json` 与 `questions_source.json` 的 `commit_evidence`（方法：设计文档 §19-F-1）。topics 与 questions 两次导入为**同一快照**。
 - **使用范围**：wengu 项目内的 `seeds/data/` 目录（由 `wengu-api/scripts/import_seed.py` 与 `import_questions.py` 从上游转换的**初中子集**，随本仓库分发；内嵌 `_source.json` / `questions_source.json` 署名）。完整上游数据（含小学/高中）请自行从原项目获取
   - 初中数学 315 知识点 + 初中英语 257 + 初中物理 92
   - 初中 1018 条先修边（分 hard/soft；跨学段边已按规则丢弃，见 `seeds/README.md`）
@@ -58,6 +60,6 @@ P1-3b 曾在本地 CPU 运行 RapidOCR（`rapidocr-onnxruntime` / `onnxruntime` 
 
 ## 分发义务（给下游打包者）
 
-- **保留本文件与 `LICENSE`**，与所有代码一起分发。
+- **保留本文件与 `LICENSE`、`LICENSE-data.md`**，与所有代码一起分发；涉及学生数据的部署另须保留 `PRIVACY.md` 与 `transcribe/README.md` §0 合规 checklist。
 - 若打包发布 seed 数据（如 Docker 镜像内嵌 `seeds/cn-math-taxonomy/`），**镜像 README 与 About 页必须显式署名 `cn-math-taxonomy` + CC BY-NC 4.0 + 附原仓库链接**，并声明"限个人非商用"。
 - 若你打算用 wengu 做**商业用途**（培训、School 部署、SaaS 托管等），请**替换或移除 `cn-math-taxonomy` seed 数据**，因为上游 CC **BY-NC** 不允许商用；wengu 代码本身（MIT）可商用。
