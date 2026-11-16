@@ -2332,3 +2332,59 @@ current_version**（那是 §19-I 的正确设计），于是 `base_version` 在
 > 3. 审核方自跑数字（非采信自报）：全量 752 passed / `ruff --no-cache` 绿 / `tsc --noEmit` 干净 /
 >    `npm test` 32 / `selfcheck --strict` 18 OK 0 DRIFT / CI 三 job 绿；变异前后 sha256 逐字节一致
 >    （备份在仓库外，未提交交付一律不用 `git checkout --`）。
+
+## P2-13b —— 打印导出接 `subject`（v2.7 D2 补口；纯前端、零后端改动、零迁移）
+
+```
+你在 wengu 仓库工作。开工前完整读：AGENTS.md §5（数据只在服务端；纯查询页不触发模型）与 §8（一票一 PR、DoD 含 CHANGELOG）
++ 设计文档 §18 D2、§19-H 第 1 条（`category_id` 是知识点不是学科）、§19-I 的 P2-13b 预留条
+  （**其中"分组口径必须一起换"已被审核方 2026-11-16 读盘推翻，以本块为准**）+ §19-L（断言与变异四条纪律）
++ wengu-web/src/pages/PrintMistakesPage.tsx（参数读取 57-60、useEffect 依赖 134、groupMistakes 31-52、
+  页眉标签 137-147、工具栏摘要 156、文档头 print-meta 179-180）
++ wengu-web/src/pages/MistakesPage.tsx（「导出打印」按钮构造 URLSearchParams 那一段；`subject` 真源在 URL）
++ wengu-web/src/api/endpoints.ts（listMistakes 84-107，**已支持 subject，无需改**）
++ wengu-api/app/services/mistakes.py（list_mistakes 659-741：subject 走 subject_for_topic，与看板同一把尺；
+  未知学科名返回空集不报错）
++ wengu-web/tests/（现有 node 单测风格：nav.test.ts / dashboard.test.ts / seedBanner.test.ts / colorScheme.test.ts）
++ TICKETS.md 的 P2-13、P2-13b、P2-11（导出按钮转发 error_cause 的先例）。
+
+【投单纪律】1) git fetch origin; git switch -c feat/p2-13b-print-subject origin/main
+2) 一票一 PR，分支冻结；提交前 `git diff --cached --name-only` 核对并贴清单。
+3) 中文 commit message 用 `git commit -F <仓库外 UTF-8 文件>`；lint 用 `ruff check --no-cache`。
+4) 交付给"你自己实跑"的数字 + 单列「审核方需复核的点」；UI 改动带 CDP 取证截图与 report.json 存档路径。
+5) 代码与本卡不符时以实际代码为准，先读再改，不一致上报不要硬凑。
+允许改动的文件：`wengu-web/src/pages/PrintMistakesPage.tsx`、`wengu-web/src/pages/MistakesPage.tsx`、
+新建 `wengu-web/src/lib/printQuery.ts` + 新建 `wengu-web/tests/printQuery.test.ts`、相应既有测试、
+**`CHANGELOG.md`**（AGENTS §8 DoD 必需项）；**`wengu-api/` 必须零改动**（`git diff` 证明），零迁移、零新依赖。
+
+【本票要修的是"纸面撒谎"，不是"少个参数"】
+只加一个 subject 参数就交差，会留下更坏的状态：一份只含数学的打印稿，页眉仍写着"知识点：全部知识点 · 错因：全部错因"。
+所以学科标签必须同时进**工具栏摘要**与**文档头**两处，且三种筛选组合都要有断言。
+
+【任务】
+1. `MistakesPage` 的「导出打印」转发 `subject`（与既有 `category_id`/`error_cause` 同段构造）。
+2. `PrintMistakesPage` 读取 `subject`，进 `listMistakes` 入参 **和 `useEffect` 依赖数组**。
+3. 新增学科标签：有值显示「学科：X」、无值显示「全部学科」；工具栏与文档头两处都带上。
+4. 把"参数解析 + 学科/知识点/错因/日期四个标签的拼装"抽成纯函数模块 `src/lib/printQuery.ts`，
+   node 单测覆盖（**禁 DOM 测试栈**：不许引入 jsdom / vitest / testing-library）。
+5. **不要动 `groupMistakes`**——按学科导出时"一学科下各知识点各成一页组"是正确行为。
+
+【DoD】
+- **三种组合各一条断言**（§19-L 纪律②，不以一类代全部）：`subject` 单独 / `subject`+`category_id` /
+  `subject`+`error_cause`，断言标签集合与实际参数一一对应；
+  `subject` 单独时知识点必须是"全部知识点"、学科必须是该学科。
+- 导出按钮断言：列表态带 `subject=数学` 时，构造的打印 URL 必须含该参数且中文百分号编码可原样解回。
+- 空态断言：某学科 0 道在册时页眉仍显示该学科 + 0 道、打印按钮禁用，**不得**回落到"全部知识点"。
+- 分组回归断言：页组仍按 `category_id` 聚合、`__none__` 殿后。
+- **可证伪两处、换靶点**（§19-L 纪律③）：① 删掉导出按钮的 subject 转发 → 转发断言必须红；
+  ② 把学科标签从文档头摘掉（只留工具栏）→ 文档头断言必须红。两次输出贴交付。
+- `npm run lint` / `npm test` / `npm run build` 绿；`git diff -- wengu-api/` 为空；零迁移。
+- CDP 取证：浅色与深色下各截一张"学科筛选打印页"页眉，存档路径写进交付；**打印豁免不得回退**（P2-14 已立）。
+
+【禁止】改分组口径；新增后端端点或学科合法性校验；顺手转发 `q`/`mastery_state`
+（它们没有对应页眉标签，转发就是制造新的"内容自述与实际不符"）；引入 DOM 测试栈；重构打印页布局。
+
+【残留（写进交付说明即可，不在本票做）】
+`q`（关键词）与 `mastery_state`（掌握状态）同样被导出按钮丢弃，但打印页**没有**这两个标签位，
+补齐标签属文案设计、无真实使用信号——登记为观察项，等家长真在筛选态下导出再说。
+```
