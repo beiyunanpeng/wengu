@@ -1237,6 +1237,66 @@
 - 禁止：恢复模型在环/视觉依赖；让后端 import transcribe 包（测试读 fixtures 文件即可）；把契约改成第二真源；
   顺手改 P1-16/P1-17 语义；在 CI 安装额外依赖。
 
+### P5-9 学段作用域 `seed_grade_ceiling`（v2.8 §19-G；开源多家庭前置；服务端过滤、零迁移）
+- **为什么先做这票**：方案 1 定案 = **全量内置 + 学段作用域**（决策人 2026-11-16 点头）。
+  AGENTS §7 已写死顺序"**先写消费逻辑（过滤 + 测试），再加采集字段**"，所以本票只做作用域，
+  数据扩段是 **P5-10**。本票落地后库里仍只有初中 664 点，作用域是**可被证伪的空跑**——
+  这不是浪费，正是 P5-10 的前置验收闸门。
+- **现状（2026-11-16 读盘 main `81ce118`）**：
+  - `KnowledgeSeed.grade` 是 **Text 可空列**（`app/models/knowledge.py:23`），装载后存数字字符串
+    （`tests/integration/test_seed_loader.py:88` 断言 `by_id["cnm_001"].grade == "7"  # 文本列`）。
+    ⚠️ **本票最大的坑在这里**：SQLite 对 Text 做 `<=` 是**字典序**，`'16' <= '9'` 为 **真**。
+    任何 `KnowledgeSeed.grade <= "9"` 式写法都会把高中点（10-16）当成"不超过 9"放进来，
+    作用域**形同虚设且不报错**（库里现只有 7-9，测试还会全绿）。
+    必须显式 `func.cast(KnowledgeSeed.grade, Integer)`——同类先例见 `api/seed.py:64-66`
+    那条注释（Boolean 直接 sum 会被结果处理器转成 True/False，必须显式 cast）。
+  - 三个知识点列表/计数面（router **均未挂** `require_parent`，孩子区可达）：
+    `api/seed.py:90` `GET /api/seed/topics`（conditions 只有 subject/q；前端 `endpoints.ts:234`）、
+    `api/quizzes.py:116` `GET /api/quizzes/topics`（遍历 `bank.topics`，按 subject/keyword 过滤；`endpoints.ts:459`）、
+    `api/seed.py:57` `GET /api/seed/summary`（按 subject 计数 + 边总数）。
+  - 运行时配置现状：`core/runtime_config.py` `_RULES:221-224`、`_ALLOWED_KEYS:225`（现 4 键）、
+    `validate_updates:186` 返回签名是 **`dict[str, int | float | bool]`**、每键一个访问器
+    （先例 `daily_review_limit:268`）；写入落 `<data_dir>/app-config.json`，`.env` 优先。
+  - ⚠️ **配置读取面的约束**：`app/api/config.py:24` 把 `require_parent` 挂在 **router 级**，
+    **连 `GET /api/config` 都要 PIN**。所以作用域**绝不能由前端读值再过滤**——孩子区读不到那个键，
+    且孩子能给自己放宽范围。**过滤必须发生在服务端**，前端只显示返回结果。
+  - 上游 grade 实测为 **int 1–16、无 NULL**（快照 `d58785ce`：小学 450 / 初中 664 / 高中 707；
+    初中→小学先修边 **74** 条、初中→高中 **0** 条，故"上限式"过滤足以覆盖现实场景）；
+    而**本地 seed 点可以没有年级**（`LocalTopicCreatePayload.grade?: number | null`，语文/化学走 `api/local_seed.py`）。
+- 交付：
+  ① 新配置键 **`seed_grade_ceiling`**，取值只能是字面枚举 **{6, 9, 16}**，**默认 16**
+    （= 全量可见 = 现有安装零行为变化，开源用户升级后不会突然看不见东西）；6=只小学、9=小学+初中、16=全部。
+    **不做多选 list**：`validate_updates` 的 int|float|bool 签名装不下 list，为它扩类型系统不值当（另票再议）。
+  ② 服务端过滤：`seed_topics` 与 `quiz_topics` 按 `cast(grade, Integer) <= ceiling` 收窄；
+    `seed_summary` 的计数**必须用同一把尺**（否则"设置页说 1114、选择器里只有 664"这类自相矛盾会复发）；
+    **`grade` 为 NULL 的点一律保留**（家长自建语文/化学点不能被作用域吃掉）。
+  ③ **回溯与诊断路径明确不受 ceiling 限制**：`PrerequisiteEdge` 遍历、前置诊断、错题已挂载的点
+    （错题本/详情/复习队列）**一律照常显示**。ceiling 管"能主动选什么"，不管"能看见什么根因"——
+    做成硬隔离就等于把 P5-10 要买的回溯能力当场锁死。
+  ④ `SetupPage.tsx`（家长区，唯一写 `/api/config` 的页面，`endpoints.ts:1042/1046`）加**三档单选**
+    （"小学"/"初中"/"高中" → 6/9/16），文案写明"只影响可主动选题的范围，不影响复习与诊断回溯"；
+    **不做数字输入框、不做年级多选**。
+  ⑤ `runtime_config.py` 补访问器 `seed_grade_ceiling()`（照 `daily_review_limit:268` 写法）；
+    非法值 → `ConfigError` 稳定码，`PUT` 返回 422。
+- DoD（每条都要能变异证伪）：
+  - **字典序反例（本票主锚点）**：造 grade `"9"` 与 `"16"` 各一点，`ceiling=9` 时断言 `"16"` **不在**结果、`"9"` 在。
+    **变异**：去掉 cast、退回字符串比较 → 该断言必须红；红不了说明测试本身也在用字符串比较，一起返工。
+  - **枚举字面串钉死**（§19-L 纪律①）：断言合法值集合**等于字面串** `{6, 9, 16}`（不许引用被测常量），
+    且 `ceiling=7` / `ceiling="9"` / `ceiling=0` 全部 422。
+  - **默认零变化**：不写该键时，三个面的读数与合并前**逐字相同**（快照断言或独立重算对齐，不许写死期望值）。
+  - **NULL 保留**：`grade=None` 的本地 seed 点在 `ceiling=6` 时仍在列表内。
+  - **回溯不受限**：造一条 `初中 → 小学` 先修边，`ceiling=9` 时诊断/前置路径**仍返回小学点**，
+    同时该小学点**不出现在** `quiz_topics` 里（两件事必须同时成立，缺一即口径写歪）。
+  - **计数同尺**：`seed_summary.topics_total` == 同 ceiling 下 `seed_topics` 的 total（一条集成断言钉死）。
+  - **服务端过滤证明**：`wengu-web/src` 内**不得**出现 `ceiling` 字样的过滤逻辑（grep 断言）；
+    且孩子区未解锁时 `GET /api/config` 仍被挡、而列表端点照常按 ceiling 收窄（证明不依赖前端读配置）。
+  - 全量 `pytest -q` 绿（当前基线 **763**，如实报新数）、`ruff check --no-cache .` 绿、
+    `npm run lint/test/build` 绿；**零迁移**（不动 `grade` 列类型、不新增表）。
+- 禁止：把 `grade` 列改成 Integer（迁移成本 + 与 `test_seed_loader.py:88` 既有断言冲突，本票用 cast 解决）；
+  在前端做过滤或让前端读 ceiling；做成多选/年级选择器；把 ceiling 用于隐藏复习队列或诊断回溯；
+  顺手导入小学/高中数据（那是 P5-10，混投会让"默认零变化"断言失去意义）；
+  为容纳 list 值而扩 `validate_updates` 的类型系统；把作用域存进 SQLite 新表或 app-config 之外的新位置。
+
 ---
 
 ## 作废清单（v2.5，保留标题供追溯，勿实现）

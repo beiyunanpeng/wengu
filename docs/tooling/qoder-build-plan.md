@@ -2511,3 +2511,82 @@ GitHub 仓库 `description` / `topics` / `homepage`、首个 Release、开启 Di
 - 为让 GitHub 识别而在 LICENSE 里塞额外说明文本（A 方案就是要它回到纯 MIT）；
 - 顺手把 `unaudited` UI 提示、seed 装载逻辑、`目录结构.md` 以外的架构文档大改一轮。
 ```
+
+## P5-9 —— 学段作用域 `seed_grade_ceiling`（v2.8 §19-G；服务端过滤、零迁移；P5-10 的前置）
+
+```
+你在 wengu 仓库工作。开工前完整读：AGENTS.md §7（知识点树=数据 seed 包、非硬编码；
+**"实施顺序必须是先写消费逻辑（过滤 + 测试），再加采集字段，不得反过来"**；以及 grade 10-16 语义是"册"的警告）、
+§5（数据只在服务端）、§8（一票一 PR、DoD 含 CHANGELOG）
++ 设计文档 §19-G（方案 1 定案）与 §19-L（断言与变异四条纪律）
++ wengu-api/app/models/knowledge.py（**grade 是 Text 可空列，:23**）
++ wengu-api/tests/integration/test_seed_loader.py（**:88 断言 grade == "7" 文本列**，本票不得改列类型）
++ wengu-api/app/api/seed.py（seed_summary 57-88、**seed_topics 90 起**；:64-66 那条"Boolean sum 必须显式 cast"
+  的注释是同类坑的先例，务必看一眼再动手）
++ wengu-api/app/api/quizzes.py（**quiz_topics 116 起**，遍历 bank.topics 后按 subject/keyword 过滤）
++ wengu-api/app/core/runtime_config.py（`_RULES:221-224`、`_ALLOWED_KEYS:225`、`validate_updates:186`
+  返回 `dict[str, int | float | bool]`、访问器先例 `daily_review_limit:268`）
++ wengu-api/app/api/config.py（**router 级 dependencies=[Depends(require_parent)]，:24 —— GET 也被挡**）
++ wengu-web/src/pages/SetupPage.tsx 与 wengu-web/src/api/endpoints.ts（1042 GET / 1046 PUT 是唯一配置入口；
+  234 是 seed topics、459 是 quizzes topics）
++ TICKETS.md 的 P5-9、P5-5、P5-4（教材包机制，别混做）。
+
+【为什么只做作用域、不扩数据】方案 1 = 全量内置 + 学段作用域。AGENTS §7 规定顺序是先写消费逻辑再加采集字段，
+所以扩段（小学 450 点 / 高中 707 点）是 **P5-10**，本票**不碰 `seeds/data/`**。库里现只有初中 664 点，
+作用域是"可被证伪的空跑"，正是 P5-10 的验收闸门。
+
+【投单纪律】1) git fetch origin; git switch -c feat/p5-9-seed-grade-ceiling origin/main
+2) 一票一 PR，分支冻结；提交前 `git diff --cached --name-only` 核对并贴清单。
+3) 中文 commit message 用 `git commit -F <仓库外 UTF-8 文件>`；lint 用 `ruff check --no-cache`。
+4) 交付给"你自己实跑"的数字 + 单列「审核方需复核的点」；UI 改动带 CDP/真机取证截图与 report.json 存档路径。
+5) 代码与本卡不符时以实际代码为准，先读再改，不一致上报不要硬凑。
+允许改动的文件：`wengu-api/app/api/seed.py`、`wengu-api/app/api/quizzes.py`、
+`wengu-api/app/core/runtime_config.py`、`wengu-api/app/api/config.py`（仅当 ConfigResponse 需暴露新键时）、
+`wengu-api/tests/integration/test_seed_status.py`（seed 端点现有测试所在文件）与
+`wengu-api/tests/integration/test_quiz_api.py`（组卷端点现有测试）、
+新建 `wengu-api/tests/unit/test_seed_grade_ceiling.py`、`wengu-web/src/pages/SetupPage.tsx`、
+`wengu-web/src/api/types.ts`、`wengu-web/tests/**`（纯函数单测）、**`CHANGELOG.md`**（AGENTS §8 DoD 必需项）。
+**不得**碰：`seeds/data/**`（扩段是 P5-10）、`migrations/**`、`app/models/knowledge.py`（不改列类型）、
+`app/services/**`（若确需下沉过滤函数，先上报说明，别默认改排期/判分链路）、依赖清单。
+
+【⚠️ 本票的坑：文本列的字典序】`knowledge_seed.grade` 是 **Text**，SQLite 对文本做 `<=` 走**字典序**，
+`'16' <= '9'` 为 **真**。所以 `KnowledgeSeed.grade <= ceiling` 这种"看起来完全正确"的写法会让作用域
+**静默失效**——高中点照样出现在初中家庭的选择器里，而且当前库里只有 7-9，测试还会全绿。
+必须显式 `func.cast(KnowledgeSeed.grade, Integer)`，并且 DoD 里有专门一条反例把它钉死。
+
+【任务】
+1. 新配置键 `seed_grade_ceiling`：合法值**只有字面枚举 {6, 9, 16}**，**默认 16**（全量可见，现有安装零行为变化）。
+   语义：6=只小学、9=小学+初中、16=全部。**不做多选 list**（`validate_updates` 签名是 int|float|bool，
+   为它扩类型系统不值当）。非法值 → `ConfigError` 稳定码、`PUT` 返回 422。
+   访问器照 `daily_review_limit:268` 的写法新增 `seed_grade_ceiling()`。
+2. **服务端过滤**（前端不读配置值——`GET /api/config` 连孩子区都要 PIN，且不能让孩子给自己放宽范围）：
+   `seed_topics`（api/seed.py:90）与 `quiz_topics`（api/quizzes.py:116）按
+   `cast(grade, Integer) <= ceiling` 收窄；`seed_summary`（api/seed.py:57）的计数**用同一把尺**；
+   **`grade` 为 NULL 的点一律保留**（家长自建语文/化学点没有年级，不能被作用域吃掉）。
+3. **回溯与诊断不受限**（务必与任务 2 区分开）：`PrerequisiteEdge` 遍历、前置诊断路径、
+   错题已挂载的知识点（错题本/详情/复习队列）**一律照常显示**。ceiling 只管"能主动选什么"。
+4. `SetupPage.tsx` 加**三档单选**（"小学"/"初中"/"高中" → 6/9/16），旁边文案写清
+   "只影响可以主动选题的范围，不影响复习与诊断回溯"。**不做数字输入框、不做年级多选。**
+
+【DoD——每条都要能变异证伪】
+- **字典序反例（主锚点）**：造 grade `"9"` 与 `"16"` 各一个点，`ceiling=9` 时断言 `"16"` 不在结果、`"9"` 在。
+  **变异**：去掉 cast 退回字符串比较 → 必须红；红不了说明测试本身也在用字符串比较，连测试一起返工。
+- **枚举字面串钉死**（§19-L 纪律①）：断言合法值集合**等于字面串** `{6, 9, 16}`（不许引用被测常量）；
+  `ceiling=7`、`ceiling="9"`、`ceiling=0` 全部 422。**变异**：放开校验接受任意 int → 必须红。
+- **默认零变化**：不写该键时，`seed_topics` / `quiz_topics` / `seed_summary` 三处读数与合并前逐字相同
+  （快照断言或独立重算对齐，不许写死期望值迁就实现）。
+- **NULL 保留**：造一个 `grade=None` 的点，`ceiling=6` 时仍在列表内。
+- **回溯不受限**：造一条 初中→小学 先修边（库里没有小学点时可用本地 seed 点或测试夹具构造），
+  `ceiling=9` 时诊断/前置路径**仍返回该低学段点**，同时它**不出现在** `quiz_topics` 里——两个断言必须同时成立。
+- **计数同尺**：`seed_summary.topics_total` == 同 ceiling 下 `seed_topics` 的 total。
+- **服务端过滤证明**：grep 断言 `wengu-web/src` 内**不得**出现 `ceiling` 字样的过滤逻辑；
+  并断言孩子区未解锁时 `GET /api/config` 仍被 PIN 挡、而列表端点照常按 ceiling 收窄。
+- 全量 `pytest -q` 绿（当前基线 **763**，如实报新数）、`ruff check --no-cache .` 全仓绿、
+  `npm run lint/test/build` 绿；**零迁移**（`git diff --name-only` 不含 `migrations/`）。
+- UI 取证：三档切换后选择器条目数变化 + 刷新保持，360/412 不破版，截图与 report.json 存档路径写进交付。
+
+【禁止】把 `grade` 列改成 Integer（迁移成本 + 与 `test_seed_loader.py:88` 既有断言冲突）；
+在前端过滤或让前端读 ceiling；做成多选/年级选择器；把 ceiling 用于隐藏复习队列或诊断回溯；
+本票顺手导入小学/高中数据（P5-10）；为容纳 list 值扩 `validate_updates` 类型系统；
+把作用域存进 SQLite 新表或 app-config 之外的新位置；改动 `seeds/data/` 任何文件。
+```
