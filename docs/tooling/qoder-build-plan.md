@@ -2556,11 +2556,13 @@ GitHub 仓库 `description` / `topics` / `homepage`、首个 Release、开启 Di
 + 设计文档 §19-G（方案 1 定案）与 §19-L（断言与变异四条纪律）
 + wengu-api/app/models/knowledge.py（**grade 是 Text 可空列，:23**）
 + wengu-api/tests/integration/test_seed_loader.py（**:88 断言 grade == "7" 文本列**，本票不得改列类型）
-+ wengu-api/app/api/seed.py（seed_summary 57-88、**seed_topics 90 起**；:64-66 那条"Boolean sum 必须显式 cast"
++ wengu-api/tests/unit/test_seed_provenance.py（**:185 `test_seed_data_not_expanded` 已在守卫
+  664 / 1018 / 2803——本票不得放宽它，它就是你"没顺手扩数据"的证据**）
++ wengu-api/app/api/seed.py（seed_summary 57-58、**seed_topics 90-91**；:64-66 那条"Boolean sum 必须显式 cast"
   的注释是同类坑的先例，务必看一眼再动手）
 + wengu-api/app/api/quizzes.py（**quiz_topics 116 起**，遍历 bank.topics 后按 subject/keyword 过滤）
 + wengu-api/app/core/runtime_config.py（`_RULES:221-224`、`_ALLOWED_KEYS:225`、`validate_updates:186`
-  返回 `dict[str, int | float | bool]`、访问器先例 `daily_review_limit:268`）
+  返回签名是 `dict[str, int | float]`（布尔值在函数内部单独处理）、访问器先例 `daily_review_limit:268`）
 + wengu-api/app/api/config.py（**router 级 dependencies=[Depends(require_parent)]，:24 —— GET 也被挡**）
 + wengu-web/src/pages/SetupPage.tsx 与 wengu-web/src/api/endpoints.ts（1042 GET / 1046 PUT 是唯一配置入口；
   234 是 seed topics、459 是 quizzes topics）
@@ -2591,7 +2593,7 @@ GitHub 仓库 `description` / `topics` / `homepage`、首个 Release、开启 Di
 
 【任务】
 1. 新配置键 `seed_grade_ceiling`：合法值**只有字面枚举 {6, 9, 16}**，**默认 16**（全量可见，现有安装零行为变化）。
-   语义：6=只小学、9=小学+初中、16=全部。**不做多选 list**（`validate_updates` 签名是 int|float|bool，
+   语义：6=只小学、9=小学+初中、16=全部。**不做多选 list**（`validate_updates` 签名是 `dict[str, int | float]`，
    为它扩类型系统不值当）。非法值 → `ConfigError` 稳定码、`PUT` 返回 422。
    访问器照 `daily_review_limit:268` 的写法新增 `seed_grade_ceiling()`。
 2. **服务端过滤**（前端不读配置值——`GET /api/config` 连孩子区都要 PIN，且不能让孩子给自己放宽范围）：
@@ -2616,12 +2618,14 @@ GitHub 仓库 `description` / `topics` / `homepage`、首个 Release、开启 Di
 - **计数同尺**：`seed_summary.topics_total` == 同 ceiling 下 `seed_topics` 的 total。
 - **服务端过滤证明**：grep 断言 `wengu-web/src` 内**不得**出现 `ceiling` 字样的过滤逻辑；
   并断言孩子区未解锁时 `GET /api/config` 仍被 PIN 挡、而列表端点照常按 ceiling 收窄。
-- 全量 `pytest -q` 绿（当前基线 **763**，如实报新数）、`ruff check --no-cache .` 全仓绿、
-  `npm run lint/test/build` 绿；**零迁移**（`git diff --name-only` 不含 `migrations/`）。
+- 全量 `pytest -q` 绿（当前基线 **782**，如实报新数）、`ruff check --no-cache .` 全仓绿、
+  `npm run lint/test/build` 绿；**零迁移**（`git diff --name-only` 不含 `migrations/`）；
+  `test_seed_provenance.py` 的 19 条**必须仍全绿**（数据条数守卫在里面，本票不该碰到它）。
 - UI 取证：三档切换后选择器条目数变化 + 刷新保持，360/412 不破版，截图与 report.json 存档路径写进交付。
 
 【禁止】把 `grade` 列改成 Integer（迁移成本 + 与 `test_seed_loader.py:88` 既有断言冲突）；
 在前端过滤或让前端读 ceiling；做成多选/年级选择器；把 ceiling 用于隐藏复习队列或诊断回溯；
 本票顺手导入小学/高中数据（P5-10）；为容纳 list 值扩 `validate_updates` 类型系统；
-把作用域存进 SQLite 新表或 app-config 之外的新位置；改动 `seeds/data/` 任何文件。
+把作用域存进 SQLite 新表或 app-config 之外的新位置；改动 `seeds/data/` 任何文件；
+放宽或删改 `test_seed_provenance.py::test_seed_data_not_expanded`。
 ```
