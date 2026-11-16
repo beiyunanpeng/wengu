@@ -627,6 +627,23 @@
     `MistakesPage` 导出按钮 `:253`；纯函数面 `src/lib/printQuery.ts`（四个缺省字面串 `:10-13`、
     `parsePrintQuery:27`、`printLabels:46`、`printToolbarSummary:65`、`printDocMeta:70`、
     `buildPrintMistakesQuery:83`）。
+- **状态：已合并（2026-11-16，PR#61 squash → main `0928104`；原分支 `feat/p5-5-oss-baseline` 已删）**。
+  验收：审核方自跑全量 **782 passed / 299.25s**、`ruff --no-cache` 全仓绿、`selfcheck --strict` 18 OK / 0 DRIFT、
+  `npm test` 55/55、`tsc` exit 0、build ✓；`git diff -- wengu-api/app/ wengu-web/src` 为空；
+  数据条目数 **664 / 1018 / 2803 未扩**、`grade 7-9` 过滤器一字未动。
+  ✅ **外部判定达成**：合并后 `gh api repos/beiyunanpeng/wengu --jq .license.spdx_id` 回 **`MIT`**
+  （原 `NOASSERTION`）——A 方案的唯一硬指标由服务端确认，不是本地推断。
+  - **本票经历过一次打回（两处）**：① `PRIVACY.md` 引文把**教师侧**"严禁将个人信息、考试试题等敏感数据输入
+    AI 工具"当成用户侧法规强制、发文主体写成"教育部"（实为**教育部基础教育教学指导委员会**，2025-05），
+    现改为如实区分三角色原文 + 把六条 checklist 标注为 **wengu 自定的内部硬门槛**；施工方另主动把 §5
+    "另受…约束"改成"以…为自我约束参照"。② **README 前三行定位改写未落地——根因是审核方漏列**：
+    TICKETS 的 ① 项在搬进投单块时被我丢掉，故施工方没做符合它收到的票（**审核方第 15 次卡面疏漏**），
+    现按 AGENTS §7 补齐（中英两行、移除"AI 学习工作台 / AI learning workbench"）。
+  - 审核方自主变异**七次**（跨两轮、全部换靶点）：PRIVACY 字段改坏 / 单侧去 `code_spdx` / `commit_date` 改一分 /
+    README 版本句写死 / 发文主体改回"教育部《…》明确" / README 定位改回"AI 学习工作台" / 删"对**学生**"那句
+    —— **全部按预期变红**，还原 sha256 一致。
+  - **审核方侧未完成项**：仓库 `description` / `topics` / `homepage`、首个 Release、Discussions ——
+    均需决策人点头后再执行（Release 的内容边界属对外宣布，不宜顺手发）。
 - **现状（2026-11-16 读盘 main `0e960a3`）**：
   - `PrintMistakesPage.tsx:57-60` 只读 `category_id / error_cause / from / to`；`useEffect` 依赖 `:134` 同样只有这四个
     → 传了 `subject` 也不会重新拉数。
