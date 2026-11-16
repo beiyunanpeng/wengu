@@ -9,6 +9,51 @@
 
 ### Added
 
+- **P2-14 主题切换（v2.7 §18 D10；纯前端、后端零改动、零迁移、零新依赖）**（2026-11-16）：
+  - **浅色/深色切换**：`createTheme({primaryColor:"blue"})`（`src/theme.ts`，最小锚点、不改全站配色）+
+    `MantineProvider theme defaultColorScheme="light"`；头部右侧新增 `ColorSchemeToggle`（`ActionIcon`+`Tooltip`，
+    内联 SVG 日/月图标走 `currentColor`，**不引任何图标库**），**孩子区与家长区都可见、解锁与否都能切**。
+    切换 label/icon/下一态由**纯函数库** `src/lib/colorScheme.ts` 派生（`nextColorScheme`/`colorSchemeToggleLabel`/
+    `colorSchemeToggleIcon`/`chartTokens`，**不 import @mantine、不碰 DOM**，可被 node 单测直接覆盖）。
+  - **主题只存 localStorage（Mantine 内置 `mantine-color-scheme-value`），不进 app-config、不进数据库**——理由写进
+    `main.tsx` 注释：主题是**每设备的呈现偏好、不是学习数据**；`app/api/config.py:24` 把 `require_parent` 挂在
+    **router 级**，**连 `GET /api/config` 都要 PIN**，放进去等于孩子连自己设备的外观都读不到/改不了，且把 UI 偏好
+    伪装成业务配置。**本票是"localStorage 只准存呈现偏好、不准存业务数据"的边界样本，不是放宽数据入库的先例。**
+  - **DashboardPage 4 处硬编码色改 Mantine 语义色（:207 一行两色按两个算，共 5 个值；逐处原值→新值）**：
+    - `:106` 掌握度曲线网格 `stroke="#e9ecef"` → `chartTokens.grid` = `var(--mantine-color-default-border)`（浅 `#ced4da` / 深 `#424242`）；
+    - `:114` 曲线 `stroke="#228be6"` → `chartTokens.line` = `var(--mantine-color-blue-filled)`（浅 `#228be6` / 深 `#1971c2`）；
+    - `:117` 曲线端点 `fill="#228be6"` → `chartTokens.point` = `var(--mantine-color-blue-filled)`（同上）；
+    - `:207` 打卡日历已点亮 `backgroundColor:"#12b886"` → `chartTokens.streakDone` = `var(--mantine-color-teal-filled)`（浅 `#12b886` / 深 `#099268`）；
+    - `:207` 打卡日历未点亮 `backgroundColor:"#e9ecef"` → `chartTokens.streakIdle` = `var(--mantine-color-default-border)`（浅 `#ced4da` / 深 `#424242`）。
+    - 数字色阶（`blue-6`/`teal-6`/`gray-2`）不随主题自适应，故一律换语义 var；**浅色下网格/未点亮由 `gray-2(#e9ecef)` 微调到
+      `default-border` 的 `gray-4(#ced4da)`**（语义值，白底上更清晰），深色下由硬编码浅灰变为 `dark-4(#424242)`。**其它页面未顺手换色。**
+  - **深色首屏防闪白**：`index.html` `<head>` 内联一段 IIFE（**零依赖**），paint 前读 `mantine-color-scheme-value`，
+    合法值即预设 `documentElement[data-mantine-color-scheme]`；`try/catch` 兜隐私模式、非法/缺失回落默认浅色。
+    **逐行理由见该脚本注释**；这是为消除深色刷新瞬间白闪所必需的最小改动，未引任何依赖。
+  - **打印豁免（只配色、不改打印内容结构；`App.tsx` 与两个打印页 tsx 一字未动）**：`print.css` 仅在 `.print-shell` 块后
+    **追加** `html:has(.print-shell){color-scheme:light}` + `html:has(.print-shell) body{background:#eef0f3;color:#111}`，
+    把打印壳强制拉回浅色（特异性 (0,1,1)/(0,1,2) 压过 Mantine 的 (0,1,0)/(0,0,1)）；`:has()` 不支持时优雅降级——
+    `.print-sheet{background:#fff}` 与 `@media print` 白底仍独立生效。**既有 `@media print`（`html,body #fff !important`、
+    `.print-shell #fff`、工具栏 `display:none`）与卷面红绿语义色（`#a11`/`#116329`/`#fff5f5`/`#f0fff4`）全部原样保留、不因深色变低对比。**
+  - **测试（禁 DOM 测试栈，不引 jsdom/vitest）**：新增 `tests/colorScheme.test.ts` **7 条纯函数 node 单测**
+    （storage key 钉死、`nextColorScheme` 对合、label/icon 浅深两态、label/icon/next 三者自洽、`chartTokens` 5 值全为
+    `var(--mantine-color-*)` 且无 `#`、5 映射 deepEqual 钉死）；"刷新保持/切换不发请求/localStorage 只有主题键"三条**一律 CDP 真实浏览器取证**（见下）。
+  - **CDP 取证（自建 headless Chrome + Node 内置 WebSocket/fetch，零依赖；存档 `C:/Users/roc/AppData/Local/Temp/p214-evidence/`）**：
+    干净浅色起步 `keys=[]` → 点切换 `light→dark`、`keysAfter=["mantine-color-scheme-value"]`、**`newRequestCount=0`/`newDataRequests=[]`**、
+    刷新后仍 `dark`；深色 **1280/360/412** 三档看板（曲线 `line=rgb(25,113,194)`、网格/未点亮 `rgb(66,66,66)`、已点亮 `rgb(9,146,104)`，
+    标题对比度 9.37 / 横幅 12.87 / 表格 8.2，**三档均无横向溢出**）+ `/review` 360/412 计时器 + `/review-calendar` 360/412 月视图（`2026年11月`、7 个计划日）；
+    **打印豁免逐页各一条**：`/print/mistakes` 与 `/print/paper` **各自** 11 项断言全过——屏幕态 `.print-sheet` 白底 `rgb(255,255,255)` 深字 `rgb(17,17,17)`、
+    `@media print` 仿真 `html/body/shell/sheet` 全白 + 工具栏 `none`、红绿语义色不变且可区分；`consoleErrors=[]`、`httpErrors=[]`。
+  - **可证伪两处且换靶点（RED→还原 GREEN，两次输出存档）**：
+    - **① 把 `:207` 未点亮改回硬编码 `"#e9ecef"`** → 深色三档 `idle=rgb(233,236,239)`（≠ 绿态 `rgb(66,66,66)`），
+      截图对照**清晰可见**：打卡日历"近 30 天"一排刺眼浅灰方块凸出于深色卡（绿态为融入卡片的暗灰）；还原 → `idle=rgb(66,66,66)` 绿。
+    - **② 删 `print.css` 的 `.print-sheet{background:#fff}` 一行** → **两个打印页取证都暴露**：`/print/mistakes` 与 `/print/paper`
+      的 `screenSheetWhite` 与 `printSheetWhite` **同时 false**（`sheetBg=rgba(0,0,0,0)` 透明，白纸失去白底、融进浅灰壳），`allPass=false`；还原 → 两页 11 项全过。
+  - **验证（本人实跑）**：`npm run lint` EXIT 0、`npm test` **40 pass / 0 fail**（含 7 新）、`npm run build` EXIT 0（chunk-size 警告为既有、非错误）、
+    `ruff check --no-cache .`（**全仓**）`All checks passed!` EXIT 0；**`git diff -- wengu-api/` 为空（后端零改动）**、`App.tsx` 与打印页 tsx 零改动；零迁移、零新依赖。
+  - **已知界外（如实上报、未改）**：深色看板副标题"只读确定性统计…"用 Mantine 标准 `c="dimmed"`（`#828282` on `#242424` = **4.04**，14px），
+    三档各计 1 条 lowContrast；**非本票 4 处之一**，属 Mantine 深色默认 dimmed，本票禁"借主题之名全站换色"故不动；主文本（标题/表格/横幅）对比度均达标。
+
 - **P2-12 复习日历（v2.7 §18 D9；只读投影、非自动排课、零新增状态、零迁移、零新依赖）**（2026-11-15）：
   - **新只读端点 `GET /api/reviews/calendar?from=&to=&today=`**：默认窗口 `today-7..today+30`；
     `from>to`→422、跨度 `>92` 天→422（恰好 92 放行）。按日返回

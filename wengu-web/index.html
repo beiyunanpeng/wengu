@@ -5,6 +5,24 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#1f6feb" />
     <title>wengu · 温故</title>
+    <script>
+      // P2-14 防深色首屏闪白：在 React/Mantine 挂载前先按已存主题预设根属性。
+      // 只读呈现偏好键（与 Mantine 内置 colorSchemeManager 同键），不写值、不碰业务数据。
+      (function () {
+        try {
+          // localStorage 在隐私模式/被禁用时会抛错，故 try/catch 静默降级到默认浅色。
+          var v = localStorage.getItem("mantine-color-scheme-value");
+          // 仅接受合法枚举；键缺失或非法时不设置，交给 MantineProvider defaultColorScheme="light"。
+          if (v === "light" || v === "dark") {
+            // 预设 <html data-mantine-color-scheme>，styles.css 的 :root[...] 规则即刻生效，
+            // body 底色随之变深，避免深色用户每次刷新先闪一帧白底。
+            document.documentElement.setAttribute("data-mantine-color-scheme", v);
+          }
+        } catch (e) {
+          /* 读不到 storage 就用默认浅色，不阻断首屏 */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
