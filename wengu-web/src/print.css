@@ -8,6 +8,22 @@
     "Noto Sans SC", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
 }
 
+/* P2-14 深色主题豁免：打印视图永远是白纸深字，与屏幕主题无关。
+   Mantine 深色会在 <html> 上设 color-scheme:dark，并把 body 底色/字色刷深
+   （styles.css: body{background-color:var(--mantine-color-body);color:var(--mantine-color-text)}）。
+   .print-shell 自身已固定 #eef0f3/#111，但 body 底色（overscroll 区域）、原生滚动条
+   与 color-scheme 仍会漏成深色；这里把“含打印壳的根”强制回 light。
+   仅新增豁免，不改下面任何既有 hex、@media print 白底规则与卷面红绿语义色。
+   :has() 不被支持时优雅降级——.print-sheet 白底与 @media print 白底仍独立生效。 */
+html:has(.print-shell) {
+  color-scheme: light;
+}
+
+html:has(.print-shell) body {
+  background-color: #eef0f3;
+  color: #111;
+}
+
 .print-toolbar {
   position: sticky;
   top: 0;

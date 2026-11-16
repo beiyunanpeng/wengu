@@ -14,6 +14,7 @@ import { useDisclosure } from "@mantine/hooks";
 import { useEffect } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 
+import ColorSchemeToggle from "./ColorSchemeToggle";
 import ParentGate from "./ParentGate";
 import { groupNavItems, isNavActive, NAV, type NavGroup } from "../lib/nav";
 import { useParentSession } from "../parent/ParentSession";
@@ -103,7 +104,10 @@ export default function AppLayout() {
               wengu · 温故
             </Text>
           </Group>
-          <ParentGate />
+          <Group gap="xs" wrap="nowrap">
+            <ColorSchemeToggle />
+            <ParentGate />
+          </Group>
         </Group>
       </AppShell.Header>
       <AppShell.Navbar p="md" style={{ overflowY: "auto" }}>

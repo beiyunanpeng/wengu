@@ -19,6 +19,7 @@ import { useNavigate } from "react-router-dom";
 import { errorMessage } from "../api/client";
 import { getDashboard } from "../api/endpoints";
 import ScheduleBrief from "../components/ScheduleBrief";
+import { chartTokens } from "../lib/colorScheme";
 import { mistakesSubjectHref, reviewCta } from "../lib/dashboard";
 import type {
   DashboardConceptMastery,
@@ -103,7 +104,7 @@ function MasteryCurve({ points }: { points: DashboardCurvePoint[] }) {
               x2={width - paddingX}
               y1={y}
               y2={y}
-              stroke="#e9ecef"
+              stroke={chartTokens.grid}
               strokeWidth={1}
             />
           );
@@ -111,10 +112,10 @@ function MasteryCurve({ points }: { points: DashboardCurvePoint[] }) {
         <polyline
           points={polyline}
           fill="none"
-          stroke="#228be6"
+          stroke={chartTokens.line}
           strokeWidth={2}
         />
-        <circle cx={last.x} cy={last.y} r={3.5} fill="#228be6" />
+        <circle cx={last.x} cy={last.y} r={3.5} fill={chartTokens.point} />
       </svg>
       <Group justify="space-between">
         <Text size="xs" c="dimmed">
@@ -204,7 +205,9 @@ function StreakCalendar({ days }: { days: DashboardStreak["recent_days"] }) {
             h={14}
             style={{
               borderRadius: 3,
-              backgroundColor: day.done ? "#12b886" : "#e9ecef",
+              backgroundColor: day.done
+                ? chartTokens.streakDone
+                : chartTokens.streakIdle,
             }}
           />
         ))}
