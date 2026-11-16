@@ -712,8 +712,8 @@
 ### P2-14 主题切换（v2.7 D10；纯前端，零后端改动）
 - **现状（2026-11-15 复核行号，原卡 2026-11-14 读盘）**：`main.tsx:17` 写死 `<MantineProvider defaultColorScheme="light">`，
   全仓**无 `createTheme`、无 theme 文件、前端完全没用过 localStorage**（grep `createTheme|localStorage|useMantineColorScheme` 零命中）；
-  `DashboardPage` 有 **4 处硬编码色，行号已因 P2-13 合并整体推高 4 行**：现在是 **`:104`（曲线网格 `#e9ecef`）、
-  `:112` 与 `:115`（曲线描边/端点 `#228be6`）、`:205`（番茄钟格 `#12b886` / `#e9ecef`，**一行两个色值**）**；
+  `DashboardPage` 有 **4 处硬编码色，行号已因 P2-13 与 P2-11 两次合并累计推高 6 行**：现在是 **`:106`（曲线网格 `#e9ecef`）、
+  `:114` 与 `:117`（曲线描边/端点 `#228be6`）、`:207`（番茄钟格 `#12b886` / `#e9ecef`，**一行两个色值**）**；
   两个打印页各自 import `../print.css`（`PrintMistakesPage.tsx:9`、`PrintPaperPage.tsx:14`，样式根 `.print-shell` 在 `:145`），
   路由挂在 `AppLayout` 之外（`App.tsx:28-29`）；
   `@mantine/hooks@8.3.18` 已在依赖（`package.json:15`）；后端 app-config 白名单只有 4 键
@@ -732,9 +732,14 @@
   主题是**每设备的呈现偏好、不是学习数据**，因此不进 app-config（那会被 PIN 挡住，孩子改不了自己设备外观），
   也不进数据库；把 `DashboardPage` 4 处硬编码色改为 Mantine 语义色 / `var(--mantine-color-*)`；
   **打印豁免**：`.print-shell` 与 `@media print` 在深色下仍保持浅色底，打印页工具栏若用 Mantine 组件需固定 light。
-- DoD：切换后刷新保持、且**不触发任何数据请求**（网络断言或取证）；深色下桌面 + 360/412 三档取证截图
-  （文字对比度、掌握度曲线、徽标、表格）；打印预览仍白底（截图取证）；localStorage 中**只有主题键**
-  （断言不含任何题目/学习数据）；`npm run lint`/`test`/`build` 绿；**后端零改动**。
+- DoD：切换后刷新保持、且**不触发任何数据请求**；深色下桌面 + 360/412 三档取证截图
+  （文字对比度、掌握度曲线、徽标、表格、复习页计时器、复习日历月视图）；**打印豁免逐页各一条**——
+  `/print/mistakes` 与 `/print/paper` **各自**在深色下截图，断言屏幕态 `.print-sheet` 仍白底深字、
+  `@media print` 仍白底、卷面红绿两色仍可区分（原卡只写"打印预览仍白底"= 以一类代两类，2026-11-15 按 §19-L 加严）；
+  localStorage **只有主题键**——用 CDP 读 `Object.keys(localStorage)` 全量列出并贴出实际键名，
+  断言不含任何题目/答案/学习数据（**本仓禁 DOM 测试栈**，这三条只能 CDP 取证，不得为此加 jsdom/vitest）；
+  可证伪两处且**换靶点**（某处改回硬编码 hex、删一条打印豁免规则）；
+  `npm run lint`/`test`/`build` 绿；**后端零改动**。
 - 禁止：把主题写进 app-config 或数据库；用 localStorage 存任何业务/学习数据；为暗色引入新 UI 依赖；
   改打印内容结构（只允许配色豁免）；借主题之名重构页面布局。
 

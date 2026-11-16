@@ -2065,6 +2065,13 @@ ruff --no-cache；UI 改动带 CDP/真机取证；不一致上报不硬凑）。
 > `App.tsx:28-29`、`PrintMistakesPage.tsx:9`、`PrintPaperPage.tsx:14/145` 复查**仍准确**；
 > 三处已改对：① `DashboardPage` 硬编码色行号被 P2-13 合并推高 4 行；② `print.css` 的硬编码色远不止原卡列的 4 处；
 > ③ `require_parent` 其实挂在 **router 级**，连 GET 也被挡（比原卡说的更强，结论不变）。
+>
+> **投单前再校对（2026-11-15，基线 main `20a4796`，P2-11/P2-12 已合并）**：`DashboardPage` 硬编码色再被 P2-11
+> 推高 2 行，现值 **106/114/117/207**（本块已改）；`print.css`、两个打印页、`main.tsx`、`package.json`、
+> `runtime_config.py:221-225`、`api/config.py:24`、`App.tsx:28-29` 均未被这两票触碰，引用继续有效。
+> 另按 §19-L 加严三处：**打印豁免必须两个页面各取证**（原卡只写"打印预览仍白底"= 以一类代两类）；
+> **localStorage/网络/刷新三条取证明确只能走 CDP**（本仓禁 DOM 测试栈，否则施工方会被 DoD 逼着加 jsdom）；
+> **可证伪要求换靶点**。
 
 ```
 你在 wengu 仓库工作。开工前完整读：AGENTS.md §3（前端栈已定，勿加新 UI 依赖）与 §5（数据只在服务端）
@@ -2074,8 +2081,8 @@ ruff --no-cache；UI 改动带 CDP/真机取证；不一致上报不硬凑）。
   工具栏主按钮 `:59/:60` 的 `#1c4ed8`、卷面错答 `:162/:163` 的 `#fff5f5`+`#a11`、
   订正正答 `:167/:168` 的 `#f0fff4`+`#116329`——后两组是"红笔错答/绿笔订正"的卷面语义色，**不是装饰色**）
 + src/pages/PrintMistakesPage.tsx:9 与 PrintPaperPage.tsx:14,145（打印页在 AppLayout 之外，App.tsx:28-29）
-+ src/pages/DashboardPage.tsx 的 **4 处**硬编码色（**104 / 112 / 115 / 205**，其中 205 一行含两个色值；
-  原卡写的 100/108/111/201 已被 P2-13 合并推高，以本块为准）
++ src/pages/DashboardPage.tsx 的 **4 处**硬编码色（**106 / 114 / 117 / 207**，其中 207 一行含两个色值；
+  原卡 100/108/111/201 → P2-13 推高为 104/112/115/205 → **P2-11 再推高为现值**，以本块为准）
 + wengu-api/app/core/runtime_config.py（`_RULES` 221-224 + `_ALLOWED_KEYS` 225，合计**只有 4 键**）
   与 app/api/config.py（**router 级 `dependencies=[Depends(require_parent)]`，`:24` —— GET 与 PUT 都被挡**）
 + package.json（@mantine/hooks 8.3.18 已在依赖 15 行）+ TICKETS.md 的 P2-14。
@@ -2083,8 +2090,12 @@ ruff --no-cache；UI 改动带 CDP/真机取证；不一致上报不硬凑）。
 【投单纪律】同 P2-13（分支 feat/p2-14-theme-toggle；一票一 PR；核对清单；commit -F 仓库外 UTF-8；
 ruff --no-cache；UI 取证；不一致上报不硬凑）。
 允许改动的文件：`wengu-web/src/main.tsx`、新 theme/切换相关文件、`src/components/AppLayout.tsx`（切换按钮）、
-`src/pages/DashboardPage.tsx`（4 处硬编码色）、`src/print.css`（仅豁免所需的最小改动）+ **`CHANGELOG.md`**
-（AGENTS §8 DoD 必需项）；**`wengu-api/` 必须零改动**（`git diff` 证明）。
+`src/pages/DashboardPage.tsx`（4 处硬编码色 106/114/117/207）、`src/print.css`（仅豁免所需的最小改动）、
+`wengu-web/tests/**`（只允许**纯函数**单测，见下方"取证方式"）+ **`CHANGELOG.md`**（AGENTS §8 DoD 必需项）；
+**`wengu-api/` 必须零改动**（`git diff` 证明）。
+若为消除深色首屏闪白确需改 `wengu-web/index.html`（内联读主题键），**允许但必须逐行说明理由、不得引入任何依赖**；
+除此之外不得扩面。审核方按 §19-K-1 的纪律逆推过 DoD 落点：本票三条硬取证（刷新保持、切换不发请求、
+localStorage 只有主题键）都**只能靠 CDP 在浏览器里取证**，不需要也不允许新增端点或后端文件。
 
 【主题存哪里——已定，不要改】
 存 **localStorage（Mantine 内置 colorScheme storage）**，不进 app-config、不进数据库。理由必须写进代码注释：
@@ -2095,8 +2106,9 @@ ruff --no-cache；UI 取证；不一致上报不硬凑）。
 
 【任务】
 1. `createTheme` + `useMantineColorScheme`；头部加浅色/深色切换按钮（孩子区与家长区都可见，解锁与否都能切）。
-2. 把 `DashboardPage` 的 **4 处**（`:104/:112/:115/:205`）硬编码色改为 Mantine 语义色 / `var(--mantine-color-*)`；
-   其它页面若发现硬编码色，只在深色下确实不可读时才改，并逐处说明（不要顺手全站换色）。
+2. 把 `DashboardPage` 的 **4 处**（`:106/:114/:117/:207`）硬编码色改为 Mantine 语义色 / `var(--mantine-color-*)`，
+   **逐处列出"原值 → 新值"**（207 一行有两个色值，按两个算）；其它页面若发现硬编码色，
+   只在深色下确实不可读时才改，并逐处说明（不要顺手全站换色）。
 3. **打印豁免——用可测断言表述，不靠数行号**：
    ① `@media print` 下必须白底深字（`:259` 的 `#fff !important` 与 `:264` 保持有效）；
    ② **深色主题的屏幕态下 `.print-sheet` 仍须白底深字**（打印页是纸面样式，不参与换肤）；
@@ -2104,11 +2116,23 @@ ruff --no-cache；UI 取证；不一致上报不硬凑）。
    ④ 卷面红绿语义色（`#a11`/`#116329`/`#fff5f5`/`#f0fff4`）**不得**因为深色主题被改成低对比色——
       它们是"孩子错答 vs 订正正答"的唯一视觉区分，改了就伤判读。
 
+【取证方式（先说清，别为此加测试栈）】
+本仓**禁止引入 DOM 测试栈**（AGENTS §3 / 设计文档 §12 反清单）。所以"刷新保持""切换不发请求""localStorage 只有主题键"
+这三条**一律用 CDP 在真实浏览器里取证**（读 `Object.keys(localStorage)`、读 network 请求计数、刷新前后对比），
+落到 `report.json`；纯函数单测只用于**不碰 DOM 就能算的东西**（如主题 token 映射、切换按钮的 label 派生）。
+若你发现某条 DoD 不引入 jsdom 就无法自动化，**上报，不要自己加依赖**。
+
 【DoD】
-- 切换后刷新保持；**切换不触发任何数据请求**（网络面板取证或断言）。
-- 深色下桌面 + 360/412 三档取证截图（文字对比度、掌握度曲线、徽标、表格、复习页计时器）+ report.json。
-- **深色模式下打印预览仍白底**（截图取证），且卷面红绿两色在打印稿上仍可区分（同张截图能看出来）。
-- localStorage 中**只有主题键**（断言不含任何题目/答案/学习数据）。
+- 切换后刷新保持；**切换不触发任何数据请求**（CDP network 取证：切换前后请求集合相同，除 favicon 类既有噪音）。
+- 深色下桌面 + 360/412 三档取证截图（文字对比度、掌握度曲线、徽标、表格、复习页计时器、**复习日历月视图**）+ report.json。
+- **打印豁免逐页各一条，不以一页代两页**（§19-L 纪律②）：`/print/mistakes` 与 `/print/paper`
+  **各自**在深色主题下截图取证，断言屏幕态 `.print-sheet` 仍白底深字、`@media print` 仍白底；
+  两张截图里卷面"错答红 / 订正正答绿"两色都仍可区分。
+- localStorage 中**只有主题键**：CDP 读 `Object.keys(localStorage)` 全量列出，断言集合等于 Mantine 主题键、
+  不含任何题目/答案/学习数据（交付里贴出实际键名列表）。
+- **可证伪两处，且要换靶点**：① 把 `DashboardPage` 某一处改回硬编码 hex → 深色截图对照必须看得出问题
+  （若看不出，说明那条色本来就不影响深色，如实写明并撤回该处改动）；② 把打印豁免规则去掉一条
+  （如删掉 `.print-sheet` 的白底）→ 两个打印页的取证必须**都**能暴露。两次输出贴交付。
 - `npm run lint` / `npm test` / `npm run build` 绿；**后端零改动**（`git diff` 证明 wengu-api 为空）。
 
 【禁止】把主题写进 app-config 或数据库；用 localStorage 存任何业务/学习数据；为暗色引入新 UI 依赖；
