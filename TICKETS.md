@@ -710,15 +710,19 @@
   臆造不存在的 event type；把 PIN 写操作混进只读页；用 `due_queue` 之外的第二套逾期/kind 判定。
 
 ### P2-14 主题切换（v2.7 D10；纯前端，零后端改动）
-- **状态（2026-11-16）：已交付、审核方验收通过、PR#59（commit `3150ae1`，基线 `8828d3f`）待合并**。
-  审核方独立取证：`npm test` 40/40、`tsc` exit 0、build ✓、`ruff --no-cache` 全仓绿、后端全量 **763 passed**、
-  `git diff -- wengu-api/` 为空、依赖清单未触碰；自主变异三次（换靶点，全打纯函数层）分别 **2 / 2 / 1 fail**，
-  还原 sha256 逐字节一致。
-  - **三条观察项已登记、均不排期**，正文见设计文档 **§18 D10-obs**：① 看板副标题深色对比度 4.04
-    （Mantine 标准 `dimmed`，非本票引入；报告里 3 条是同一元素×3 宽度）；② 打印豁免依赖 `:has()`，
-    不支持时优雅降级、不加兜底；③ 浅色网格/未点亮 `gray-2 → gray-4` 为语义 token 的必然结果，
-    **裁定接受，勿当 bug 回滚**。
-- **现状（2026-11-15 复核行号，原卡 2026-11-14 读盘）**：`main.tsx:17` 写死 `<MantineProvider defaultColorScheme="light">`，
+- **状态：已合并（2026-11-16，PR#59 squash → main `3950229`；原分支 `feat/p2-14-theme-toggle` 已删）**。
+  审核方独立取证：`npm test` 40/40、`tsc --noEmit` exit 0、build ✓、`ruff --no-cache` 全仓绿、
+  后端全量 **763 passed**（`git diff -- wengu-api/` 为空、依赖清单未触碰）；
+  自主变异三次（换靶点，全打纯函数层）分别 **2 / 2 / 1 fail**，还原 sha256 逐字节一致（`14a75157…`）。
+  三条观察项登记于设计文档 **§18 D10-obs**（均不排期）。
+  - ⚠️ **本票造成的行号漂移（实读值，合并后 main `3950229`）**：`DashboardPage.tsx` 硬编码 hex **已全部消失**
+    （原 106/114/117/207 五值换成 `chartTokens`）——**今后任何卡都不应再引用那几个行号**；
+    `print.css` 因在文件头部插入 16 行而整体下移：`.print-toolbar` 11 → **27**、`.print-sheet` 73 → **85**、
+    `@media print` 251 → **267**，新增 `html:has(.print-shell)` 在 **18** / 其 body 兜底在 **22**，
+    含色值行数 30 → **33**（+3：两条规则各一行 + 注释里并列的 `#eef0f3/#111` 一行）；
+    `main.tsx` 的 `MantineProvider` 17 → **28**；`AppLayout.tsx` 切换按钮在 **108**。
+    `nav.ts`、`App.tsx`、两个打印页 tsx 未被触碰。
+- **现状（2026-11-15 复核行号，原卡 2026-11-14 读盘；⚠️ 本段是**交付前快照**——P2-14 合并后"无 `createTheme`、无 theme 文件、前端没用过 localStorage"三条已整体反转，勿再当现状引用）**：`main.tsx:17` 写死 `<MantineProvider defaultColorScheme="light">`，
   全仓**无 `createTheme`、无 theme 文件、前端完全没用过 localStorage**（grep `createTheme|localStorage|useMantineColorScheme` 零命中）；
   `DashboardPage` 有 **4 处硬编码色，行号已因 P2-13 与 P2-11 两次合并累计推高 6 行**：现在是 **`:106`（曲线网格 `#e9ecef`）、
   `:114` 与 `:117`（曲线描边/端点 `#228be6`）、`:207`（番茄钟格 `#12b886` / `#e9ecef`，**一行两个色值**）**；

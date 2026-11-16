@@ -2139,6 +2139,27 @@ localStorage 只有主题键）都**只能靠 CDP 在浏览器里取证**，不�
 改打印内容结构（只允许配色豁免）；把卷面红绿语义色"顺手统一"成主题色；借主题之名重构页面布局或换全站配色。
 ```
 
+> **交付后补记（审核方，2026-11-16；PR#59 squash → main `3950229`，以下不是投单内容）**
+>
+> 1. **本票验收零返工**，且是"卡面加严"生效的直接证据：投单前我把 DoD 的"打印预览仍白底"改成
+>    **两个打印页各自取证**、把"localStorage 只有主题键"明确成**只能 CDP 取证（禁 DOM 测试栈）**——
+>    施工方两条都照做了（falsify2 存档显示删白底规则后两页 `screenSheetWhite`/`printSheetWhite` **同时 false**）。
+> 2. **两处"看着像、其实可能空转"的独立核验**（不采信自述）：
+>    首屏防闪白脚本用的键与属性都是 Mantine 真实实现——`data-mantine-color-scheme` 在其编译 CSS 中出现 **524 次**、
+>    `mantine-color-scheme-value` 字面存在于 `@mantine/core/.../local-storage-manager.cjs`；
+>    并核过为何不用官方 `ColorSchemeScript`（经 document-headers 在挂载后才注入，防不了首屏闪白）。
+>    `print.css` 的"纯追加"经逐行 diff 证实：**16 行新增、零修改**。
+> 3. **审核方自主变异（§19-L 纪律③换靶点，全打纯函数层）**：icon 改回表示"当前模式" → **2 fail**；
+>    `chartTokens.grid` 退回 hex → **2 fail**；存储键改掉 → **1 fail**。改前 `cp` 仓库外备份，还原 sha256 一致。
+>    7 条单测里 key 与 token 映射都用**字面串**钉死（纪律①），不是引用同源常量。
+> 4. **本票造成的行号漂移（实读值）**：`DashboardPage.tsx` 硬编码 hex **全部消失**（106/114/117/207 五值
+>    已换 `chartTokens`）→ 今后引用那几个行号的卡一律作废；`print.css` 整体下移 16 行
+>    （`.print-toolbar` 11→**27**、`.print-sheet` 73→**85**、`@media print` 251→**267**，含色值行 30→**33**）；
+>    `main.tsx` 的 `MantineProvider` 17→**28**；`AppLayout.tsx` 切换按钮 **108**。
+> 5. **裁定与登记**：浅色网格/未点亮 `gray-2 → gray-4` **接受**（语义 token 的必然结果，
+>    严格保原值需自维护 light/dark 变量对）；深色 `dimmed` 对比度 4.04 与 `:has()` 依赖
+>    **登记为观察项、不开票**，正文见设计文档 §18 D10-obs。
+
 ## P1-18 —— 主考点可设定与更正（v2.8 §19-I；零迁移，改根表 + 事件审计）
 
 ```
