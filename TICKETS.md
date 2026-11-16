@@ -1164,6 +1164,12 @@
     ⑥ DoD：陌生人 5 分钟内从 README 完成合规判断并装起来；克隆地址可直接复制；隐私声明与 transcribe checklist 口径一致；
        CC 署名可人工核对；GitHub 识别 MIT；Release 可下载。
     ⑦ 禁：声称"完全不上云"；隐瞒外部转录；删除历史条目。
+    ⑧ **2026-11-16 范围防漏（审核方补，因本票必读会读到 §19-G-1 的"全量内置"定案）**：
+       本票**不得**改 `import_seed.py` / `import_questions.py` 的 `grade 7-9` 过滤器、
+       **不得**向 `seeds/data/` 增加任何知识点/先修边/题目（那是 P5-10）；
+       `LICENSE-data.md` 与 `_source.json` 的 `modified` **只写当前事实**（初中 664 点 / 1018 边 / 2803 题），
+       不得写"后续将全量导入"这类预告。DoD 加一条自证：**`topics.json` / `questions.json` 条目数不变**。
+       理由：提前扩数据会毁掉 P5-9"作用域先被证伪再扩段"的前提，顺序是 AGENTS §7 写死的。
   - **2026-11-16 定案（A 方案）+ 上游事实取证**：
     **A 方案** = `LICENSE` 回到**纯 MIT 规范文本**，数据许可另置新文件 `LICENSE-data.md`
     （GitHub 可识别 MIT、下游合规扫描判对，"代码 MIT + 数据 CC BY-NC"分层更清楚；

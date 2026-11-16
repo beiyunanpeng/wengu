@@ -2427,7 +2427,10 @@ current_version**（那是 §19-I 的正确设计），于是 `base_version` 在
 + wengu-api/app/seed/loader.py（:93 读 `_source.json` → :110 传入 `_build_index` → 存进 `SeedIndex.source`；
   **现无任何消费方读它**，故"只增键"安全；`unaudited`/`blind_verified` 来自 topic 对象、不来自 `_source.json`）
 + wengu-api/tests/unit/test_import_seed.py（:87-89 现有断言）与 test_import_questions.py（:131-136 现有断言）
-+ docs/STATUS.md 与 目录结构.md（两者均被 git 跟踪，含 seed/许可相关表述）+ TICKETS.md 的 P5-5 与 P5-6。
++ docs/STATUS.md 与 目录结构.md（两者均被 git 跟踪，含 seed/许可相关表述）
++ TICKETS.md 的 P5-5 与 P5-6。
+  ⚠️ 你也会读到 §19-G-1「全量内置 + 学段作用域」的定案——**那是 P5-10 / P5-9 的范围，不是本票的活**，
+  看到定案不等于授权你顺手做（详见下方【禁止】最后一条）。
 
 【上游事实——已取实，不要重新推断、不要按日期猜】
 - 项目：cn-math-taxonomy，https://github.com/xiaoyang111222/cn-math-taxonomy
@@ -2465,6 +2468,8 @@ GitHub 仓库 `description` / `topics` / `homepage`、首个 Release、开启 Di
    `Copyright (c) 2026 wengu (温故) contributors`。新建 `LICENSE-data.md`：CC BY-NC 4.0 及全文链接、
    上游项目与作者署名、快照 commit、"已修改：仅取初中子集（grade 7-9），跨学段先修边已丢弃"、
    非商用声明、上游自述"AI 生成初稿、未经一线教师审核"的免责转述。
+   `modified` 只写**当前事实**（库里现只有初中 664 点 / 1018 边 / 2803 题），**不得**写成
+   "后续将全量导入小学与高中"这类预告——那是 P5-10 的活，提前写就是文档过实。
 2. 两个 source 文件**只增键、不改既有键名与语义**，新增（两边键名必须一致）：
    `upstream_commit`（上面那枚 SHA，从 null 改实值）、`upstream_commit_date`、`upstream_author`、
    `upstream_spdx: "CC-BY-NC-4.0"`、`code_spdx: "MIT"`、`modified`、`disclaimer`、
@@ -2497,6 +2502,8 @@ GitHub 仓库 `description` / `topics` / `homepage`、首个 Release、开启 Di
   同时断言**不含**"题目图片不进网络"与"完全不上云"。**变异**：把旧句加回 → 负断言必须红。
 - **口径一致**：`PRIVACY.md` 的上云字段清单与 `transcribe/README.md` §0 checklist 逐条对齐；
   `transcribe/validate.py selfcheck --strict` 仍 **18 OK / 0 DRIFT / 0 WARN**（不许改探针凑绿）。
+- **数据未扩**：`seeds/data/topics.json` 与 `questions.json` 的条目数在本票后**必须不变**（664 / 2803），
+  用断言或 `git diff --stat` 自证；若变了说明越界做了 P5-10。
 - 全量 `pytest -q` 绿（当前基线 **763**，本票新增用例后如实报新数，不得沿用旧数）、
   `ruff check --no-cache .` 全仓绿、`npm run lint/test/build` 绿（前端应零改动）；零迁移。
 - 交付须含"陌生人视角自检"：只读 README + PRIVACY.md，能否 5 分钟内判断"数据在哪、会不会上云、
@@ -2509,7 +2516,10 @@ GitHub 仓库 `description` / `topics` / `homepage`、首个 Release、开启 Di
 - 把整体许可称成"开源（OSI）软件"；沿用"完全不上云/题目图片不进网络"；
 - 删除或改写 CHANGELOG 历史条目来"统一口径"；
 - 为让 GitHub 识别而在 LICENSE 里塞额外说明文本（A 方案就是要它回到纯 MIT）；
-- 顺手把 `unaudited` UI 提示、seed 装载逻辑、`目录结构.md` 以外的架构文档大改一轮。
+- 顺手把 `unaudited` UI 提示、seed 装载逻辑、`目录结构.md` 以外的架构文档大改一轮；
+- **不得改 `import_seed.py` / `import_questions.py` 的 `grade 7-9` 过滤器，不得向 `seeds/data/` 增加任何
+  知识点、先修边或题目**。本票只加 provenance 键与 `--upstream-commit` 探测参数；
+  §19-G-1 的"全量内置"是 P5-10 的范围，提前做会毁掉 P5-9"作用域先被证伪"的前提。
 ```
 
 ## P5-9 —— 学段作用域 `seed_grade_ceiling`（v2.8 §19-G；服务端过滤、零迁移；P5-10 的前置）
