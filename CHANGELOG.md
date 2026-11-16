@@ -9,6 +9,66 @@
 
 ### Added
 
+- **P5-5 开源基线收口（v2.8 §19-F / §19-F-1 A 方案；零迁移、零新依赖、前端零改动、seed 数据未扩）**（2026-11-16）：
+  - **LICENSE 恢复纯 MIT 规范文本**：删除原 :15-17 插在 MIT 正文中间的第三方数据声明段
+    （GitHub 许可证识别器因此判 `NOASSERTION` 的真因）；版权行保留 `Copyright (c) 2026 wengu (温故) contributors`。
+    数据许可另置新文件 **`LICENSE-data.md`**（CC BY-NC 4.0 + SPDX + legalcode 链接、上游项目与作者
+    **Aifeng**（GitHub `xiaoyang111222`）署名、快照 commit、"已修改：仅取初中子集 grade 7-9、跨学段先修边已丢弃"
+    当前事实标注（664 点 / 1018 边 / 2803 题，**不预告扩段**）、非商用声明、上游"AI 初稿未经教师审核"免责转述、
+    下游分发义务）。分层授权用分文件表达，**整体不称 OSI 开源软件**。
+  - **seed 快照 provenance 钉死（只增键、不改既有键名与语义）**：`seeds/data/_source.json` 与
+    `questions_source.json` 两边同键新增 `upstream_commit`（null → **`d58785cef744341bf02d41e5568ebb953595ab18`**，
+    2026-10-23T12:40:17Z）、`upstream_commit_date`、`upstream_author`、`upstream_spdx: "CC-BY-NC-4.0"`、
+    `code_spdx: "MIT"`、`modified`（题目口径：仅取 topicId ∈ 初中 664 点的题）、`disclaimer`、
+    `snapshot_source`、`commit_evidence`（5 条字符串：zip 无 .git → 内容寻址反查；四 blob 逐一相等
+    `79cd0a87…`/`76058ca5…`/`28cee1a8…`/`cc60a25e…`；父提交 `7dc3d6ad…` README blob `76db74d1…` 不等 → 唯一锁定；
+    无 `cnl_` 排除 10-24 语文提交；topics 10-24 / questions 10-29 两次导入**同一快照**）。
+    `loader.py` 只把 `_source.json` 存进 `SeedIndex.source`、现无消费方，增键安全；`unaudited`/`blind_verified`
+    来自 topic 对象、不受影响。
+  - **探测不猜（两脚本同规则）**：`import_seed.py` / `import_questions.py` 新增 CLI `--upstream-commit <sha>`
+    显式覆盖（zip 来源必传）；未提供仍走 `git rev-parse HEAD`；**探测失败写 null 并打印 stderr 警告，
+    严禁按导入日期猜测**。`write_out` 加可选 `commit_override` 参数（既有测试签名兼容、两旧测试文件零改动）。
+    **脚本不自动发射策展 provenance 键**——它们是当前快照的取证工件，换快照重跑后须按 §19-F-1 重新取证策展
+    （`seeds/README.md` 重生成节已写明，含"zip 来源必须显式传 --upstream-commit"）。
+  - **新文件 `PRIVACY.md`（独立隐私声明）**：数据本土化清单（wengu.db / uploads / inbox / seeds_local /
+    backups / app-config.json / .session_secret）；**外部转录上云的真实字段清单**（发送 = 擦除 PII + 裁剪后的
+    卷面图片 + 版本化模板指令；返回 = 转录 JSON 9 字段落本地 inbox）与擦除指引，逐条对齐 `transcribe/README.md`
+    §0 六条 checklist（擦除姓名/学校/班级/学号/座位号/家长签名/教师评语/EXIF、裁剪、告知、境内已备案禁境外、
+    本地留存、离线替代）；**监护人告知与单独同意可直引文案**；离线 `/import` 一等公民；点名
+    《个人信息保护法》《未成年人网络保护条例》。**指南引文口径纠偏（审核打回补正）**：
+    《中小学生成式人工智能使用指南（2025年版）》发文主体写准为**教育部基础教育教学指导委员会**（2025 年 5 月），
+    原文措辞分对象如实区分（教师「严禁…」/ 学生「避免…」/ 家长「避免…」），不把教师侧禁令套到用户身上；
+    六条 checklist 保留不变、改标注为 **wengu 自定的内部硬门槛（严于指南的「避免」表述）**——
+    处理未成年人学习数据，自愿按教师级标准自我约束。
+    公网暴露前须加鉴权/隔离或走 Tailscale。**不再沿用"题目图片不进网络""完全不上云"旧口径**
+    （内核零模型，但可选外部转录确实会把擦除 PII 的卷面送境内第三方 AI）。
+  - **README 口径校正**：**前三行定位按 AGENTS §7 改写（审核打回补正）**——中英各一行
+    「**本地优先的错题复习工作台（AI 转录为可选外挂）**」，前三行内明写**不判真实作业、不生成讲解、内核零模型**；
+    去掉"自托管 AI 学习工作台 / AI learning workbench"的 AI 定语（内核零模型，称 AI 工作台与 §19 定位自相矛盾）。
+    克隆地址占位符 `<你>` → `https://github.com/beiyunanpeng/wengu.git`（:45）；
+    "数据不出家门 / 所有数据留在你自己家里"（:4 / :149 旧）→ "默认只留在本机 + 外部转录例外见 PRIVACY.md"；
+    文档地图设计文档行**不写死版本号**（"版本以该文件首行为准"）并补 `PRIVACY.md` / `LICENSE-data.md` 两行；
+    License 节改分层表述（代码 MIT + 数据 CC BY-NC，整体不称 OSI 开源软件）。
+    `THIRD-PARTY-NOTICES.md` §1 补作者 / 快照 commit / 新文件链接；`docs/STATUS.md` Phase 5 行与 P5-5 行、
+    `目录结构.md` 按盘上事实同步（英文 README 仍另票、未做）。
+  - **测试与可证伪**：新增 `wengu-api/tests/unit/test_seed_provenance.py` **19 条**字面串守卫
+    （LICENSE 纯净、两 source 署名字面串 + 新键两边一致、commit_evidence 四 blob + 父 SHA 钉死、
+    探测无 git → None + 警告 ×2 脚本、override 生效 ×2、write_out null/override ×2、README 占位符清除、
+    PRIVACY 正四串负两串、PRIVACY ↔ §0 字段逐条对齐、数据未扩 664/1018/2803、LICENSE-data/NOTICES/README 锚点、
+    **指南发文主体 + 三对象措辞 + 内部硬门槛正断言 / 旧"教育部《…》严禁"套用户负断言**、
+    **README 前 12 行四关键串正断言 / "AI 学习工作台"与"AI learning workbench"负断言**）。
+    **七处变异各 RED → 还原 GREEN**：① LICENSE 加回第三方段；② SHA 错一位；③ 探测失败分支回退日期字符串；
+    ④ 克隆地址改回占位符；⑤ PRIVACY 加回"题目图片不进网络"；⑥ PRIVACY 引文改回旧"教育部《…》明确严禁"口径；
+    ⑦ README 首行改回"自托管 AI 学习工作台"。
+  - **验证（本人实跑）**：全量 `pytest -q` **782 passed**（基线 763 + 19 新）、`ruff check --no-cache .` 全仓绿、
+    `npm run lint / test / build` 绿（**55 pass / 0 fail**，前端零改动）、`transcribe/validate.py selfcheck --strict`
+    **18 OK / 0 DRIFT / 0 WARN**（探针未动）；`git diff` 自证 `seeds/data/topics.json` / `dependencies.json` /
+    `questions.json` 与 `wengu-api/app/**` / `wengu-web/**` / `migrations/**` 零改动，两 source 只增键
+    （唯一删除行 = `upstream_commit: null`）。
+  - **范围切分（未做、属审核方侧 gh 动作）**：GitHub 仓库 description / topics / homepage、首个 Release、
+    Discussions 开启均未做；`license.spdx_id` 是否由 NOASSERTION 变 MIT 由审核方合并后跑 API 判定。
+    英文 README / 整站本地化另票；§19-G-1 全量内置 + 学段作用域属 P5-9 / P5-10，本票未越界。
+
 - **P2-14 主题切换（v2.7 §18 D10；纯前端、后端零改动、零迁移、零新依赖）**（2026-11-16）：
   - **浅色/深色切换**：`createTheme({primaryColor:"blue"})`（`src/theme.ts`，最小锚点、不改全站配色）+
     `MantineProvider theme defaultColorScheme="light"`；头部右侧新增 `ColorSchemeToggle`（`ActionIcon`+`Tooltip`，

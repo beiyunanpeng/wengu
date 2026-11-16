@@ -1,13 +1,27 @@
 {
  "name": "cn-math-taxonomy（初中部分）",
  "upstream_url": "https://github.com/xiaoyang111222/cn-math-taxonomy",
- "upstream_commit": null,
+ "upstream_commit": "d58785cef744341bf02d41e5568ebb953595ab18",
+ "upstream_commit_date": "2026-10-23T12:40:17Z",
+ "upstream_author": "Aifeng（GitHub xiaoyang111222；X @hassanyehiaa；pansgo.com）",
+ "upstream_spdx": "CC-BY-NC-4.0",
+ "code_spdx": "MIT",
  "upstream_license": "CC BY-NC 4.0",
  "nc_statement": "限个人非商用：署名 + 非商业使用（CC BY-NC 4.0 §3(a)）",
  "imported_at": "2026-10-24",
  "imported_by": "wengu-api/scripts/import_seed.py",
  "filter": "grade 7-9（初中）；dependencies 仅保留两端点均在装载集内的边",
  "grade_semantics_note": "上游 grade 10-16 语义为'册'（高中），本次未导入",
+ "modified": "已修改：仅取初中子集（grade 7-9），跨学段先修边已丢弃；现库 664 知识点 / 1018 先修边；字段名 camelCase→snake_case，并附加 unaudited / blind_verified 质量标签",
+ "disclaimer": "上游自述：AI 生成初稿、未经一线教师审核（unaudited: true）；仅初中数学做过二遍盲解复核（mismatch=0），英语/物理答案与 verify 同源、无二遍盲解，作为参考冷启动、家长复核后再用",
+ "snapshot_source": "GitHub zip of main（无 .git），upstream_commit 由内容寻址反查钉死",
+ "commit_evidence": [
+  "本地来源是 GitHub zip of main 解包目录、无 .git，git rev-parse HEAD 探测必为 null；upstream_commit 改按内容寻址反查：本地 git hash-object 得到的 blob 与 GitHub contents API 在候选 ref 返回的 blob 逐一比对。",
+  "blob 逐一相等：data/topics.json 79cd0a87c89e3575fcbac17c738882489305d676 / data/questions.json 76058ca51f98bfaf6ec52aad998143d5dc40ada5 / data/dependencies.json 28cee1a857b2a05cbb798c738212704addec4a8a / README.md cc60a25e66c45ddfa5b45118ea39162daf9fa426。",
+  "父提交 7dc3d6adf5ea6ad96be5c27761143fbc8060625d 的 README blob 为 76db74d1394e8e2084ae21753d03a73fc937e79c（不等）→ 唯一锁定 d58785cef744341bf02d41e5568ebb953595ab18（2026-10-23T12:40:17Z）。",
+  "本地 topics.json 无任何 cnl_（语文）知识点，排除全部 2026-10-24 的语文提交（语文为上游 10-24 新增，不在本快照内）。",
+  "topics 导入于 2026-10-24、questions 导入于 2026-10-29，但为同一快照（三个数据 blob 全等即证）；日期差只是脚本重跑时间，不是两个 commit。"
+ ],
  "counts": {
   "topics_total_upstream": 1821,
   "topics_imported": 664,

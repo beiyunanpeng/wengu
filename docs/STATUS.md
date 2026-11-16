@@ -265,8 +265,9 @@
 - **下一步（v2.6 决策轮定的顺序）**：① ~~P5-6 口径清理~~、~~P0-3 端到端回归~~、
   ~~P3-3a 手填背诵~~、~~P3-3b 词表导入~~、~~P3-3c 从错题抽词~~、~~P5-1a 配置持久化修复~~、
   ~~P5-1b 首次运行向导 UI~~、~~P1-3e 移动端投递~~、~~P1-3f BOM 剥离~~、
-  ~~P1-13 归并 UI~~、~~P1-13b 归并弹窗取消预选~~ 已完成 → ② 开源分发剩余项：英文 README +
-  独立隐私声明 + 发布打包（P5-5）→ ③ P3-4 听力默写。**PWA 已砍**
+  ~~P1-13 归并 UI~~、~~P1-13b 归并弹窗取消预选~~ 已完成 → ② 开源分发剩余项：英文 README（另票）+
+  发布打包（P5-5 收口票已交付待评审：LICENSE 纯 MIT + `LICENSE-data.md` + `PRIVACY.md` + seed provenance；
+  GitHub 侧元数据/Release 属审核方动作）→ ③ P3-4 听力默写。**PWA 已砍**
   （设计文档 §17-A / §12 反清单）。
 
 ## 2. 总体路线图状态
@@ -278,7 +279,7 @@
 | Phase 2 | 每日任务 + 家长看板 | 进行中 | P2-5 家长看板、P2-4 两角色 + 本地 PIN、P2-6 极简打卡、P2-1 日队列（本轮仅到期复习/考核）、P2-3 课表/日历约束层、P2-2 番茄钟执行、P2-7 打印导出已完成；背诵铺底已随 P3-3a 以独立到期端点 + 复习页入口交付；P2-8 导航 sidebar、P2-9 搜索/掌握态、P2-10 回收站已完成（v2.7）；作业 deadline 与硬事件抬权重未开始 |
 | Phase 3 | 内容与扩展 | 进行中 | P3-1 家长录题（真题入库审核流水线）+ P3-1b 家长题接入检索池 + P3-1c 题库修订/软作废 + P3-2 主动加练变式 + **P3-3a 家长手填英语背诵** + **P3-3b 词表批量导入** + **P3-3c 从错题抽词**已完成；P3-5 前置（语文/化学家长自建章级 seed）已交付；听力默写、语文客观题、信奥、长期计划未开始 |
 | Phase 4 | 基础设施演进 | 进行中 | **P4-1 Tailscale 可达性 + 默认只绑回环已合并**（PR#39；两项待试用机实测：`tailscale serve` CLI 形式、sidecar 路径 A 运行时验证）；**P4-1b 部署面命令体检已合并**（PR#40 → `6f6c4cf`；死 `make backup`/`.PHONY restore` 删除、`make dev-api` 默认回环、`make lint --no-cache`、`seeds/README.md --src` 层级、`docs/manuals` 空骨架清理）；P4-1c 命令行备份入口已合并（PR#41 → `8bbef94`；CLI 只调 `create_backup`，与 UI 同目录同命名同 10 份轮转、无 PIN、Windows 计划任务示例已实测）；**P4-4 后端健壮性与可观测性小修已交付**（2026-11-13，待评审；seed 显式降级 + 迁移 0023 `occurred_at` 索引 + `save_config` 改 `to_thread` + 0013/0019 回退说明）；**P4-6 公式题判分已交付**（2026-11-13，待评审；受限 LaTeX 子集 + `sympy` 等值、不可判降级自评标 `formula_fallback`、不引入 antlr、`requirements.txt` 零变化）；P4-2 可移植部署、P4-3 可选本地模型未开始 |
-| Phase 5 | 开源分发与打包 | 部分完成 | LICENSE / README / CHANGELOG / `.env.example` / 第三方署名已就位；P5-2 备份 v1（导出一致性快照 + 停机恢复脚本）已交付；首次运行向导、在线恢复、云备份 / 清空级联、鉴权开关、教材包安装器未做 |
+| Phase 5 | 开源分发与打包 | 部分完成 | LICENSE / README / CHANGELOG / `.env.example` / 第三方署名已就位；**P5-5 开源基线收口已交付**（2026-11-16，待评审；LICENSE 恢复纯 MIT + 数据许可另置 `LICENSE-data.md` + 独立隐私声明 `PRIVACY.md` + seed 快照 provenance 钉死 `d58785ce` + `--upstream-commit` 显式探测；英文 README 另票，仓库元数据/首个 Release 属审核方侧 GitHub 动作、未做）；P5-2 备份 v1（导出一致性快照 + 停机恢复脚本）已交付；首次运行向导、在线恢复、云备份 / 清空级联、鉴权开关、教材包安装器未做 |
 
 ## 3. Phase 1 工单完成情况（v2.5 收口后）
 
@@ -1105,7 +1106,8 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
    本地 `.json`，原文直发 `POST /api/imports`、422 逐行报错；后端零改动、无迁移。
    ~~**P1-3f BOM 显式剥离**~~ 已完成（2026-11-04）：`submitRaw` 先剥 `^\uFEFF+` 再 trim，
    带/不带 BOM 同一 sha256；e2e 第 9 条；无迁移、无新依赖。
-   **下一步开源分发剩余项：英文 README + 独立隐私声明 + 发布打包（P5-5）**；不引入语音/ASR。
+   **下一步开源分发剩余项：英文 README（另票）+ 发布打包（P5-5 收口票已交付待评审：独立隐私声明
+   `PRIVACY.md`、`LICENSE-data.md`、seed 快照 provenance 已就位；GitHub 侧元数据/Release 属审核方动作）**；不引入语音/ASR。
 2. **P1-7b 前置回溯诊断**：`prerequisite_edges` 已装载，固定种子 `replay` 必须可重建。
 3. **复习掌握度归因**：把已确认 concept 写入事实，让 mastery 不再恒 0.0。
 4. **外部转录质量实测（P0-1 新口径）**：用真实已批改卷 / 空白真题跑两个模板，统计 `〔?〕` 率、
@@ -1169,7 +1171,7 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
 | P5-2 | 部分完成 | 已完成：家长区导出 `VACUUM INTO` 一致性快照 + `uploads`/`seeds_local`/未处理 `inbox` + **`app-config.json`（P5-1a 起）** 打包 + manifest（sha256/表计数/迁移版本），保留最近 10 份；`scripts/restore.ps1` 停机整库替换 + 恢复文档。未做：在线热恢复、可选加密云备份、清空级联清理 |
 | P5-3 | 未开始 | 可选密码 session 鉴权（默认关）；README 醒目警告公网暴露风险 |
 | P5-4 | 未开始 | 教材 seed 包机制：多教材可安装可切换（mappings 机制已有，安装 UI 未做） |
-| P5-5 | 部分完成 | **已在盘上**：LICENSE / 中文 README / CHANGELOG / `wengu-api/.env.example` / 第三方署名（`THIRD-PARTY-NOTICES.md`）/ 两法点名（README §安全与合规）。**仍缺**：**英文 README**（此前本行写"中英 README 已就位"属过实，2026-11-02 审计修正）、**独立隐私声明文档**、发布打包 |
+| P5-5 | 部分完成 | **已在盘上**：LICENSE（P5-5 恢复纯 MIT）/ 中文 README / CHANGELOG / `wengu-api/.env.example` / 第三方署名（`THIRD-PARTY-NOTICES.md`）/ 两法点名（README §安全与合规）。**P5-5 收口票已交付（2026-11-16，待评审）**：`LICENSE-data.md`（CC BY-NC 4.0 分层 + 快照 `d58785ce` 取证）、`PRIVACY.md`（数据本土化 + 外部转录上云字段 + 监护人单独同意 + 离线 `/import`）、两 source 文件 provenance 键、`--upstream-commit` 探测参数、README 克隆地址/口径校正。**仍缺**：**英文 README**（另票；此前本行写"中英 README 已就位"属过实，2026-11-02 审计修正）、发布打包（仓库 description/topics/homepage、首个 Release、Discussions 属审核方侧 gh 动作，未做） |
 | P5-6 | 部分完成 | 交付口径与盘上一致性清理（v2.6 审计新增）。**已完成孤儿表切片**：迁移 0019 DROP `problem_extractions`/`photo_capture_items`/`photo_captures`（可逆、含备份说明、不留悬空 FK）、删 ORM 类与备份表计数，业务表 22 → 19，见 §4.18。**剩余**：Phase 5 行与 §7 表格的进一步口径复核；见 `docs/audit/pr1-24-retrospective.md` |
 | P5-7 | 已完成 | **转录可选包 T1（2026-11-12，PR #49 已合）**：`transcribe/` 随仓库分发（SOP README + CONTRACT + 纯标准库 `validate.py` + 契约镜像 + 通用 Skill + 13 条脱敏 fixtures）；不进 requirements/镜像/CI 主链依赖。包内修复：GBK 控制台编码、selfcheck 增 portable Skill 校验、2 处 UP038。三方字段对齐留 P5-8 |
 | P5-8 | 已完成 | **转录契约收口 T2（2026-11-13，待评审）**：契约 `fields` 补 `correction_notes:500`→10 键与后端一致、`template.version`→2、`status`→active；模板保持 v2（只补施工方口径、未改模型指令/schema_fields，故不升 v3）；`verify` 声明题库专用（`bank_only_fields`），selfcheck 按「契约字段−bank_only==模板 schema_fields」显式判定 + 模板 id 断言 + 回归目录存在检查；模板/旧 Skill 回归目录改指 `transcribe/evals/`、旧 Skill 存档迁移并删本机绝对路径；后端新增行为锚定测试消费同一批 fixtures（可证伪）；CI 增独立 transcribe job（不装额外包）。实跑 selfcheck 18 OK/0 DRIFT/0 WARN、evals 13/13、全量 602 passed、ruff/build 绿 |
