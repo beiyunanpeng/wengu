@@ -9,6 +9,30 @@
 
 ### Added
 
+- **P5-12 上游更新检查脚本（v2.8 §19-F-1 后续；纯开发者侧；零应用改动、零新依赖、零迁移）**（2026-11-17）：
+  - **新脚本 `wengu-api/scripts/check_upstream.py`**（唯一跑法 `python wengu-api/scripts/check_upstream.py`，
+    手动跑；不进 CI cron / make 目标 / 应用）：从 `seeds/data/_source.json` 读 `upstream_commit` 钉死快照
+    （不硬编码；缺文件/缺键 → 明确报错）；stdlib `urllib` 只读 GET、无鉴权、无 token
+    （`commits?path=data&per_page=1`）取最新触及 `data/` 的 commit sha + 日期。sha 相同 → 报"已同步" exit **0**；
+    不同 → 按 raw.githubusercontent 下载该 sha 的 `data/{topics,dependencies,questions}.json`，**只算不写**：
+    topics 总数/分带/分科、deps、questions 逐指标 delta + **未知前缀点名**（`SUBJECT_BY_PREFIX` 之外的前缀
+    只报告、不引入）；人读报告（`--json` 可选），exit **1** = 有更新；网络失败 / 403 限流 → 明确报错 exit **2**，
+    **不猜、绝不静默当"已同步"**。`--pinned <sha>` 复检模式：对比指定快照与仓内数据，delta 全 0 → exit 0。
+    网络薄壳与纯解析/计算分层（网络层无业务逻辑）；计算函数不接受任何路径参数；**无状态、不落盘缓存**，
+    留痕 = 贴报告；对 `seeds/data/` 零写入。
+  - **实跑自证**：`--pinned d58785ce…` 对仓内真数据 delta **全 0**，报告数字逐字 == 两个 source JSON `counts`
+    （1821/450/664/707、2917、7431/1800/2803/2828）；常规模式实跑发现上游已动（`8b57f2e3`，2026-11-15）：
+    topics 1821→3557、questions 7431→14375，未知前缀 cnb_/cnc_/cnd_/cng_/cnh_/cnk_/cns_ 点名上报（exit 1）。
+    **同步永远是另一票**（重导入 + §19-F-1 重新取证 + 重新策展 + 新学科是否引入等产品决策，人工决定）；
+    本票不动 `seeds/data/`、不动 `upstream_commit`。
+  - **测试**：新增 `tests/unit/test_check_upstream.py` **42 条**（API 响应解析字面 / 分带分科字面 /
+    `cnl_` fixture 点名 / delta 字面钉死：上游 schema 投影 fixture vs 仓内真数据全 0 + 本地 stats == source counts /
+    pinned sha 从 tmp `_source.json` 读取 / 零写入三重守卫：计算函数签名 + CLI 选项 + 源码扫描 /
+    常量与两 import 脚本漂移守卫 / main 编排三态 monkeypatch 网络边界）；**两处变异实弹各 RED → 还原 GREEN**
+    （① 删 topics 侧未知前缀检测 4 红；② 删 questions 侧检测 2 红）。全量 pytest **875 passed**（833 基线 + 42 新）。
+  - **文档**：`seeds/README.md` 新增「上游更新检查」段（何时跑 / 怎么读报告 / 发现更新后走 §19-F-1 重取证流程，
+    明确"同步是另一票"）；`docs/STATUS.md` 下一步口径。顺带清理 `seeds/README.md:11`「初中包」残句
+    （→ 全量包（小学+初中+高中））与 STATUS P5-10 bullet 状态行（→ 已合并 2026-11-17，PR#63 → main `6edd2b8`）。
 - **P5-10 全量收录小学与高中 seed（v2.8 §19-G-1 后半；改变数据面；零迁移、零新依赖）**（2026-11-17）：
   - **数据面**：同一上游快照 `d58785ce` 全量内置——知识点 **1821**（小学 450 / 初中 664 / 高中 707）、
     先修边 **2917**（跨学段边不再丢弃，初中→小学 74 条回溯复活）、题库 **7431**（小学 1800 / 初中 2803 /
