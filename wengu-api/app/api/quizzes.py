@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import re
 import secrets
 from datetime import date
 from typing import Literal
@@ -18,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.session import require_parent
 from app.core.database import get_session
+from app.core.runtime_config import seed_grade_ceiling
 from app.schemas.quiz import QuizQuestionView, quiz_view
 from app.services.bank import get_runtime_bank, is_answerable
 from app.services.quiz import (
@@ -124,11 +126,14 @@ async def quiz_topics(
     """可组卷的知识点（seed 题库 + 已入库家长题，无模型调用）。"""
 
     bank = await get_runtime_bank(session)
+    ceiling = seed_grade_ceiling()
     keyword = (q or "").strip()
     rows: list[QuizTopicInfo] = []
     for topic_id, meta in bank.topics.items():
         questions = bank.questions_for(topic_id)
         if not questions:
+            continue
+        if not _within_grade_scope(meta.get("grade"), ceiling):
             continue
         meta_subject = str(meta.get("subject") or "")
         name = str(meta.get("name") or topic_id)
@@ -288,3 +293,18 @@ async def submit_quiz_paper(
 
 def _optional(value: object) -> str | None:
     return value if isinstance(value, str) and value.strip() else None
+
+
+def _within_grade_scope(grade: object, ceiling: int) -> bool:
+    """与 api/seed.py 的 SQL `cast(grade, Integer)` 同一把尺（P5-9）。
+
+    meta 的 grade 可能是 int（seed JSON）、数字字符串（DB Text 列）或 None；
+    NULL 一律保留；非数字文本按 SQLite CAST 语义得 0，恒保留（不藏解析不了的点）。
+    """
+
+    if grade is None:
+        return True
+    if isinstance(grade, int) and not isinstance(grade, bool):
+        return grade <= ceiling
+    match = re.match(r"\s*[+-]?\d+", str(grade))
+    return (int(match.group()) if match else 0) <= ceiling

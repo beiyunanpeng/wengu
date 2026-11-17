@@ -4,15 +4,27 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
-from sqlalchemy import Integer, func, select
+from sqlalchemy import Integer, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.database import get_session
+from app.core.runtime_config import seed_grade_ceiling
 from app.models import KnowledgeSeed, PrerequisiteEdge
 from app.seed.loader import load_mappings
 
 router = APIRouter(tags=["seed"])
+
+
+def _grade_scope_condition():
+    """学段作用域（P5-9）：grade 是 Text 列，直接 <= 走字典序（'16' <= '9' 为真），
+    必须显式 cast 成 Integer；NULL（家长自建点）一律保留。只收窄主动选择面，
+    先修边/回溯/复习队列不受此条件影响。"""
+
+    return or_(
+        KnowledgeSeed.grade.is_(None),
+        func.cast(KnowledgeSeed.grade, Integer) <= seed_grade_ceiling(),
+    )
 
 
 class SubjectSummary(BaseModel):
@@ -64,7 +76,9 @@ async def seed_summary(session: AsyncSession = Depends(get_session)) -> SeedSumm
                 # Boolean 列直接 sum 会被 SQLAlchemy 结果处理器转成 True/False，必须显式转 Integer
                 func.sum(func.cast(KnowledgeSeed.unaudited, Integer)),
                 func.sum(func.cast(KnowledgeSeed.blind_verified, Integer)),
-            ).group_by(KnowledgeSeed.subject)
+            )
+            .where(_grade_scope_condition())
+            .group_by(KnowledgeSeed.subject)
         )
     ).all()
     subjects = {
@@ -95,7 +109,7 @@ async def seed_topics(
     offset: int = Query(default=0, ge=0),
     session: AsyncSession = Depends(get_session),
 ) -> TopicListResponse:
-    conditions = []
+    conditions = [_grade_scope_condition()]
     if subject:
         conditions.append(KnowledgeSeed.subject == subject)
     if q:

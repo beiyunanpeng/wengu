@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -409,3 +410,30 @@ async def test_paper_self_eval_downgrade_requires_verdict_and_blank_is_skipped(
             },
         )
         assert unknown_topic.status_code == 404
+
+
+@pytest.mark.integration
+async def test_quiz_topics_narrowed_by_grade_ceiling(tmp_path, monkeypatch) -> None:
+    """P5-9：真实 seed 题库（664 点全为 7–9）——ceiling=6 时选择面清零、
+    ceiling=9 与默认逐字相同（零变化）。过滤在服务端，前端不读配置值。"""
+
+    factory = _migrated(tmp_path)
+    config_path = tmp_path / "app-config.json"
+    monkeypatch.setenv("WENGU_APP_CONFIG", str(config_path))
+
+    async with _client(factory) as client:
+        default = await client.get("/api/quizzes/topics", params={"limit": 200})
+        assert default.status_code == 200, default.text
+        default_total = default.json()["total"]
+        assert default_total > 0
+
+        config_path.write_text(json.dumps({"seed_grade_ceiling": 9}), encoding="utf-8")
+        nine = await client.get("/api/quizzes/topics", params={"limit": 200})
+        assert nine.status_code == 200, nine.text
+        assert nine.json()["total"] == default_total
+
+        config_path.write_text(json.dumps({"seed_grade_ceiling": 6}), encoding="utf-8")
+        six = await client.get("/api/quizzes/topics", params={"limit": 200})
+        assert six.status_code == 200, six.text
+        assert six.json()["total"] == 0
+        assert six.json()["items"] == []

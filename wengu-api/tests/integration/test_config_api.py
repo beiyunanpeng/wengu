@@ -104,12 +104,14 @@ async def test_put_hot_reloads_due_limit_without_restart(
             "daily_recitation_limit": 5,
             "exam_day_limit_factor": 1.5,
             "setup_completed": False,
+            "seed_grade_ceiling": 16,
         }
         assert body["sources"] == {
             "daily_review_limit": "default",
             "daily_recitation_limit": "default",
             "exam_day_limit_factor": "default",
             "setup_completed": "default",
+            "seed_grade_ceiling": "default",
         }
         assert Path(body["write_path"]) == Path(settings.data_dir) / "app-config.json"
 
