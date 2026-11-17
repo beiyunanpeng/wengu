@@ -2629,3 +2629,29 @@ GitHub 仓库 `description` / `topics` / `homepage`、首个 Release、开启 Di
 把作用域存进 SQLite 新表或 app-config 之外的新位置；改动 `seeds/data/` 任何文件；
 放宽或删改 `test_seed_provenance.py::test_seed_data_not_expanded`。
 ```
+
+> **交付后补记（审核方，2026-11-17；PR#62 squash → main `efd7c1b`，以下不是投单内容）**
+>
+> 1. **零返工**，且实现质量高于卡面要求：SQL 与 Python 两侧**同一把尺**（连 `CAST('七年级')` 得 0 →
+>    恒保留这种怪语义都在 Python 侧逐字复刻，不各说各话）；字典序坑写进 `_grade_scope_condition()` 的
+>    docstring；枚举守卫用**行为探针**（"-2..20 里被接受的整数集合恰为 {6,9,16}"）而不是一句常量断言。
+> 2. **本票暴露两处审核方缺陷**（不由施工方背）：
+>    ① **DoD 双断言互斥**——"ceiling=9 时回溯仍返回小学点，同时该点不出现在 `quiz_topics`"，
+>    上限式作用域下两句不可能同时成立（第 16 次卡面缺陷，类型同 §19-H 的互斥算式）。
+>    施工方**没有**用"无题小学点"当夹具把坏断言测过，而是按正确语义实现、另加测试钉死
+>    （`test_lower_stage_stays_selectable_within_ceiling`）并上报矛盾。→ 已固化成 **§19-L 纪律⑥**：
+>    成对断言出卡前先验"A∧B 在给定条件下是否可满足"，不可满足就改卡、不是改测试。
+>    ② **白名单第三次写窄**——漏了 `test_config_api.py`（`describe_config` 增键的必然连带）与
+>    新建 `src/setup/gradeScope.ts`（前端可单测的前提）；两处施工方都主动标注"白名单外"。
+> 3. 审核方自主变异（换靶点，不在施工方演示的五个里）：默认上限 16→9 → **12 fail**；
+>    quizzes 侧作用域恒真 → **5 fail**；SQL 侧 `<=`→`<`（边界包含性）→ **6 fail**；
+>    还原后三个文件 sha256 与仓库外备份逐一一致。
+> 4. 独立实跑：全量 **824 passed / 317.80s**、`ruff --no-cache` 全仓绿、`selfcheck --strict` 18 OK / 0 DRIFT、
+>    `npm test` 57/57、`tsc` exit 0、build ✓、CI 三 job 绿；零触碰由 `git status --porcelain` 独立复核
+>    （`migrations/`、`seeds/data/`、`app/services/`、`app/models/`、依赖清单全未动）。
+> 5. 一处取证遗留由审核方处置：vite 孤儿进程 PID `39972` 仍监听 `127.0.0.1:5191`
+>    （8011 / 9333 已释放）；施工方按权限拦截**未强行绕过**，做法正确。
+
+<!-- P5-10（全量收录小学 450 点 / 高中 707 点）尚未出卡：本文件此刻没有它的可投单块，
+     出卡时须含——实测启动装载耗时（阈值 3s）、`_source.json` 的 `modified` 与 counts 同步改写、
+     `test_seed_data_not_expanded` 改为断言新条数并改名、ceiling 三档在真实数据下的条目数目视核对。 -->
