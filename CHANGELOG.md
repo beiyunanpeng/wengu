@@ -9,6 +9,36 @@
 
 ### Added
 
+- **P5-9 学段作用域 seed_grade_ceiling（v2.8 §19-G；服务端过滤、零迁移、零新依赖、seed 数据未扩）**（2026-11-16）：
+  - **新配置键 `seed_grade_ceiling`**：字面枚举 `{6, 9, 16}`（6=只小学 / 9=小学+初中 / 16=全部），默认 **16**
+    （现有安装升级零行为变化）；不做多选 list、不做数字输入框。`runtime_config.py` 照 `daily_review_limit` 写法加
+    `_effective_ceiling` + 访问器 + `validate_updates` 枚举分支（bool / 非 int / 不在枚举 → `ConfigError` → PUT 422）；
+    `describe_config` values/sources 增键。`ConfigUpdate` 加 `seed_grade_ceiling: int | None = Field(strict=True)`
+    （strict 拒 `"9"`/bool/float 强转；**票面只提 ConfigResponse，实际必须加 ConfigUpdate 字段否则 extra=forbid 必 422**）。
+  - **服务端过滤（同一把尺）**：`api/seed.py` 的 summary group-by 与 topics 列表加
+    `or_(grade IS NULL, cast(grade, Integer) <= ceiling)`（**文本列字典序地雷：`'16' <= '9'` 为真，必须 cast**）；
+    `api/quizzes.py` 的 quiz_topics 用 `_within_grade_scope` 复刻 SQLite CAST 语义（NULL→保留；int→比较；
+    str→正则取前导整数否则 0→恒保留）。**grade NULL 一律保留**；非数字 grade（如 "七年级"）CAST 得 0 恒保留。
+    **edges_total 与先修回溯不受限**。
+  - **回溯不受限**：PrerequisiteEdge 遍历 / 前置诊断 / 错题已挂载点照常；上限式过滤下低学段恒在范围内，回溯天然安全。
+    诊断端点（P1-7b）尚未存在，回溯断言落 `load_seed` 返回的 `SeedIndex.prerequisites_of` + quiz_topics 排除。
+  - **SetupPage 三档单选**：`src/setup/gradeScope.ts` 纯函数（`GRADE_SCOPE_OPTIONS` 字面 [[6,小学],[9,初中],[16,高中]] +
+    `parseGradeScope`），Radio.Group 文案「只影响可以主动选题的范围，不影响复习与诊断回溯。」；
+    **前端不做任何 ceiling 过滤、不读 ceiling 做筛选**（守卫 grep src 确认含 ceiling 的文件仅 types.ts/SetupPage.tsx 且无 `.filter(`）。
+  - **测试与可证伪**：新增 `tests/unit/test_seed_grade_ceiling.py` **40 条**（枚举字面钉死、字典序主锚点 grade "9"/"16"
+    ceiling=9、同尺+独立重算、默认零变化、NULL ceiling=6、回溯双断言、计数同尺、PIN 挡+列表收窄、HTTP 422/200、前端无过滤守卫）
+    + `test_quiz_api.py` / `test_seed_status.py` 各 1 条集成 + `wengu-web/tests/gradeScope.test.ts` 2 条。
+    **五处变异各 RED → 还原 GREEN**：① 去 cast 改字符串比较（4 红）；② 放开枚举任意 int（8 红）；③ 去 NULL 保留（2 红）；
+    ④ quizzes Python 侧退字符串比较（换靶点，2 红）；⑤ 前端注入 ceiling+`.filter(` 注释（grep 守卫 1 红）。
+  - **验证（本人实跑）**：全量 `pytest -q` **824 passed**（基线 782 + 42 新）、`ruff check --no-cache .` 全仓绿、
+    `npm run lint / test / build` 绿（**57 pass / 0 fail**）；`test_seed_provenance.py` 19 条仍绿；
+    `git diff` 自证 `migrations/**` / `seeds/data/**` / `app/services/**` / `app/models/**` / 依赖清单零改动（9 改 + 3 新）。
+  - **UI 取证（CDP headless Chrome）**：三档切换选择器条目数 10→4→7 + 刷新保持 + 360/412 无横向溢出，15 步全过、
+    9 截图 + report.json 存档 `C:\Users\roc\AppData\Local\Temp\p59-evidence\`（allPass=true、console/http 零错误）。
+  - **审核方需复核**：`test_config_api.py` 白名单外最小 2 行（describe_config 增键的必然连带）；DoD 回溯双断言按
+    "无题前置根因点" 解读（ceiling=9 含小学，"小学点不在 quiz_topics" 仅当该点无题可组才自洽）；基线读盘 `1b67ae2`
+    （票面 `0b8b8e3` / 卡块 `81ce118`）、DoD 基线 763 实为 782；SetupPage card ① 文案微调。
+
 - **P5-5 开源基线收口（v2.8 §19-F / §19-F-1 A 方案；零迁移、零新依赖、前端零改动、seed 数据未扩）**（2026-11-16）：
   - **LICENSE 恢复纯 MIT 规范文本**：删除原 :15-17 插在 MIT 正文中间的第三方数据声明段
     （GitHub 许可证识别器因此判 `NOASSERTION` 的真因）；版权行保留 `Copyright (c) 2026 wengu (温故) contributors`。

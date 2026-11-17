@@ -36,6 +36,9 @@ MAX_EXAM_DAY_LIMIT_FACTOR = 3.0
 DEFAULT_DAILY_RECITATION_LIMIT = 5
 MAX_DAILY_RECITATION_LIMIT = 20
 DEFAULT_SETUP_COMPLETED = False
+DEFAULT_SEED_GRADE_CEILING = 16
+# 学段作用域只允许这三档（6=只小学 / 9=小学+初中 / 16=全部）；不做多选 list。
+SEED_GRADE_CEILINGS = frozenset({6, 9, 16})
 
 ConfigSource = Literal["env", "data", "legacy", "default"]
 ValueSource = Literal["file", "default"]
@@ -133,6 +136,17 @@ def _effective_bool(data: Mapping[str, Any]) -> tuple[bool, ValueSource]:
     return DEFAULT_SETUP_COMPLETED, "default"
 
 
+def _effective_ceiling(data: Mapping[str, Any]) -> tuple[int, ValueSource]:
+    raw = data.get("seed_grade_ceiling")
+    if (
+        isinstance(raw, bool)
+        or not isinstance(raw, int)
+        or raw not in SEED_GRADE_CEILINGS
+    ):
+        return DEFAULT_SEED_GRADE_CEILING, "default"
+    return raw, "file"
+
+
 def describe_config(
     settings: Settings | None = None,
     *,
@@ -154,6 +168,7 @@ def describe_config(
     )
     factor, factor_source = _effective_factor(data)
     completed, completed_source = _effective_bool(data)
+    ceiling, ceiling_source = _effective_ceiling(data)
 
     hint = None
     if location.legacy:
@@ -168,12 +183,14 @@ def describe_config(
             "daily_recitation_limit": recitation_limit,
             "exam_day_limit_factor": factor,
             "setup_completed": completed,
+            "seed_grade_ceiling": ceiling,
         },
         "sources": {
             "daily_review_limit": review_source,
             "daily_recitation_limit": recitation_source,
             "exam_day_limit_factor": factor_source,
             "setup_completed": completed_source,
+            "seed_grade_ceiling": ceiling_source,
         },
         "read_path": str(location.read_path),
         "write_path": str(location.write_path),
@@ -199,6 +216,15 @@ def validate_updates(updates: Mapping[str, Any]) -> dict[str, int | float]:
                 raise ConfigError("setup_completed 必须是布尔值")
             validated[key] = raw
             continue
+        if key == "seed_grade_ceiling":
+            if (
+                isinstance(raw, bool)
+                or not isinstance(raw, int)
+                or raw not in SEED_GRADE_CEILINGS
+            ):
+                raise ConfigError("seed_grade_ceiling 只能是 6、9 或 16")
+            validated[key] = raw
+            continue
         if key == "exam_day_limit_factor":
             if isinstance(raw, bool) or not isinstance(raw, int | float):
                 raise ConfigError("exam_day_limit_factor 必须是数字")
@@ -222,7 +248,9 @@ _RULES: dict[str, tuple[int, int]] = {
     "daily_review_limit": (1, MAX_DAILY_REVIEW_LIMIT),
     "daily_recitation_limit": (1, MAX_DAILY_RECITATION_LIMIT),
 }
-_ALLOWED_KEYS = frozenset({*_RULES, "exam_day_limit_factor", "setup_completed"})
+_ALLOWED_KEYS = frozenset(
+    {*_RULES, "exam_day_limit_factor", "setup_completed", "seed_grade_ceiling"}
+)
 
 
 def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
@@ -304,4 +332,15 @@ def setup_completed(settings: Settings | None = None) -> bool:
     """首次运行向导是否已标记完成；缺失或非布尔时视为未完成。"""
 
     value, _ = _effective_bool(_load(settings))
+    return value
+
+
+def seed_grade_ceiling(settings: Settings | None = None) -> int:
+    """学段作用域上限（6=只小学 / 9=小学+初中 / 16=全部）。
+
+    缺失/非法回退默认 16 = 全量可见，现有安装升级零行为变化。
+    只收窄"能主动选什么"（seed/quiz 选择器与计数），不管复习与诊断回溯。
+    """
+
+    value, _ = _effective_ceiling(_load(settings))
     return value

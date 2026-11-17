@@ -234,3 +234,38 @@ async def test_recovery_after_fixing_seed_flips_status_to_loaded(
         assert good.status_code == 200, good.text
         assert good.json()["seed_loaded"] is True
         assert good.json()["seed_error"] is None
+
+
+async def test_grade_ceiling_hot_reload_through_lifespan(tmp_path, monkeypatch) -> None:
+    """P5-9：学段作用域写 data/app-config.json 后免重启生效；计数与选择面同尺；
+    grade NULL 的家长自建点在任何档位都保留。"""
+
+    settings = _settings(tmp_path)
+    factory = _migrated(settings)
+    data_dir = _seed_data_dir(settings)
+    (data_dir / "topics.json").write_text(
+        json.dumps(
+            [
+                {"id": "cnm_j", "subject": "数学", "name": "初中点", "grade": 9},
+                {"id": "cnm_s", "subject": "数学", "name": "高中点", "grade": 16},
+                {"id": "cnl_z", "subject": "语文", "name": "家长自建点"},
+            ],
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    config_path = Path(settings.data_dir) / "app-config.json"
+    config_path.write_text(json.dumps({"seed_grade_ceiling": 9}), encoding="utf-8")
+
+    async with _lifespan_client(factory, settings, monkeypatch) as client:
+        summary = (await client.get("/api/seed/summary")).json()
+        assert summary["topics_total"] == 2
+        topics = (await client.get("/api/seed/topics", params={"limit": 200})).json()
+        assert {t["id"] for t in topics["items"]} == {"cnm_j", "cnl_z"}
+
+        # 不重启：改文件后下一次请求立即按新档位收窄。
+        config_path.write_text(json.dumps({"seed_grade_ceiling": 6}), encoding="utf-8")
+        summary = (await client.get("/api/seed/summary")).json()
+        assert summary["topics_total"] == 1
+        topics = (await client.get("/api/seed/topics", params={"limit": 200})).json()
+        assert {t["id"] for t in topics["items"]} == {"cnl_z"}

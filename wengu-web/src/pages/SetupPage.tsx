@@ -7,6 +7,7 @@ import {
   Group,
   Loader,
   NumberInput,
+  Radio,
   SimpleGrid,
   Stack,
   Text,
@@ -20,6 +21,7 @@ import { getAppConfig, getSeedSummary, putAppConfig } from "../api/endpoints";
 import type { AppConfig, AppConfigValues, SeedSummary } from "../api/types";
 import ParentGate from "../components/ParentGate";
 import { useParentSession } from "../parent/ParentSession";
+import { GRADE_SCOPE_OPTIONS, parseGradeScope } from "../setup/gradeScope";
 import { useSetupStatus } from "../setup/SetupStatus";
 
 const SUBJECTS = [
@@ -32,13 +34,17 @@ const SUBJECTS = [
 
 type Limits = Pick<
   AppConfigValues,
-  "daily_review_limit" | "daily_recitation_limit" | "exam_day_limit_factor"
+  | "daily_review_limit"
+  | "daily_recitation_limit"
+  | "exam_day_limit_factor"
+  | "seed_grade_ceiling"
 >;
 
 const DEFAULT_LIMITS: Limits = {
   daily_review_limit: 10,
   daily_recitation_limit: 5,
   exam_day_limit_factor: 1.5,
+  seed_grade_ceiling: 16,
 };
 
 function toLimits(values: AppConfigValues): Limits {
@@ -46,6 +52,7 @@ function toLimits(values: AppConfigValues): Limits {
     daily_review_limit: values.daily_review_limit,
     daily_recitation_limit: values.daily_recitation_limit,
     exam_day_limit_factor: values.exam_day_limit_factor,
+    seed_grade_ceiling: values.seed_grade_ceiling,
   };
 }
 
@@ -188,7 +195,7 @@ export default function SetupPage() {
         <Stack gap="sm">
           <Title order={3}>① 学科 seed 覆盖</Title>
           <Text size="sm" c="dimmed">
-            初中 7–9 全量装载；家里一个孩子、全部学科，不按年级过滤。
+            初中 7–9 全量装载；家里一个孩子、全部学科。下方计数随②的「学段作用域」呈现。
           </Text>
           {summaryError && (
             <Alert color="red" variant="light">
@@ -256,6 +263,27 @@ export default function SetupPage() {
                   {config.hint}
                 </Alert>
               )}
+              <Radio.Group
+                label="学段作用域（可主动选题的范围）"
+                description="只影响可以主动选题的范围，不影响复习与诊断回溯。"
+                value={String(limits.seed_grade_ceiling)}
+                onChange={(value) => {
+                  const parsed = parseGradeScope(value);
+                  if (parsed !== null) {
+                    setLimit("seed_grade_ceiling", parsed);
+                  }
+                }}
+              >
+                <Group gap="md" mt="xs" wrap="wrap">
+                  {GRADE_SCOPE_OPTIONS.map((option) => (
+                    <Radio
+                      key={option.value}
+                      value={String(option.value)}
+                      label={option.label}
+                    />
+                  ))}
+                </Group>
+              </Radio.Group>
               <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="sm">
                 <NumberInput
                   label="每日复习上限"

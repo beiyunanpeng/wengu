@@ -34,6 +34,8 @@ class ConfigUpdate(BaseModel):
     daily_recitation_limit: int | None = Field(default=None, ge=1, le=20)
     exam_day_limit_factor: float | None = Field(default=None, ge=1, le=3)
     setup_completed: bool | None = Field(default=None, strict=True)
+    # strict 拒掉 "9"/true 等强转；枚举 {6,9,16} 校验在 validate_updates（422）。
+    seed_grade_ceiling: int | None = Field(default=None, strict=True)
 
     @field_validator(
         "daily_review_limit", "daily_recitation_limit", "exam_day_limit_factor",

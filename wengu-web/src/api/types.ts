@@ -921,6 +921,7 @@ export interface AppConfigValues {
   daily_recitation_limit: number;
   exam_day_limit_factor: number;
   setup_completed: boolean;
+  seed_grade_ceiling: number;
 }
 
 export interface AppConfig {
@@ -938,6 +939,7 @@ export interface ConfigUpdate {
   daily_recitation_limit?: number;
   exam_day_limit_factor?: number;
   setup_completed?: boolean;
+  seed_grade_ceiling?: number;
 }
 
 export interface SetupStatus {
