@@ -8,7 +8,7 @@
 
 ```
 seeds/
-├─ data/                    # 随仓库分发：转换后的 cn-math-taxonomy 初中包（CC BY-NC 4.0）
+├─ data/                    # 随仓库分发：转换后的 cn-math-taxonomy 全量包（小学+初中+高中）（CC BY-NC 4.0）
 │  ├─ topics.json           #   1821 个知识点（小学 450 + 初中 664 + 高中 707；数学 828 + 英语 724 + 物理 269）
 │  ├─ dependencies.json     #   2917 条先修边（跨学段边全量保留；hard/soft）
 │  ├─ questions.json        #   7431 题（小学 1800 + 初中 2803 + 高中 2828；数学 3459 + 英语 2896 + 物理 1076；P1-10）
@@ -49,6 +49,33 @@ provenance 键（`upstream_commit_date` / `upstream_author` / `upstream_spdx` / 
 （camelCase→snake_case）→ 按 id 前缀显式化 `subject`（cnm_=数学、cne_=英语、cnp_=物理）→
 打质量标签 → 先修边跨学段全量保留（收录范围与丢弃数记入 `_source.json`）。
 全量收录 grade 1-16（grade 10-16 语义为"册"）。
+
+## 上游更新检查（开发者，手动跑）
+
+上游 `cn-math-taxonomy` 持续演进（钉死快照 `d58785ce` 之后已新增学科与大量题目）。**发现**靠本脚本 +
+维护者 GitHub Watch 上游仓库兜底；**同步永远是另一票**，人工触发。
+
+```bash
+# 在仓库根目录执行（唯一跑法；不进 CI cron、不进 make 目标、不进应用）
+python wengu-api/scripts/check_upstream.py            # 人读报告
+python wengu-api/scripts/check_upstream.py --json     # 机器可读报告
+python wengu-api/scripts/check_upstream.py --pinned <sha>   # 快照一致性复检（自证）
+```
+
+- **何时跑**：考虑同步上游之前，或定期手动巡检。脚本无状态、不落盘缓存，留痕 = 贴报告。
+- **怎么读报告**：exit **0** = 已同步（上游最新触及 `data/` 的 commit == `_source.json` 的
+  `upstream_commit`）；exit **1** = 有更新（按 raw.githubusercontent 下载该 sha 的
+  `data/{topics,dependencies,questions}.json`，**只算不写**，报告 topics 总数/分带/分科、deps、
+  questions 的逐指标 delta，并**点名未知前缀**——`SUBJECT_BY_PREFIX` 之外的前缀只报告、不引入）；
+  exit **2** = 检查失败（缺文件/缺键、网络失败、403 限流）——**绝不静默当"已同步"**，稍后重试或人工排查。
+  只读 GET、无鉴权、无 token；对 `seeds/data/` 零写入。
+- **`--pinned <sha>` 复检模式**：对比指定上游快照与仓内数据，delta 全 0 → exit 0。
+  自证例：`--pinned d58785cef744341bf02d41e5568ebb953595ab18` 应 delta 全 0，且数字与两个
+  source JSON 的 `counts` 逐字一致。
+- **发现更新后的流程**：同步 = 重导入（`import_seed.py` / `import_questions.py`）+
+  **按设计文档 §19-F-1 重新取证、重新策展**（provenance 键是旧快照的取证工件，不得沿用）+
+  "新学科（如语文）是否引入"等产品决策——**全部另票、人工决定**。本脚本不自动创建 issue/PR、
+  不自动重导入、不动 `upstream_commit`。
 
 ## 题库（P1-10，同类题考核的数据源）
 
