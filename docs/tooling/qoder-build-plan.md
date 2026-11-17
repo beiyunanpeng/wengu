@@ -2746,3 +2746,21 @@ GitHub 仓库 `description` / `topics` / `homepage`、首个 Release、开启 Di
 - 把 `seed_grade_ceiling` 默认值改成 9（定案是 16）；改动 `app/api/seed.py` / `app/api/quizzes.py` 的 ceiling 逻辑；
 - 只改文档不改测试，或只改测试不改文档（两侧必须同步，否则"文档与盘上一致"立刻破）。
 ```
+
+**交付后补记（2026-11-17，审核方）**：PR#63 squash（含修复轮 `08a3007`）→ main `6edd2b8`，分支已删。
+验收全部独立复算通过：1821 = 450/664/707、2917（六种边带、无悬空）、7431 = 1800/2803/2828；
+`load_bank` 5996/1435/267/`dropped={}` 与 `load_quality` 逐键相等；初中子集与 `origin/main` 旧 blob
+筛 7–9 后逐条语义全等；TSV 665 行零 diff；策展键原值未动；833 passed / ruff / selfcheck 18 OK /
+前端 57 + tsc + build / CI 三 job 全绿。自主变异换靶点：导出常量改 `range(7,11)` 双红、
+`DEFAULT_SEED_GRADE_CEILING 16→9` 12 红、合成矛盾题探针证实 `verify_mismatch` 丢弃路径活着。
+
+**修复轮 1**：CI api 唯一红 = `test_tsv_stays_junior_scoped` 逐字节比对。根因是 `export()` 的
+`write_text("\n".join(...))` 换行随平台——Windows 产物 CRLF 与仓库 CRLF blob 相等（本机绿），
+Linux 产物 LF（CI 红）。这是**审核方新增断言的跨平台盲区**，不是数据或过滤逻辑缺陷。
+修复 `08a3007`：`open(..., newline="\r\n")` 写死，单文件 +3/−1、TSV 零 diff、断言未放宽，
+审核方复验后合并。教训固化为设计文档 §19-L 纪律⑦（跨平台字节级守卫必须写死换行/编码）。
+
+**登记两条**：① 白名单漏 4 个必然连带测试文件（`test_import_questions` / `test_reviews_api` /
+`test_bank_runtime` / `test_bank_lifecycle`），审核方白名单第 4 次写窄；② 10 处文档口径清单漏
+`seeds/README.md`，审核方第 17 次卡面缺陷——裁定另票清理（含 CHANGELOG P5-9 词条"升级零行为变化"
+失效括注、`load_bank` 耗时措辞改"约 1.3–1.5 s"）。施工方两处都如实上报、未静默扩面，处理正确。

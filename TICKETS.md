@@ -1342,6 +1342,28 @@
   为容纳 list 值而扩 `validate_updates` 的类型系统；把作用域存进 SQLite 新表或 app-config 之外的新位置。
 
 ### P5-10 全量收录小学与高中 seed（v2.8 §19-G-1 的后半；改变数据面；零迁移、零新依赖）
+- **状态：已合并（2026-11-17，PR#63 squash（含修复轮 `08a3007`）→ main `6edd2b8`；原分支 `feat/p5-10-full-seed` 已删）**。
+  验收（审核方独立复算，不采信自述）：数据自数 **1821 = 450/664/707**、**2917**（边带 初初 1018 / 初小 74 /
+  小初 620 / 高高 1006 / 高初 196 / 高小 3，无悬空端点）、**7431 = 1800/2803/2828**（topicId→grade 关联，0 悬空）；
+  `load_bank` 实测 verified **5996** / unverifiable **1435** / figures **267** / `dropped={}`，
+  reasons 七键与 `load_quality.full` **逐键相等**；耗时 `load_bank` 1.52 s、`load_seed` 冷 0.36 s（阈值 3 s）；
+  初中子集用 `git show origin/main` 旧 blob 与现文件各自筛 7–9 后**逐条语义全等**（664/2803/1018）；
+  TSV 665 行、664 数据行 grade 全 ∈ {7,8,9}、对 HEAD 零 diff；策展键（`upstream_commit` / `commit_evidence` /
+  spdx）逐字未动。全量 **pytest 833 passed**、`ruff --no-cache` 全仓绿、`selfcheck --strict` 18 OK / 0 DRIFT /
+  0 WARN、前端 57 + tsc + build 绿、CI 三 job 绿。自主变异（换靶点）：导出常量 `range(7,10)→range(7,11)` →
+  **双红**；`DEFAULT_SEED_GRADE_CEILING 16→9` → **12 红**；合成矛盾题探针 → `dropped={'verify_mismatch':1}`
+  且不入库（丢弃路径活着；真实数据 mismatch=0 是真的没有矛盾，不是静默收下）。变异还原 sha256 一致。
+- **修复轮 1（CI api 1 failed，其余两 job 绿）**：唯一红 `test_tsv_stays_junior_scoped` 的逐字节比对——
+  `export()` 用 `write_text("\n".join(...))`，换行随平台：Windows 翻成 CRLF 恰与仓库 CRLF blob 相等（本机绿），
+  Linux 产出 LF（CI 红）。`08a3007` 改 `open(..., newline="\r\n")` 写死修复：单文件 +3/−1、TSV 零 diff、
+  **断言未放宽**；审核方复验（diff 范围 / 字节 / 15 passed / CI 三绿）通过后合并。
+  归因：**审核方新增断言的跨平台盲区**（Windows 绿 ≠ CI 绿），固化为 §19-L 纪律⑦。
+- **两条登记**：
+  ① 票面白名单漏 4 个**必然连带**的测试文件（`test_import_questions` 夹具补 grade + 新增 2 条参数化守卫、
+     `test_reviews_api` 的 thin 测试改受控合成池、`test_bank_runtime` / `test_bank_lifecycle` 物理基线
+     368→1076 等）——审核方白名单**第 4 次写窄**；施工方逐个单列上报而非静默扩面，是合规动作。
+  ② 10 处文档口径清单**漏了 `seeds/README.md`**（审核方第 17 次卡面缺陷，认领）——施工方如实上报、
+     未擅自扩面；裁定**另票清理**（连同 CHANGELOG P5-9 词条"升级零行为变化"的失效括注与耗时措辞）。
 - **前置**：P5-9 学段作用域已上线（`seed_grade_ceiling`，默认 16）。
   **顺序不可反**——AGENTS §7 写死"先写消费逻辑（过滤 + 测试），再加采集字段"，
   作用域先被证伪，扩数据才是纯增益、可回滚。
