@@ -1,5 +1,5 @@
 {
- "name": "cn-math-taxonomy（初中部分）",
+ "name": "cn-math-taxonomy（全量：小学+初中+高中）",
  "upstream_url": "https://github.com/xiaoyang111222/cn-math-taxonomy",
  "upstream_commit": "d58785cef744341bf02d41e5568ebb953595ab18",
  "upstream_commit_date": "2026-10-23T12:40:17Z",
@@ -8,11 +8,11 @@
  "code_spdx": "MIT",
  "upstream_license": "CC BY-NC 4.0",
  "nc_statement": "限个人非商用：署名 + 非商业使用（CC BY-NC 4.0 §3(a)）",
- "imported_at": "2026-10-24",
+ "imported_at": "2026-11-17",
  "imported_by": "wengu-api/scripts/import_seed.py",
- "filter": "grade 7-9（初中）；dependencies 仅保留两端点均在装载集内的边",
- "grade_semantics_note": "上游 grade 10-16 语义为'册'（高中），本次未导入",
- "modified": "已修改：仅取初中子集（grade 7-9），跨学段先修边已丢弃；现库 664 知识点 / 1018 先修边；字段名 camelCase→snake_case，并附加 unaudited / blind_verified 质量标签",
+ "filter": "grade 1-16（小学+初中+高中）；dependencies 仅保留两端点均在装载集内的边",
+ "grade_semantics_note": "上游 grade 10-16 语义为'册'（高中）；本次收录：grade 1-16（小学+初中+高中）",
+ "modified": "已修改：全量收录（grade 1-16，小学+初中+高中），按学段作用域（seed_grade_ceiling，默认 16）呈现；先修边全量保留、跨学段边不再丢弃；字段名 camelCase→snake_case，并附加 unaudited / blind_verified 质量标签（blind_verified 仅初中数学做过二遍盲解）",
  "disclaimer": "上游自述：AI 生成初稿、未经一线教师审核（unaudited: true）；仅初中数学做过二遍盲解复核（mismatch=0），英语/物理答案与 verify 同源、无二遍盲解，作为参考冷启动、家长复核后再用",
  "snapshot_source": "GitHub zip of main（无 .git），upstream_commit 由内容寻址反查钉死",
  "commit_evidence": [
@@ -24,13 +24,23 @@
  ],
  "counts": {
   "topics_total_upstream": 1821,
-  "topics_imported": 664,
+  "topics_imported": 1821,
   "topics_by_subject": {
-   "英语": 257,
-   "数学": 315,
-   "物理": 92
+   "英语": 724,
+   "数学": 828,
+   "物理": 269
   },
-  "dependencies_imported": 1018,
-  "dependencies_dropped_cross_boundary": 74
+  "topics_by_band": {
+   "primary": 450,
+   "junior": 664,
+   "senior": 707
+  },
+  "grade_bands": [
+   "primary",
+   "junior",
+   "senior"
+  ],
+  "dependencies_imported": 2917,
+  "dependencies_dropped_cross_boundary": 0
  }
 }

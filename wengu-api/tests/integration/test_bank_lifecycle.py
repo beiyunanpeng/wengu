@@ -368,7 +368,7 @@ async def test_void_and_unvoid_move_item_out_of_runtime_pool(tmp_path: Path) -> 
         external_id = created.json()["items"][0]["external_id"]
 
         before_bank = await _runtime_bank(factory)
-        assert before_bank.stats.by_subject["物理"] == 369
+        assert before_bank.stats.by_subject["物理"] == 1077  # P5-10 全量基线 1076 + 1
         assert any(
             question.id == external_id
             for question in before_bank.questions_for(PHYSICS_TOPIC)
@@ -402,7 +402,7 @@ async def test_void_and_unvoid_move_item_out_of_runtime_pool(tmp_path: Path) -> 
         assert all_view.json()["total"] == 1
 
         after_void = await _runtime_bank(factory)
-        assert after_void.stats.by_subject["物理"] == 368
+        assert after_void.stats.by_subject["物理"] == 1076
         assert external_id not in after_void.by_id
         assert all(
             question.id != external_id
@@ -426,7 +426,7 @@ async def test_void_and_unvoid_move_item_out_of_runtime_pool(tmp_path: Path) -> 
         assert repeated_restore.json() == restored.json()
 
         after_restore = await _runtime_bank(factory)
-        assert after_restore.stats.by_subject["物理"] == 369
+        assert after_restore.stats.by_subject["物理"] == 1077
         assert external_id in after_restore.by_id
         assert replay(old_pick, bank=after_restore) == old_pick
 

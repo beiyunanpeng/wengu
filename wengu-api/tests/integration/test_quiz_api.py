@@ -24,7 +24,7 @@ from app.models import (
     LearningEvent,
     Mistake,
 )
-from app.seed.bank import BankQuestion
+from app.seed.bank import BankQuestion, load_bank
 from app.services.bank import get_bank
 from app.services.recompute import Event as RecomputeEvent
 from app.services.recompute import mastery
@@ -414,26 +414,57 @@ async def test_paper_self_eval_downgrade_requires_verdict_and_blank_is_skipped(
 
 @pytest.mark.integration
 async def test_quiz_topics_narrowed_by_grade_ceiling(tmp_path, monkeypatch) -> None:
-    """P5-9：真实 seed 题库（664 点全为 7–9）——ceiling=6 时选择面清零、
-    ceiling=9 与默认逐字相同（零变化）。过滤在服务端，前端不读配置值。"""
+    """P5-9/P5-10：受控夹具（grade 3/7/12 三点、各有一题）——ceiling=6 只留小学、
+    ceiling=9 留小学+初中、默认 16 全见。grade 12 点是字典序反例：不 cast 时
+    '12' <= '9' 会误放行。全量收录后真实库不再全为 7–9，故不再依赖真实库学段分布。
+    过滤在服务端，前端不读配置值。"""
+
+    seeds = tmp_path / "seeds"
+    (seeds / "data").mkdir(parents=True)
+    (seeds / "data" / "topics.json").write_text(
+        json.dumps(
+            [
+                {"id": "t_primary", "subject": "数学", "name": "小学点", "grade": 3},
+                {"id": "t_junior", "subject": "数学", "name": "初中点", "grade": 7},
+                {"id": "t_senior", "subject": "数学", "name": "高中点", "grade": 12},
+            ],
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (seeds / "data" / "questions.json").write_text(
+        json.dumps(
+            [
+                {"id": f"{tid}_q1", "topic_id": tid, "type": "numeric",
+                 "difficulty": "basic", "prompt": "1+1=?", "answer": "2", "explanation": ""}
+                for tid in ("t_primary", "t_junior", "t_senior")
+            ],
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    bank = load_bank(seeds)
+
+    async def fake_runtime_bank(session):
+        return bank
+
+    monkeypatch.setattr("app.api.quizzes.get_runtime_bank", fake_runtime_bank)
 
     factory = _migrated(tmp_path)
     config_path = tmp_path / "app-config.json"
     monkeypatch.setenv("WENGU_APP_CONFIG", str(config_path))
 
-    async with _client(factory) as client:
-        default = await client.get("/api/quizzes/topics", params={"limit": 200})
-        assert default.status_code == 200, default.text
-        default_total = default.json()["total"]
-        assert default_total > 0
+    async def reading() -> tuple[int, set[str]]:
+        async with _client(factory) as client:
+            response = await client.get("/api/quizzes/topics", params={"limit": 200})
+            assert response.status_code == 200, response.text
+            body = response.json()
+            return body["total"], {item["topic_id"] for item in body["items"]}
 
-        config_path.write_text(json.dumps({"seed_grade_ceiling": 9}), encoding="utf-8")
-        nine = await client.get("/api/quizzes/topics", params={"limit": 200})
-        assert nine.status_code == 200, nine.text
-        assert nine.json()["total"] == default_total
+    assert await reading() == (3, {"t_primary", "t_junior", "t_senior"})
 
-        config_path.write_text(json.dumps({"seed_grade_ceiling": 6}), encoding="utf-8")
-        six = await client.get("/api/quizzes/topics", params={"limit": 200})
-        assert six.status_code == 200, six.text
-        assert six.json()["total"] == 0
-        assert six.json()["items"] == []
+    config_path.write_text(json.dumps({"seed_grade_ceiling": 9}), encoding="utf-8")
+    assert await reading() == (2, {"t_primary", "t_junior"})
+
+    config_path.write_text(json.dumps({"seed_grade_ceiling": 6}), encoding="utf-8")
+    assert await reading() == (1, {"t_primary"})

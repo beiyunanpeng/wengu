@@ -195,7 +195,7 @@ export default function SetupPage() {
         <Stack gap="sm">
           <Title order={3}>① 学科 seed 覆盖</Title>
           <Text size="sm" c="dimmed">
-            初中 7–9 全量装载；家里一个孩子、全部学科。下方计数随②的「学段作用域」呈现。
+            全学段收录（小学/初中/高中）；家里一个孩子、全部学科。下方计数随②的「学段作用域」呈现（初中家庭建议调到 9）。
           </Text>
           {summaryError && (
             <Alert color="red" variant="light">

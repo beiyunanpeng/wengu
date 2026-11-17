@@ -1,4 +1,4 @@
-"""P1-10 真实 seed 题库回归：2803 题全覆盖、固定种子稳定、缺口标记、配图净化。"""
+"""P1-10/P5-10 真实 seed 题库回归：全量 7431 题全覆盖、固定种子稳定、缺口标记、配图净化。"""
 
 from __future__ import annotations
 
@@ -19,21 +19,22 @@ def bank():
 
 @pytest.mark.unit
 def test_real_seed_counts(bank) -> None:
-    assert bank.stats.total == 2803
-    assert bank.stats.by_subject == {"数学": 1407, "物理": 368, "英语": 1028}
-    assert bank.stats.by_type == {"choice": 1824, "numeric": 950, "self": 6, "short": 23}
-    assert bank.stats.topics_total == 664
-    assert bank.stats.topics_with_questions == 664
+    assert bank.stats.total == 7431
+    assert bank.stats.by_subject == {"数学": 3459, "物理": 1076, "英语": 2896}
+    assert bank.stats.by_type == {"choice": 4730, "numeric": 2672, "self": 6, "short": 23}
+    assert bank.stats.topics_total == 1821
+    assert bank.stats.topics_with_questions == 1821
     assert bank.stats.dropped == {}
-    assert bank.stats.verified == 1738
-    assert bank.stats.unverifiable == 1065
+    assert bank.stats.verified == 5996
+    assert bank.stats.unverifiable == 1435
     assert bank.stats.verify_reasons == {
-        "choice_text_mismatch": 35,
+        "choice_text_mismatch": 70,
         "no_verify": 532,
         "sandbox:bad_comprehension_target": 1,
-        "sandbox:forbidden_call": 492,
-        "sandbox:non_integer_exponent": 3,
+        "sandbox:forbidden_call": 824,
+        "sandbox:non_integer_exponent": 4,
         "sandbox:type_error": 2,
+        "sandbox:unknown_name": 2,
     }
 
 
@@ -70,8 +71,15 @@ def test_missing_topic_returns_gap(bank) -> None:
 
 
 @pytest.mark.unit
-def test_physics_thin_math_ok(bank) -> None:
-    assert find_same_type("cnp_001", 7, bank=bank).coverage == "thin"
+def test_full_import_lifts_physics_above_thin_threshold(bank) -> None:
+    """coverage 是学科级稀缺标记（subject_total < 500 → thin）。
+
+    扩段前物理 368 题为 thin；全量后物理 1076 题 ≥ 阈值，thin 标记正当消失。
+    thin 语义本身仍由 tests/unit/test_bank.py 的合成小池守卫。
+    """
+
+    assert bank.stats.by_subject["物理"] == 1076
+    assert find_same_type("cnp_001", 7, bank=bank).coverage == "ok"
     assert find_same_type("cnm_001", 7, bank=bank).coverage == "ok"
 
 
@@ -81,7 +89,7 @@ def test_every_verify_expression_was_checked_at_ingest(bank) -> None:
 
     assert bank.stats.verified + bank.stats.unverifiable == bank.stats.total
     questions = [q for items in bank.by_topic.values() for q in items]
-    assert len(questions) == 2803
+    assert len(questions) == 7431
     assert all(q.verify_status in ("verified", "unverifiable") for q in questions)
     assert all(
         q.verify_reason
@@ -94,7 +102,7 @@ def test_every_verify_expression_was_checked_at_ingest(bank) -> None:
 
 @pytest.mark.unit
 def test_every_seed_standard_answer_judges_itself_correct(bank) -> None:
-    """P1-5 DoD：seed 题库 2803 题的标准答案过 judgeAnswer 全部判对。"""
+    """P1-5/P5-10 DoD：seed 题库全量 7431 题的标准答案过 judgeAnswer 全部判对。"""
 
     checked = 0
     for items in bank.by_topic.values():
@@ -107,7 +115,7 @@ def test_every_seed_standard_answer_judges_itself_correct(bank) -> None:
             )
             assert outcome.verdict == "correct", (question.id, question.answer, outcome)
             checked += 1
-    assert checked == 2803
+    assert checked == 7431
 
 
 @pytest.mark.unit
@@ -138,7 +146,7 @@ def test_choice_distractors_are_judged_wrong(bank) -> None:
             )
             assert outcome.verdict == "wrong", (question.id, distractor, outcome)
             checked += 1
-    assert checked > 1000
+    assert checked == 4730
 
 
 @pytest.mark.unit
@@ -171,7 +179,7 @@ def test_all_figures_are_sanitized(bank) -> None:
         for figure in [question.figure, *(choice.figure for choice in question.choices)]
         if figure
     ]
-    assert len(figures) == 76
+    assert len(figures) == 267
     for figure in figures:
         assert "<script" not in figure
         assert "onload" not in figure

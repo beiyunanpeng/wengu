@@ -249,8 +249,8 @@ async def test_parent_questions_join_physics_pool_and_break_old_replay(
             if question.id.startswith("manual_")
         }
         assert len(dynamic_ids) == 2
-        # 统计随合并池重算：物理总数 +2，仍低于 thin 阈值
-        assert merged.stats.by_subject["物理"] == 370
+        # 统计随合并池重算：物理总数 +2（P5-10 全量后基线 1076，已超 thin 阈值）
+        assert merged.stats.by_subject["物理"] == 1078
         assert merged.stats.total == seed_bank.stats.total + 2
         assert merged.topics[PHYSICS_TOPIC]["name"] == "长度和时间的测量"
 
@@ -269,7 +269,7 @@ async def test_parent_questions_join_physics_pool_and_break_old_replay(
         )
         hot_pick = find_same_type(PHYSICS_TOPIC, hot_seed := reachable, bank=merged)
         assert hot_pick.question_id in dynamic_ids
-        assert hot_pick.coverage == "thin"
+        assert hot_pick.coverage == "ok"
         assert replay(hot_pick, bank=merged).question_id == hot_pick.question_id
         served = await client.get(
             "/api/quizzes/topics", params={"subject": "物理", "q": "长度"}
@@ -377,8 +377,8 @@ async def test_dashboard_bank_gap_closes_when_parent_question_added(
         assert replay(pick, bank=merged) == pick
         assert pick.coverage == "thin"
 
-        # 物理未被本轮补题波及：368 题、仍判 thin
+        # 物理未被本轮补题波及：1076 题（P5-10 全量基线）、超 thin 阈值判 ok
         physics_total = merged.stats.by_subject["物理"]
-        assert physics_total == 368
+        assert physics_total == 1076
         physics_pick = find_same_type(PHYSICS_TOPIC, 1, bank=merged)
-        assert physics_pick.coverage == "thin"
+        assert physics_pick.coverage == "ok"

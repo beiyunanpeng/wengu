@@ -1,5 +1,5 @@
 {
- "name": "cn-math-taxonomy questions（初中部分）",
+ "name": "cn-math-taxonomy questions（全量：小学+初中+高中）",
  "upstream_url": "https://github.com/xiaoyang111222/cn-math-taxonomy",
  "upstream_commit": "d58785cef744341bf02d41e5568ebb953595ab18",
  "upstream_commit_date": "2026-10-23T12:40:17Z",
@@ -8,10 +8,11 @@
  "code_spdx": "MIT",
  "upstream_license": "CC BY-NC 4.0",
  "nc_statement": "限个人非商用：署名 + 非商业使用（CC BY-NC 4.0 §3(a)）",
- "imported_at": "2026-10-29",
+ "imported_at": "2026-11-17",
  "imported_by": "wengu-api/scripts/import_questions.py",
- "filter": "topicId ∈ seeds/data/topics.json（初中 664 点）",
- "modified": "已修改：仅取 topicId ∈ 初中 664 点的题，现库 2803 题；小学/高中题未导入；字段名 camelCase→snake_case",
+ "filter": "topicId ∈ seeds/data/topics.json（小学+初中+高中 1821 点）",
+ "grade_semantics_note": "上游 grade 10-16 语义为'册'（高中）；本次收录：grade 1-16（小学+初中+高中）",
+ "modified": "已修改：全量收录 topicId ∈ 全量 1821 点的题（小学 1800 / 初中 2803 / 高中 2828），按学段作用域呈现；字段名 camelCase→snake_case",
  "disclaimer": "上游自述：AI 生成初稿、未经一线教师审核（unaudited: true）；仅初中数学做过二遍盲解复核（mismatch=0），英语/物理答案与 verify 同源、无二遍盲解，作为参考冷启动、家长复核后再用",
  "snapshot_source": "GitHub zip of main（无 .git），upstream_commit 由内容寻址反查钉死",
  "commit_evidence": [
@@ -23,28 +24,76 @@
  ],
  "counts": {
   "questions_total_upstream": 7431,
-  "questions_imported": 2803,
+  "questions_imported": 7431,
   "questions_by_subject": {
-   "数学": 1407,
-   "物理": 368,
-   "英语": 1028
+   "数学": 3459,
+   "物理": 1076,
+   "英语": 2896
   },
   "questions_by_type": {
-   "choice": 1824,
-   "numeric": 950,
+   "choice": 4730,
+   "numeric": 2672,
    "self": 6,
    "short": 23
   },
   "questions_by_difficulty": {
-   "advanced": 285,
-   "basic": 1289,
-   "standard": 1229
+   "advanced": 355,
+   "basic": 3604,
+   "standard": 3472
   },
-  "questions_with_figure": 52,
-  "choice_figures": 24,
-  "questions_with_verify": 2271,
-  "questions_out_of_scope": 4628,
-  "topics_referenced": 664,
-  "topics_without_questions": 0
+  "questions_by_band": {
+   "primary": 1800,
+   "junior": 2803,
+   "senior": 2828
+  },
+  "grade_bands": [
+   "primary",
+   "junior",
+   "senior"
+  ],
+  "questions_with_figure": 217,
+  "choice_figures": 50,
+  "questions_with_verify": 6899,
+  "questions_out_of_scope": 0,
+  "topics_referenced": 1821,
+  "topics_without_questions": 0,
+  "load_quality": {
+   "measured_at": "2026-11-17",
+   "measured_by": "app.seed.bank.load_bank 实测（P5-10；初中基线取 origin/main 同快照初中子集）",
+   "full": {
+    "verified": 5996,
+    "unverifiable": 1435,
+    "verify_mismatch_dropped": 0,
+    "figures": 267,
+    "unverifiable_reasons": {
+     "choice_text_mismatch": 70,
+     "no_verify": 532,
+     "sandbox:bad_comprehension_target": 1,
+     "sandbox:forbidden_call": 824,
+     "sandbox:non_integer_exponent": 4,
+     "sandbox:type_error": 2,
+     "sandbox:unknown_name": 2
+    }
+   },
+   "junior_baseline": {
+    "verified": 1738,
+    "unverifiable": 1065,
+    "verify_mismatch_dropped": 0,
+    "figures": 76
+   },
+   "newly_added": {
+    "questions": 4628,
+    "verified": 4258,
+    "unverifiable": 370,
+    "verify_mismatch_dropped": 0,
+    "figures": 191,
+    "unverifiable_reasons": {
+     "choice_text_mismatch": 35,
+     "sandbox:forbidden_call": 332,
+     "sandbox:non_integer_exponent": 1,
+     "sandbox:unknown_name": 2
+    }
+   }
+  }
  }
 }

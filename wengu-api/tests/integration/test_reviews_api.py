@@ -30,6 +30,7 @@ from app.models import (
     ReviewSchedule,
     TimetableSlot,
 )
+from app.seed.bank import load_bank
 from app.services.bank import find_same_type, get_bank
 from app.services.review import derive_review_state, quiz_seed
 from httpx import ASGITransport, AsyncClient
@@ -1182,7 +1183,37 @@ async def test_due_queue_falls_back_to_redo_when_topic_has_no_questions(
 
 
 @pytest.mark.integration
-async def test_due_queue_thin_coverage_still_serves_quiz(tmp_path) -> None:
+async def test_due_queue_thin_coverage_still_serves_quiz(tmp_path, monkeypatch) -> None:
+    """P5-10 全量收录后真实库各学科均超 thin 阈值（物理 368→1076），
+    改用受控合成池（物理仅 2 题）钉住 thin 语义：thin 不是 gap，仍正常出题。"""
+
+    seeds = tmp_path / "seeds"
+    (seeds / "data").mkdir(parents=True)
+    (seeds / "data" / "topics.json").write_text(
+        json.dumps(
+            [{"id": "cnp_001", "subject": "物理", "name": "速度", "grade": 8}],
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (seeds / "data" / "questions.json").write_text(
+        json.dumps(
+            [
+                {"id": f"cnp_001_q{i}", "topic_id": "cnp_001", "type": "numeric",
+                 "difficulty": "basic", "prompt": "1+1=?", "answer": "2", "explanation": ""}
+                for i in (1, 2)
+            ],
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    bank = load_bank(seeds)
+
+    async def fake_runtime_bank(session):
+        return bank
+
+    monkeypatch.setattr("app.services.review.get_runtime_bank", fake_runtime_bank)
+
     factory = _migrated(tmp_path)
     await _seed_topic(factory)
     await _seed_topic(factory, topic_id="cnp_001", name="速度", subject="物理")

@@ -2,7 +2,9 @@
 
 用途：`docs/templates/doubao_transcribe_v1.md` 让豆包/千问办公为每题选 `suggested_topic_id`
 时，需要一份紧凑的"知识点 id + 名称"清单。本脚本**只做只读投影**——
-过滤（grade 7–9）与学科映射已在 P1-1b 的 import_seed.py 完成，这里不重造逻辑。
+但学段过滤（grade 7–9）由本脚本**自行**完成（P5-10）：import_seed 已改参数驱动全量收录，
+若继承其收录范围 TSV 会静默涨到全学段（约 1822 行）；故这里显式过滤，输出维持初中-scoped。
+本地自建语文/化学无学段带概念，不受此过滤（仍是转录候选）。
 
 本地自建 seed（语文 `cnl_` / 化学 `cnc_`）按装载器同一顺序合并：
     seeds/local/*.json（开发机）→ <data_dir>/seeds_local/*.json（家长运行时）
@@ -33,8 +35,19 @@ DEFAULT_DATA_DIR = Path(os.environ.get("WENGU_DATA_DIR", API_DIR / "data"))
 DEFAULT_OUT = PROJECT_ROOT / "docs" / "templates" / "topics_junior.tsv"
 
 LOCAL_SUBJECT_PREFIXES = {"语文": "cnl_", "化学": "cnc_"}
+# 转录目录维持初中-scoped（P5-10 定案二）：不继承 import_seed 的收录范围。
+JUNIOR_GRADES = range(7, 10)
 
 COLUMNS = ["topic_id", "subject", "grade", "semester", "name", "domain", "chapter"]
+
+
+def _in_junior_catalog(topic: dict) -> bool:
+    """seed 点按 grade 7–9 收窄；本地自建语文/化学无学段带概念，恒保留。"""
+
+    topic_id = str(topic.get("id", ""))
+    if any(topic_id.startswith(prefix) for prefix in LOCAL_SUBJECT_PREFIXES.values()):
+        return True
+    return topic.get("grade") in JUNIOR_GRADES
 
 
 def _cell(value: object) -> str:
@@ -134,10 +147,13 @@ def export(src: Path, out: Path, local_dirs: list[Path] | None = None) -> dict[s
     for message in warnings:
         print(f"警告：{message}", file=sys.stderr)
 
+    topics = [t for t in topics if _in_junior_catalog(t)]
     rows = build_rows(topics)
     out.parent.mkdir(parents=True, exist_ok=True)
     lines = ["\t".join(COLUMNS)] + ["\t".join(r) for r in rows]
-    out.write_text("\n".join(lines) + "\n", encoding="utf-8")  # 无 BOM
+    # 无 BOM；CRLF 写死：仓库 TSV 与 Windows 产物都是 CRLF，Linux CI 不得退化成 LF
+    with out.open("w", encoding="utf-8", newline="\r\n") as fh:
+        fh.write("\n".join(lines) + "\n")
 
     by_subject: dict[str, int] = {}
     for r in rows:
