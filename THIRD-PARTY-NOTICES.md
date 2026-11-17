@@ -11,15 +11,15 @@
 - **许可**：**Creative Commons Attribution-NonCommercial 4.0 International (CC BY-NC 4.0)**（SPDX `CC-BY-NC-4.0`）；数据许可分层全文与下游义务见仓库根 [`LICENSE-data.md`](./LICENSE-data.md)（代码 MIT 见 [`LICENSE`](./LICENSE)，整体不称 OSI 开源软件）
 - **许可全文**：<https://creativecommons.org/licenses/by-nc/4.0/legalcode>
 - **所用快照 commit**：`d58785cef744341bf02d41e5568ebb953595ab18`（2026-10-23T12:40:17Z）。来源为 GitHub zip（无 `.git`），commit 由内容寻址反查唯一锁定，取证证据见 `seeds/data/_source.json` 与 `questions_source.json` 的 `commit_evidence`（方法：设计文档 §19-F-1）。topics 与 questions 两次导入为**同一快照**。
-- **使用范围**：wengu 项目内的 `seeds/data/` 目录（由 `wengu-api/scripts/import_seed.py` 与 `import_questions.py` 从上游转换的**初中子集**，随本仓库分发；内嵌 `_source.json` / `questions_source.json` 署名）。完整上游数据（含小学/高中）请自行从原项目获取
-  - 初中数学 315 知识点 + 初中英语 257 + 初中物理 92
-  - 初中 1018 条先修边（分 hard/soft；跨学段边已按规则丢弃，见 `seeds/README.md`）
-  - 初中题库 2803 题（数学 1407 + 英语 1028 + 物理 368；上游全库 7431 题，小学/高中未导入），运行时只读入内存索引、不进 SQLite
+- **使用范围**：wengu 项目内的 `seeds/data/` 目录（由 `wengu-api/scripts/import_seed.py` 与 `import_questions.py` 从上游转换的**全量数据**（P5-10 起，小学+初中+高中），随本仓库分发；内嵌 `_source.json` / `questions_source.json` 署名）
+  - 全量 1821 知识点（小学 450 + 初中 664 + 高中 707；数学 828 + 英语 724 + 物理 269）
+  - 全量 2917 条先修边（分 hard/soft；跨学段边全量保留，初中→小学 74 条回溯可达）
+  - 全量题库 7431 题（小学 1800 + 初中 2803 + 高中 2828；数学 3459 + 英语 2896 + 物理 1076），运行时只读入内存索引、不进 SQLite
 - **归属要求**（依 CC BY-NC 4.0 §3(a)）：
   - README / CHANGELOG / 本文件 显式署名 `cn-math-taxonomy`
   - 附原项目链接
   - **不得用于商业目的**——wengu 的"每个家长自托管、家庭非商用"用法与之一致；学校 / 培训机构 / 家教商用请自行评估授权，与本仓库维护者无关。
-- **诚实标注继承**（依原作者自述）：seed 数据是 **AI 生成的初稿、未经一线教师审核**。wengu 在运行时 UI 上必须显示"知识点体系（社区数据，未经教师审核）"提示，seed 包 metadata 保留 `unaudited: true`。仅初中数学做过二遍盲解（mismatch=0），可当高可信冷启动；英语 / 物理的 `verify` 与答案**同源**、无二遍盲解，作为参考冷启动、家长复核后再用。
+- **诚实标注继承**（依原作者自述）：seed 数据是 **AI 生成的初稿、未经一线教师审核**。wengu 在运行时 UI 上必须显示"知识点体系（社区数据，未经教师审核）"提示，seed 包 metadata 保留 `unaudited: true`。仅初中数学做过二遍盲解（mismatch=0），可当高可信冷启动；英语 / 物理与新增小学 / 高中段的 `verify` 与答案**同源**、无二遍盲解，作为参考冷启动、家长复核后再用。
 
 ## 2. `Marble os-taxonomy`（数据格式灵感）
 

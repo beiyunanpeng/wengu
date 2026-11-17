@@ -9,6 +9,37 @@
 
 ### Added
 
+- **P5-10 全量收录小学与高中 seed（v2.8 §19-G-1 后半；改变数据面；零迁移、零新依赖）**（2026-11-17）：
+  - **数据面**：同一上游快照 `d58785ce` 全量内置——知识点 **1821**（小学 450 / 初中 664 / 高中 707）、
+    先修边 **2917**（跨学段边不再丢弃，初中→小学 74 条回溯复活）、题库 **7431**（小学 1800 / 初中 2803 /
+    高中 2828；数学 3459 / 英语 2896 / 物理 1076）。初中子集（664 点 / 1018 边 / 2803 题）与扩段前
+    **byte-identical**；默认 `--grades junior` 重跑与扩段前逐字节一致，可复现可回退。
+  - **脚本参数化**：`import_seed.py` / `import_questions.py` 学段过滤改 `--grades primary,junior,senior`
+    参数驱动（默认仍 junior）；收录范围写进 `_source.json.filter` / `grade_semantics_note`；
+    `blind_verified` 收紧为"仅初中数学"（新增学段无二遍盲解，不伪造质量标签）；
+    `upstream_commit` / `commit_evidence` 保持原值（同快照，未重取）。
+  - **转录目录不变**：`export_topics_junior.py` 改自带 grade 7–9 过滤（不再继承 import_seed 收录范围），
+    `topics_junior.tsv` 输出 665 行不变；模板 version 未升。
+  - **新增 4628 题质量如实**：verified **4258** / unverifiable **370**（forbidden_call 332 /
+    choice_text_mismatch 35 / unknown_name 2 / non_integer_exponent 1）/ **mismatch 丢弃 0**；
+    全量 verified 5996 / unverifiable 1435 / figures 267；7431 题标准答案自答全对、4730 选择题干扰项全判错。
+    `questions_source.json.counts.load_quality` 策展全量 / 初中基线 / 新增三桶分布（含实测时间与脚本）。
+  - **作用域语义**：默认 `seed_grade_ceiling=16` 不变；ceiling=9 总数 664→**1114**（+450 小学点，算术必然），
+    "初中面零变化"实现为 grade 7–9 子集恒等（数据层 byte-identical + 集成测试钉死 ceiling 9 vs 16 初中行逐字相同）。
+    **初中家庭建议把学段作用域调到 9**；诊断回溯不受作用域限制，仍可向下看见小学根因点。
+  - **实测耗时**：`load_bank(7431)` ≈**1.33 s**（初中基线 ≈0.35 s）、`load_seed` 冷 ≈**0.30 s** / 热 ≈0.25 s，
+    均在 3 s 阈值内。
+  - **测试**：新增 `test_seed_full_coverage.py` 7 条守卫（三桶字面 / 初中面恒等 / 质量标签不伪造 /
+    load_quality 与 load_bank 自洽 / TSV 初中-scoped + **实弹变异双 RED→GREEN** / ceiling9 真实回溯复活）；
+    `test_bank_seed.py` / `test_seed_provenance.py` 字面扩全量（自答 2803→7431、干扰项 >1000→==4730 收紧）；
+    物理 thin→ok 为学科级阈值（500）的正当语义变化（368→1076），thin 语义仍由合成池守卫；
+    quiz ceiling 测试改受控夹具（grade 3/7/12 三点，grade 12 为字典序反例）。
+    **连带改对（票面允许清单外，单列上报）**：`test_import_questions.py` 夹具补 grade + 新增 2 条参数化守卫、
+    `test_reviews_api.py` thin 测试改受控合成池、`test_bank_runtime.py` 物理基线 368→1076 / 370→1078、
+    `test_bank_lifecycle.py` 物理基线 369→1077 / 368→1076。
+  - **验证**：全量 pytest **833 passed**（824 基线 + 7 新覆盖守卫 + 2 参数化守卫）；`ruff check .` 全仓绿；
+    `transcribe/validate.py selfcheck --strict` **18 OK / 0 DRIFT / 0 WARN**；前端 lint / test（57 pass）/ build 绿；
+    migrations / app / 依赖清单零改动自证。
 - **P5-9 学段作用域 seed_grade_ceiling（v2.8 §19-G；服务端过滤、零迁移、零新依赖、seed 数据未扩）**（2026-11-16）：
   - **新配置键 `seed_grade_ceiling`**：字面枚举 `{6, 9, 16}`（6=只小学 / 9=小学+初中 / 16=全部），默认 **16**
     （现有安装升级零行为变化）；不做多选 list、不做数字输入框。`runtime_config.py` 照 `daily_review_limit` 写法加
@@ -526,6 +557,12 @@
     全绿；`npm run lint` / `npm test`（16 passed）/ `npm run build` 绿。
 
 ### Changed
+
+- **P5-10 转录目录生成改为脚本内过滤，输出不变**（2026-11-17）：`export_topics_junior.py` 不再继承
+  `import_seed.py` 的收录范围（后者已参数驱动全量收录），**自带 grade 7–9 过滤**（`_in_junior_catalog`）；
+  `docs/templates/topics_junior.tsv` 仍 665 行（表头 + 664 初中行）、内容逐字不变、无 BOM；
+  本地自建语文/化学点（`cnl_`/`cnc_`）无学段带概念、不受此过滤。转录模板 `doubao_transcribe_v1.md`
+  **version 不动**。删过滤的变异会让 TSV 守卫与 `test_local_seed` 导出测试双红（已实弹验证）。
 
 - **P4-5 掌握度改近期窗口：mastery 从全历史正确率收敛为最近 20 次（v2.8 §19-E；改现有语义）**（2026-11-13）：
   - **语义变更**：`recompute.mastery()` 原是该 concept **全部历史**作答正确率（docstring 自述"确定性占位实现"），

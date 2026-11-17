@@ -1,4 +1,4 @@
-"""P5-5 开源基线收口守卫：LICENSE 纯净 / provenance 字面串 / 探测不猜 / 隐私声明 / 数据未扩。
+"""P5-5/P5-10 开源基线收口守卫：LICENSE 纯净 / provenance 字面串 / 探测不猜 / 隐私声明 / 数据量钉死。
 
 断言一律字面串钉死（设计文档 §19-L 纪律①）；变异证伪记录见交付报告。
 """
@@ -57,6 +57,7 @@ def test_source_provenance_literals(rel: str) -> None:
     assert "xiaoyang111222" in source["upstream_author"]
     assert source["snapshot_source"] == "GitHub zip of main（无 .git），upstream_commit 由内容寻址反查钉死"
     assert source["modified"]
+    assert "全量收录" in source["modified"]
     assert source["disclaimer"]
     assert "未经一线教师审核" in source["disclaimer"]
     evidence = source["commit_evidence"]
@@ -182,10 +183,12 @@ def test_readme_positioning_in_first_lines() -> None:
 
 
 @pytest.mark.unit
-def test_seed_data_not_expanded() -> None:
-    assert len(json.loads(_read("seeds/data/topics.json"))) == 664
-    assert len(json.loads(_read("seeds/data/dependencies.json"))) == 1018
-    assert len(json.loads(_read("seeds/data/questions.json"))) == 2803
+def test_seed_data_counts_match_snapshot() -> None:
+    """P5-10 全量收录：计数钉死同一快照 d58785ce 的全量字面（非初中子集）。"""
+
+    assert len(json.loads(_read("seeds/data/topics.json"))) == 1821
+    assert len(json.loads(_read("seeds/data/dependencies.json"))) == 2917
+    assert len(json.loads(_read("seeds/data/questions.json"))) == 7431
 
 
 @pytest.mark.unit
@@ -195,7 +198,7 @@ def test_license_data_and_doc_links() -> None:
     assert "CC BY-NC 4.0" in data_license
     assert "Aifeng" in data_license
     assert "已修改" in data_license
-    assert "664" in data_license and "1018" in data_license and "2803" in data_license
+    assert "1821" in data_license and "2917" in data_license and "7431" in data_license
 
     notices = _read("THIRD-PARTY-NOTICES.md")
     assert UPSTREAM_SHA in notices

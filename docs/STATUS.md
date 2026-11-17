@@ -137,7 +137,7 @@
   `restore.ps1` 恢复时替换、旧包无此文件则保留现状。无迁移、无新依赖；`/setup` UI 当时未做，
   已由 P5-1b 补齐。
 - **P5-1b 首次运行向导已交付**：`/setup` 单页 + `AppLayout` 顶部横幅，**不采集年级、不做学科勾选**
-  （seed 全量装载 7–9；一个孩子、全部学科），只做三件事：① 按数学/英语/物理/语文/化学展示
+  （seed 全学段收录、按学段作用域收窄（P5-10）；一个孩子、全部学科），只做三件事：① 按数学/英语/物理/语文/化学展示
   `GET /api/seed/summary` 的 `topics`，**`group_by` 缺席学科按 0 展示**并引导 `/local-seed`；
   ② `GET/PUT /api/config` 回填与保存三个上限，成功提示“已生效，无需重启”；③ 完成/跳过都写
   `setup_completed=true`，不新增第二标记键。写配置复用 `ParentGate`（未解锁只读 seed 覆盖并提示解锁）；
@@ -262,6 +262,16 @@
   CI `42001461379` success。零迁移、零新依赖、业务代码与 pytest 版本线未动。
   **已知限制**：主动修复分支无真机验证（本机非管理员建不出符号链接，噪音消失实为一次性隔离坏根）；
   钩子被 pytest 真实调用过有物证（兜底分支曾打印 `[p0-5] cannot remove …`）。
+- **P5-10 全量收录已交付（待审核）**：同一上游快照 `d58785ce` 全量内置——知识点 **1821**
+  （小学 450 / 初中 664 / 高中 707）、先修边 **2917**（跨学段边不再丢弃，初中→小学 74 条回溯复活）、
+  题库 **7431**（1800 / 2803 / 2828）。两 import 脚本学段过滤改参数驱动（`--grades`，默认仍 junior
+  可复现可回退）；初中子集与扩段前 **byte-identical**；转录目录 `topics_junior.tsv` 改由导出脚本
+  自带 grade 7–9 过滤、输出 665 行不变。新增 4628 题：verified 4258 / unverifiable 370 /
+  **mismatch 丢弃 0**；`blind_verified` 仍只给初中数学 315 点。实测 `load_bank(7431)` ≈1.33 s、
+  `load_seed` 冷 ≈0.30 s（阈值 3 s 内）。**初中家庭建议把学段作用域调到 9**（`/setup` ②或家长配置页；
+  默认 16 全学段可见，选择器会多出够不到的点；回溯不受作用域限制）。全量 pytest **833 passed**
+  （824 基线 + 7 新覆盖守卫 + 2 参数化守卫；连带改对 4 个票面清单外测试文件，见 CHANGELOG）。
+  零迁移、零新依赖。
 - **下一步（v2.6 决策轮定的顺序）**：① ~~P5-6 口径清理~~、~~P0-3 端到端回归~~、
   ~~P3-3a 手填背诵~~、~~P3-3b 词表导入~~、~~P3-3c 从错题抽词~~、~~P5-1a 配置持久化修复~~、
   ~~P5-1b 首次运行向导 UI~~、~~P1-3e 移动端投递~~、~~P1-3f BOM 剥离~~、
@@ -287,7 +297,7 @@
 |---|---|---|
 | P1-0 Repo 骨架 | 已完成 | FastAPI + `/health` + SQLite WAL + Alembic + React + Docker Compose + CI |
 | P1-1 数据模型 + 事件溯源/幂等 | 已完成 | `learning_events` 只追加；确定性重算；幂等写入 |
-| P1-1b 知识点 seed 装载 | 已完成 | 664 个初中知识点 + 1018 条先修边；`unaudited` / `blind_verified` 透传；多源装载 `仓库 seed → seeds/local → data/seeds_local`（**家长自建章级点已独立为 P3-8**：语文 `cnl_` / 化学 `cnc_`，文件真源、原子写、CRUD API + `/local-seed` 页） |
+| P1-1b 知识点 seed 装载 | 已完成 | 1821 个知识点（全学段，P5-10）+ 2917 条先修边（初中子集 664/1018 不变）；`unaudited` / `blind_verified` 透传；多源装载 `仓库 seed → seeds/local → data/seeds_local`（**家长自建章级点已独立为 P3-8**：语文 `cnl_` / 化学 `cnc_`，文件真源、原子写、CRUD API + `/local-seed` 页） |
 | P1-2 / P1-2b / P1-2c Provider 与模型分档 | **已退役（P1-12）** | 依赖注入式 provider、故障转移、成本护栏、`model_runs` 全部删除 |
 | P1-3 / P1-3b / P1-3c 采集与切片 | **已退役（P1-12）** | 上传、OCR 行聚类切题、配图切片几何全部删除；入本改走外部转录 |
 | P1-4 结构化提取 + 质量闸门 | **已退役（P1-12）** | VLM 提取等删除；质量闸门语义由导入契约 + 核对页承接 |
@@ -298,7 +308,7 @@
 | P1-7c 自动排复习 | 阻塞 | 边界表回填前不实现 |
 | P1-8 三段式讲解引擎 | **已退役（P1-12）** | 讲解移出系统；保留"卷面订正回放"只读视图 |
 | P1-9 最小 Web UI | 已完成（v2.5 五页） | 导入 / 核对 / 错题本（+详情）/ 复习考核 / 练习记录；旧三页已删除 |
-| P1-10 题库检索引擎 | 已完成 | 2803 题内存索引、mulberry32 固定种子、`verify` 沙箱、SVG 净化 |
+| P1-10 题库检索引擎 | 已完成 | 7431 题内存索引（全量，P5-10）、mulberry32 固定种子、`verify` 沙箱、SVG 净化 |
 | P1-11 同类题考核闭环 | 已完成 | 考核 `/quiz` 服务端判分、手动组卷、答案不下发、结果只进 attempts |
 | P1-12 零模型收口（删除票） | 已完成 | 旧链路整链退役；迁移 0013；三绿 + 端到端实跑通过 |
 | P1-3e 移动端投递入口 | 已完成（2026-11-04） | `/import` 原文粘贴 + 本地 `.json` 读取共用 `POST /api/imports`；`importRawText` 原文直发（不二次序列化）；422 逐行 `index/field/reason`；e2e 第 8 条覆盖原文路径 → 部分坏项 → 重投去重 → 确认入本；后端零改动、无迁移、无新依赖 |
@@ -579,7 +589,8 @@
   显式置 NULL 并返回 `mistakes_unbound` / `problems_unbound`；错题保留（退回原题重做）、
   历史 attempts/事件/排期不动；仍被 `concepts` 引用 → 409（先归并/移除）。
 - **导出**：`scripts/export_topics_junior.py` 合并仓库 + `seeds/local` +
-  `<data_dir>/seeds_local` 后导出 `docs/templates/topics_junior.tsv`（664 + local 行，
+  `<data_dir>/seeds_local` 后导出 `docs/templates/topics_junior.tsv`（**脚本自带 grade 7–9 过滤，
+  P5-10**，不继承 import_seed 收录范围；664 + local 行，
   UTF-8 无 BOM），转录模板的 `suggested_topic_id` 可选到语文/化学点。
 - **前端**：导航「学科 seed」仅家长解锁后出现；按语文/化学列出 id/名称/年级/学期/章/类型/
   引用计数与「家长自建 · 未经教师审核」，新增/编辑弹窗、删除确认显示受影响计数。
@@ -665,7 +676,7 @@
   备份 zip 含全部错题与家长 PIN 哈希，禁止上传网盘/群聊/公网。
 - **实测**：导出 `wengu-backup-20261031T131049098216Z.zip`（122557 字节，
   sha256 `8dc1196f5bb43fed8b59298a24f0af9bd323c53a225ee1a02f6616a8304e27eb`，
-  `knowledge_seed=664` / `learning_events=3`）；包内快照 `PRAGMA integrity_check=ok`，
+  `knowledge_seed=664` / `learning_events=3`，**P5-10 扩段前快照**；扩段后同库重装为 1821）；包内快照 `PRAGMA integrity_check=ok`，
   manifest sha256 与实际文件一致；未解锁 export/list/download 全 403，`../` 与绝对路径
   下载被拒；导出前后业务库零变化。恢复演练在临时副本上替换成功、旧数据进入安全副本、
   第二次运行 exit 0（幂等）。并发写事件时快照仍一致（集成测试覆盖）。
@@ -912,8 +923,10 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
 - `user_role` 由 `0014_parent_pin` 保证存在 `(role='parent', pin_hash=NULL)` 行；PIN 设置后存 scrypt 哈希。
 - `model_runs` / `ai_jobs` 已 DROP（0013，down 可重建空表）。
 - `photo_captures` / `photo_capture_items` 已 DROP（0019，down 可重建空表结构）。
-- seed：仓库 664 知识点（数学 315 / 英语 257 / 物理 92）+ 1018 先修边 + 2803 题
-  （数学 1407 / 英语 1028 / 物理 368）；化学、语文从**空仓库 seed** 起步，由家长在
+- seed：仓库全量 1821 知识点（小学 450 / 初中 664 / 高中 707；数学 828 / 英语 724 / 物理 269）
+  + 2917 先修边 + 7431 题（小学 1800 / 初中 2803 / 高中 2828；数学 3459 / 英语 2896 / 物理 1076），
+  P5-10 起按学段作用域 `seed_grade_ceiling` 收窄主动选择面（默认 16，初中家庭建议调 9）；
+  化学、语文从**空仓库 seed** 起步，由家长在
   `<data_dir>/seeds_local/topics_<学科>.json` 自建章级点（`source='local'`，装载副本进
   `knowledge_seed`；重启用文件恢复）。加载顺序 = 仓库 topics.json → `seeds/local/*.json` →
   `<data_dir>/seeds_local/*.json`；下划线开头的簿记文件（`_id_counters.json`）跳过。

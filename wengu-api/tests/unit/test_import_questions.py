@@ -1,4 +1,4 @@
-"""P1-10 题库转换脚本：初中过滤、字段直映、配图计数与署名文件。"""
+"""P1-10 题库转换脚本：学段过滤（P5-10 参数驱动，默认 junior）、字段直映、配图计数与署名文件。"""
 
 from __future__ import annotations
 
@@ -11,13 +11,14 @@ from scripts.import_questions import (
     convert,
     load_topics,
     load_upstream,
+    parse_bands,
     subject_of,
     write_out,
 )
 
 TOPICS = [
-    {"id": "cnm_001", "subject": "数学", "name": "有理数", "unaudited": True, "blind_verified": True},
-    {"id": "cne_j001", "subject": "英语", "name": "单词重音", "unaudited": True, "blind_verified": False},
+    {"id": "cnm_001", "subject": "数学", "name": "有理数", "grade": 7, "unaudited": True, "blind_verified": True},
+    {"id": "cne_j001", "subject": "英语", "name": "单词重音", "grade": 7, "unaudited": True, "blind_verified": False},
 ]
 
 QUESTIONS = [
@@ -134,3 +135,37 @@ def test_write_out_writes_data_and_attribution(tmp_path: Path) -> None:
     assert source["upstream_url"] == "https://github.com/xiaoyang111222/cn-math-taxonomy"
     assert "非商业" in source["nc_statement"]
     assert source["counts"]["questions_imported"] == 3
+
+
+@pytest.mark.unit
+def test_convert_bands_parameter_drives_scope() -> None:
+    """P5-10：收录范围由 bands 参数驱动（默认 junior）；无 grade 的点全量也不收录。"""
+
+    topics = [
+        {"id": "cnm_p001", "subject": "数学", "name": "小学点", "grade": 3},
+        {"id": "cnm_001", "subject": "数学", "name": "初中点", "grade": 7},
+        {"id": "cnm_s001", "subject": "数学", "name": "高中点", "grade": 10},
+        {"id": "cnm_x001", "subject": "数学", "name": "无学段点"},
+    ]
+    questions = [
+        {"id": f"{t['id']}_q1", "topicId": t["id"], "type": "numeric", "prompt": "1+1=?", "answer": "2"}
+        for t in topics
+    ]
+
+    junior = convert(questions, topics)
+    assert [q["id"] for q in junior.questions] == ["cnm_001_q1"]
+    assert junior.stats["questions_out_of_scope"] == 3
+
+    full = convert(questions, topics, bands=("primary", "junior", "senior"))
+    assert [q["id"] for q in full.questions] == ["cnm_001_q1", "cnm_p001_q1", "cnm_s001_q1"]
+    assert full.stats["questions_by_band"] == {"primary": 1, "junior": 1, "senior": 1}
+    assert full.stats["questions_out_of_scope"] == 1
+
+
+@pytest.mark.unit
+def test_parse_bands_normalizes_and_rejects_unknown() -> None:
+    assert parse_bands("senior,primary") == ("primary", "senior")
+    with pytest.raises(QuestionConvertError):
+        parse_bands("kindergarten")
+    with pytest.raises(QuestionConvertError):
+        parse_bands("  ")

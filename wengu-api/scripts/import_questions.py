@@ -4,8 +4,10 @@
     python wengu-api/scripts/import_questions.py --src D:/MyProducts/StudyDesk/cn-math-taxonomy-main
 
 产出（随仓库分发，CC BY-NC 4.0，questions_source.json 内嵌署名）：
-    seeds/data/questions.json          初中段题库（topicId ∈ seeds/data/topics.json）
+    seeds/data/questions.json          按 --grades 学段带收录的题库（topicId ∈ seeds/data/topics.json）
     seeds/data/questions_source.json   上游 URL / License / NC 声明 / 导入日期 / 计数
+
+学段过滤参数驱动（P5-10）：--grades primary,junior,senior 全量；默认 junior（7-9）可复现可回退。
 """
 
 from __future__ import annotations
@@ -25,6 +27,11 @@ NC_STATEMENT = "限个人非商用：署名 + 非商业使用（CC BY-NC 4.0 §3
 
 SUBJECT_BY_PREFIX = {"cnm_": "数学", "cne_": "英语", "cnp_": "物理"}
 QUESTION_TYPES = {"choice", "numeric", "short", "self"}
+# 学段带（P5-10 参数驱动，与 import_seed.py 同口径）：1-6 小学 / 7-9 初中 / 10-16 高中（"册"）。
+GRADE_BANDS = {"primary": range(1, 7), "junior": range(7, 10), "senior": range(10, 17)}
+BAND_ORDER = ("primary", "junior", "senior")
+BAND_LABEL = {"primary": "小学", "junior": "初中", "senior": "高中"}
+DEFAULT_BANDS = ("junior",)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_OUT = PROJECT_ROOT / "seeds" / "data"
@@ -63,11 +70,36 @@ def subject_of(topic_id: str) -> str:
     raise QuestionConvertError(f"未知学科前缀: {topic_id}（预期 {sorted(SUBJECT_BY_PREFIX)}）")
 
 
-def convert(questions: list[dict], topics: list[dict]) -> ConvertResult:
-    junior = {t["id"]: t for t in topics if isinstance(t, dict) and isinstance(t.get("id"), str)}
+def parse_bands(spec: str) -> tuple[str, ...]:
+    names = [part.strip() for part in spec.split(",") if part.strip()]
+    if not names:
+        raise QuestionConvertError("--grades 不能为空")
+    unknown = sorted(set(names) - set(GRADE_BANDS))
+    if unknown:
+        raise QuestionConvertError(f"未知学段带: {unknown}（预期 {sorted(GRADE_BANDS)}）")
+    return tuple(b for b in BAND_ORDER if b in set(names))
+
+
+def grades_of(bands: tuple[str, ...]) -> set[int]:
+    allowed: set[int] = set()
+    for band in bands:
+        allowed.update(GRADE_BANDS[band])
+    return allowed
+
+
+def convert(
+    questions: list[dict], topics: list[dict], bands: tuple[str, ...] = DEFAULT_BANDS
+) -> ConvertResult:
+    allowed = grades_of(bands)
+    junior = {
+        t["id"]: t
+        for t in topics
+        if isinstance(t, dict) and isinstance(t.get("id"), str) and t.get("grade") in allowed
+    }
     by_subject: dict[str, int] = {}
     by_type: dict[str, int] = {}
     by_difficulty: dict[str, int] = {}
+    by_band: dict[str, int] = {b: 0 for b in bands}
     out: list[dict] = []
     out_of_scope = 0
     with_figure = choice_figures = with_verify = 0
@@ -81,6 +113,10 @@ def convert(questions: list[dict], topics: list[dict]) -> ConvertResult:
         out.append(question)
         by_subject[question["subject"]] = by_subject.get(question["subject"], 0) + 1
         by_type[question["type"]] = by_type.get(question["type"], 0) + 1
+        for band in bands:
+            if junior[topic_id].get("grade") in GRADE_BANDS[band]:
+                by_band[band] += 1
+                break
         if question["difficulty"]:
             by_difficulty[question["difficulty"]] = by_difficulty.get(question["difficulty"], 0) + 1
         with_figure += 1 if question["figure"] else 0
@@ -97,6 +133,8 @@ def convert(questions: list[dict], topics: list[dict]) -> ConvertResult:
             "questions_by_subject": dict(sorted(by_subject.items())),
             "questions_by_type": dict(sorted(by_type.items())),
             "questions_by_difficulty": dict(sorted(by_difficulty.items())),
+            "questions_by_band": by_band,
+            "grade_bands": list(bands),
             "questions_with_figure": with_figure,
             "choice_figures": choice_figures,
             "questions_with_verify": with_verify,
@@ -197,18 +235,31 @@ def write_out(
     out_dir: Path, result: ConvertResult, src: Path, commit_override: str | None = None
 ) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
+    bands = tuple(result.stats.get("grade_bands") or DEFAULT_BANDS)
+    allowed = grades_of(bands)
+    label = "+".join(BAND_LABEL[b] for b in bands)
+    scope = f"grade {min(allowed)}-{max(allowed)}（{label}）"
+    name = (
+        "cn-math-taxonomy questions（全量：小学+初中+高中）"
+        if set(bands) == set(GRADE_BANDS)
+        else f"cn-math-taxonomy questions（{label}部分）"
+    )
     _write_json(out_dir / "questions.json", result.questions)
     _write_json(
         out_dir / "questions_source.json",
         {
-            "name": "cn-math-taxonomy questions（初中部分）",
+            "name": name,
             "upstream_url": UPSTREAM_URL,
             "upstream_commit": upstream_commit(src, commit_override),
             "upstream_license": UPSTREAM_LICENSE,
             "nc_statement": NC_STATEMENT,
             "imported_at": date.today().isoformat(),
             "imported_by": "wengu-api/scripts/import_questions.py",
-            "filter": "topicId ∈ seeds/data/topics.json（初中 664 点）",
+            "filter": (
+                f"topicId ∈ seeds/data/topics.json（{label} "
+                f"{result.stats.get('topics_referenced', 0) + result.stats.get('topics_without_questions', 0)} 点）"
+            ),
+            "grade_semantics_note": f"上游 grade 10-16 语义为'册'（高中）；本次收录：{scope}",
             "counts": result.stats,
         },
     )
@@ -229,6 +280,11 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="显式指定上游快照 commit SHA（zip 来源无 .git 时必传；探测失败写 null，不猜）",
     )
+    parser.add_argument(
+        "--grades",
+        default="junior",
+        help="学段带逗号分隔：primary,junior,senior（默认 junior=7-9，可复现可回退）",
+    )
     args = parser.parse_args(argv)
 
     if not (args.src / "data" / "questions.json").exists():
@@ -238,7 +294,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"错误：{args.out} 下找不到 topics.json", file=sys.stderr)
         return 1
 
-    result = convert(load_upstream(args.src), load_topics(args.out))
+    bands = parse_bands(args.grades)
+    result = convert(load_upstream(args.src), load_topics(args.out), bands=bands)
     write_out(args.out, result, args.src, commit_override=args.upstream_commit)
     print(json.dumps(result.stats, ensure_ascii=False, indent=1))
     print(f"已写入 {args.out / 'questions.json'}")
