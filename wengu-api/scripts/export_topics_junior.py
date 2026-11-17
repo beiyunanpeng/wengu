@@ -151,7 +151,9 @@ def export(src: Path, out: Path, local_dirs: list[Path] | None = None) -> dict[s
     rows = build_rows(topics)
     out.parent.mkdir(parents=True, exist_ok=True)
     lines = ["\t".join(COLUMNS)] + ["\t".join(r) for r in rows]
-    out.write_text("\n".join(lines) + "\n", encoding="utf-8")  # 无 BOM
+    # 无 BOM；CRLF 写死：仓库 TSV 与 Windows 产物都是 CRLF，Linux CI 不得退化成 LF
+    with out.open("w", encoding="utf-8", newline="\r\n") as fh:
+        fh.write("\n".join(lines) + "\n")
 
     by_subject: dict[str, int] = {}
     for r in rows:
