@@ -2816,3 +2816,60 @@ P5-10 交付后补记（docs/tooling/qoder-build-plan.md 文末）、
 进同一 PR（**不 amend 他人提交**），PR 内两个 commit 各自单一目的，可审。② 本票 DoD
 "旧串 grep 零残留"有一个结构性例外：**投单块自己引用旧串当靶子**（`qoder-build-plan.md:2791-2792`），
 施工方按存档同类判定、未改动、如实上报——合规。后续同款 DoD 应把「投单块自身」显式写进豁免清单。
+
+## P5-12 —— 上游更新检查脚本（纯开发者侧；零应用改动、零新依赖、零迁移；人工决定同步；基线 main `9bbcb6b`，pytest 833）
+
+你在 wengu 仓库工作。开工前先完整读：AGENTS.md §2（反过度工程）/ §3（seed 以 JSON 随仓库分发）/ §8（一票一 PR、DoD）、
+TICKETS.md 的 **P5-12 卡**（范围/DoD/禁止的权威版）与 P5-10 卡（快照与取证背景）、
+设计文档 §19-F-1（A 方案与重取证要求）、`seeds/data/_source.json`（`upstream_commit` 是本票唯一读取的输入）、
+`wengu-api/scripts/import_seed.py`（`SUBJECT_BY_PREFIX` 与 argparse 风格先例）、`seeds/README.md`（将新增一节）。
+
+【为什么有这张票】P5-10 钉死快照 `d58785ce` 后，上游（`xiaoyang111222/cn-math-taxonomy`）2026-10-24 起
+已新增语文（`cnl_`），未来必有更新；目前没有任何机制提醒"上游动了"。而同步 = 重导入 + 按 §19-F-1
+重新取证 + 重新策展，成本高、涉及"语文是否引入"等产品决策——**必须人工触发**。
+本票只做"**发现**"：一个仓内检查脚本 + 维护者 GitHub Watch 兜底（后者是审核方侧动作，票外）。
+**三条定案**：① 脚本手动跑，不进 CI cron / make / 应用；② 不做应用内外呼——生命周期、`apscheduler`、
+前端一律不碰，只有脚本联网且只读 GET、无 token；③ 同步永远是另一票，脚本对 `seeds/data/` **零写入**。
+
+【任务】
+1. 新建 `wengu-api/scripts/check_upstream.py`：
+   - 从 `seeds/data/_source.json` 读 `upstream_commit`（不硬编码；缺文件/缺键 → 明确报错）；
+   - `GET /repos/xiaoyang111222/cn-math-taxonomy/commits?path=data&per_page=1`（stdlib `urllib`，无鉴权）
+     取最新触及 `data/` 的 commit sha + 日期；
+   - sha 相同 → 报"已同步"，exit 0；不同 → 按 raw.githubusercontent 下载该 sha 的
+     `data/{topics,dependencies,questions}.json`，**只算不写**：topics 总数 / 分带（450/664/707 同尺）/
+     分科、deps、questions、未知前缀检测（凡 `SUBJECT_BY_PREFIX` 之外的前缀——如 `cnl_`/`cnc_`——
+     必须点名上报，不引入只报告）；
+   - 输出人读报告（`--json` 可选），exit 1 = 有更新；网络失败 / 403 限流 → 明确报错 exit 2，
+     **不猜、绝不静默当"已同步"**；`--pinned <sha>` 可覆盖读取值（自证用）。
+2. 测试（新建 `wengu-api/tests/unit/test_check_upstream.py`；网络层薄壳不进单测，可测部分全测；
+   基线 833 如实报新数）：
+   - 纯函数：API 响应解析、delta 计算**字面钉死**（fixture 快照 vs 仓内真数据，`d58785ce` 下 delta
+     必须全 0——纪律①）、未知前缀检测（`cnl_` fixture 必须被点名；删检测 → 测试红）；
+   - pinned sha 从 `_source.json` 读取（tmp fixture）；
+   - 零写入守卫：脚本无任何写路径参数，测试断言计算函数不接受输出路径。
+3. 文档：`seeds/README.md` 加「上游更新检查」段（何时跑、怎么读报告、有更新后走什么流程——指向
+   §19-F-1 重取证，明确"同步是另一票"）；`docs/STATUS.md` 下一步口径；`CHANGELOG.md` Added 一条。
+
+【DoD——自证逐项贴输出】
+- 实跑自证：`--pinned d58785cef744341bf02d41e5568ebb953595ab18` 对仓内真数据跑 delta **全 0**，
+  且报告数字字面 == source JSON `counts`（1821/450/664/707、2917、7431/1800/2803/2828）；
+- 全量 `pytest -q` / `ruff check --no-cache .` / `selfcheck --strict` 绿；
+- `git diff --name-only` 不含 `wengu-api/app`、`wengu-api/migrations`、`wengu-api/requirements.txt`、
+  `seeds/data/**`、`wengu-web/**`；
+- 网络代码与解析/计算代码分层（网络层无业务逻辑）；脚本**无状态**：不落盘缓存，留痕 = 贴报告。
+
+【允许改动的文件】`wengu-api/scripts/check_upstream.py`（新）、`wengu-api/tests/unit/test_check_upstream.py`（新）、
+`seeds/README.md`、`docs/STATUS.md`、`CHANGELOG.md`。
+
+【禁止】改 `seeds/data/*`、`wengu-api/app/**`、`migrations/**`、`requirements.txt`、前端；
+接入 `apscheduler` / FastAPI 生命周期 / CI cron / make 目标（跑法就是
+`python wengu-api/scripts/check_upstream.py`，写进 README）；自动创建 issue / PR / 自动重导入；
+把 token 或 secret 写进仓库或脚本；本票做"同步"或动 `upstream_commit`；
+用 `--skip`/`xfail` 让任何测试"过"。
+
+【投单纪律】git fetch origin; git switch -c feat/p5-12-upstream-check origin/main；
+一票一 PR 分支冻结；中文 commit 用 `git commit -F <仓库外 UTF-8 文件>`；
+提交前 `git diff --name-only` 核对并贴清单；
+交付给"你自己实跑"的输出（含 DoD 自证路径）+ 单列「审核方需复核的点」；
+代码与本卡不符时以实际代码为准，先读再改，不一致上报不要硬凑。
