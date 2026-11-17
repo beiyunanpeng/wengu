@@ -9,9 +9,9 @@
 ```
 seeds/
 ├─ data/                    # 随仓库分发：转换后的 cn-math-taxonomy 初中包（CC BY-NC 4.0）
-│  ├─ topics.json           #   664 个初中知识点（数学 315 + 英语 257 + 物理 92）
-│  ├─ dependencies.json     #   1018 条先修边（两端点均在初中集内；hard/soft）
-│  ├─ questions.json        #   2803 道初中题（数学 1407 + 英语 1028 + 物理 368；P1-10）
+│  ├─ topics.json           #   1821 个知识点（小学 450 + 初中 664 + 高中 707；数学 828 + 英语 724 + 物理 269）
+│  ├─ dependencies.json     #   2917 条先修边（跨学段边全量保留；hard/soft）
+│  ├─ questions.json        #   7431 题（小学 1800 + 初中 2803 + 高中 2828；数学 3459 + 英语 2896 + 物理 1076；P1-10）
 │  ├─ _source.json          #   知识点/先修边署名：上游 URL / License / NC 声明 / 计数 / 快照 commit 与取证
 │  └─ questions_source.json #   题库署名：同上 + 题目计数 / 配图 / verify 统计
 ├─ local/                   # 家长自建，不进 Git：化学/语文等同契约 seed 文件
@@ -45,10 +45,10 @@ provenance 键（`upstream_commit_date` / `upstream_author` / `upstream_spdx` / 
 `modified` / `disclaimer` / `snapshot_source` / `commit_evidence`）是**当前快照的取证工件**，
 换快照重跑后必须按 §19-F-1 重新取证、重新策展，不得沿用旧证据。
 
-转换规则：过滤初中（grade 7–9）→ 12 核心字段直映（camelCase→snake_case）→ 按 id 前缀显式化
-`subject`（cnm_=数学、cne_=英语、cnp_=物理）→ 打质量标签 → 先修边仅保留两端点均在初中集内的
-（跨小学/高中的 74 条丢弃，小学阶段成为回溯天然停止点；丢弃数记入 `_source.json`）。
-注意：上游 `grade 10–16` 语义为"册"（高中），本次未导入。
+转换规则：学段过滤 `--grades` 参数驱动（默认 junior，可复现可回退）→ 12 核心字段直映
+（camelCase→snake_case）→ 按 id 前缀显式化 `subject`（cnm_=数学、cne_=英语、cnp_=物理）→
+打质量标签 → 先修边跨学段全量保留（收录范围与丢弃数记入 `_source.json`）。
+全量收录 grade 1-16（grade 10-16 语义为"册"）。
 
 ## 题库（P1-10，同类题考核的数据源）
 
@@ -57,12 +57,12 @@ provenance 键（`upstream_commit_date` / `upstream_author` / `upstream_spdx` / 
 - 每题在装载时过 P1-5 AST 白名单沙箱核验 `verify`：能算且与答案一致 → `verified`；
   无 `verify` / 表达式用了沙箱白名单外的 `Fraction`、`range`、数学函数 / 选择题选项带单位
   → `unverifiable`（保留，供考核使用）；**纯数值题算出矛盾 → 不装载**。
-  当前 2803 题：verified 1738、unverifiable 1065（no_verify 532、sandbox 498、选项带单位 35）、
-  mismatch 0。
+  当前 7431 题：verified 5996、unverifiable 1435、mismatch 0；
+  reasons 分布见 `questions_source.json` 的 `counts.load_quality`（不在此手抄）。
 - 同类题检索：`services/bank.py` 的 `find_same_type(primary_topic_id, seed)` 用
   mulberry32（与上游 JS 逐位一致）按固定种子取 1 题，`replay(pick)` 可重放；
-  无题知识点返回空 + `bank_gap=true`（P1-7a 退回原题重做）。物理 368 题按学科总量标
-  `thin`，语文/化学无题 → 缺口。
+  无题知识点返回空 + `bank_gap=true`（P1-7a 退回原题重做）。全量收录后各学科均不低于
+  thin 阈值（学科级 500）；语文/化学无题 → 缺口。
 - 配图安全：题干与选项的内联 SVG 在后端装载时过白名单净化（`app/seed/svg.py`，
   使用既有 `bleach` 依赖），前端只能渲染净化后的字符串。
 

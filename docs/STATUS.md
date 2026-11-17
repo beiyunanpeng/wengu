@@ -267,7 +267,7 @@
   题库 **7431**（1800 / 2803 / 2828）。两 import 脚本学段过滤改参数驱动（`--grades`，默认仍 junior
   可复现可回退）；初中子集与扩段前 **byte-identical**；转录目录 `topics_junior.tsv` 改由导出脚本
   自带 grade 7–9 过滤、输出 665 行不变。新增 4628 题：verified 4258 / unverifiable 370 /
-  **mismatch 丢弃 0**；`blind_verified` 仍只给初中数学 315 点。实测 `load_bank(7431)` ≈1.33 s、
+  **mismatch 丢弃 0**；`blind_verified` 仍只给初中数学 315 点。实测 `load_bank(7431)` 约 1.3–1.5 s（随机器而异）、
   `load_seed` 冷 ≈0.30 s（阈值 3 s 内）。**初中家庭建议把学段作用域调到 9**（`/setup` ②或家长配置页；
   默认 16 全学段可见，选择器会多出够不到的点；回溯不受作用域限制）。全量 pytest **833 passed**
   （824 基线 + 7 新覆盖守卫 + 2 参数化守卫；连带改对 4 个票面清单外测试文件，见 CHANGELOG）。
