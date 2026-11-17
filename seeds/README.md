@@ -101,6 +101,10 @@ make seed-questions
 
 ## 化学、语文（上游无数据）：local/ 起步
 
+> **（2026-11-17 标注）**：本节描述的是钉死快照 `d58785ce`（2026-10-23）的事实——该快照里上游确无
+> 化学/语文。上游此后已大规模扩科（2026-11-15 `8b57f2e` 实测出现 cnb_/cnc_/cnd_/cng_/cnh_/cnk_/cns_
+> 等 7 个新前缀，跑 `python wengu-api/scripts/check_upstream.py` 可见）；是否引入属"同步另票"的人工决策。
+
 `cn-math-taxonomy` 不含化学、语文。这两科**空 seed 起步**，家长复用同款 topics 契约在 `local/`
 放同结构 JSON（如 `local/topics.chemistry.json`），按课本目录录**章级粗粒度 40–80 点**
 （`mastery_criteria` 可精简、无诊断题、`unaudited: true`），细粒度交给"错题驱动受控生长"。
