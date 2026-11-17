@@ -2764,3 +2764,44 @@ Linux 产物 LF（CI 红）。这是**审核方新增断言的跨平台盲区**�
 `test_bank_runtime` / `test_bank_lifecycle`），审核方白名单第 4 次写窄；② 10 处文档口径清单漏
 `seeds/README.md`，审核方第 17 次卡面缺陷——裁定另票清理（含 CHANGELOG P5-9 词条"升级零行为变化"
 失效括注、`load_bank` 耗时措辞改"约 1.3–1.5 s"）。施工方两处都如实上报、未静默扩面，处理正确。
+
+## P5-11 —— 文档口径清理（纯文档；零代码、零测试改动；P5-10 的收尾票；基线 main `86dd1c5`，pytest 833）
+
+你在 wengu 仓库工作。开工前先完整读：AGENTS.md §8（一票一 PR、DoD、CHANGELOG 必更）、
+TICKETS.md 的 **P5-11 卡**（范围/DoD/禁止的权威版）与 P5-10 卡尾部两条登记（本票的由来）、
+P5-10 交付后补记（docs/tooling/qoder-build-plan.md 文末）、
+`seeds/README.md` 全文（本票主对象，行号以卡面为准）、`CHANGELOG.md` 的 P5-9 / P5-10 词条、
+`docs/STATUS.md:270` 附近耗时行、`seeds/data/_source.json` 与 `questions_source.json` 的 `counts`
+（新口径的唯一数字真源）。
+
+【为什么有这张票】P5-10 全量收录后，`seeds/README.md`（seeds/ 目录自己的 README，自托管家长最常读）
+仍写扩段前口径；另有 CHANGELOG P5-9 词条"默认 16 升级零行为变化"在扩段后对当前读者失效、
+耗时措辞两处。这三处都是**文档**问题，代码与测试一行都不许动。
+
+【任务（4 项，逐项对照卡面）】
+1. `seeds/README.md`：目录布局注释（:12-14）、转换规则段（:48-51）、题库统计段（:60）、
+   thin 说明（:64-65）按卡面改全量口径；"仅初中数学做过二遍盲解"（:26）保留不动；
+   reasons 明细**指向** `questions_source.json` 的 `counts.load_quality`，不手抄。
+2. `CHANGELOG.md` P5-9 词条**尾部**加一条缩进括注：默认 16 在 P5-10 后 = 全学段可见
+   （选择器多出小学 450 + 高中 707 点），初中家庭建议调 9；**原文一字不改**。
+3. `CHANGELOG.md:30` 与 `docs/STATUS.md:270` 的 `≈1.33 s` 改"约 1.3–1.5 s（随机器而异）"。
+4. `CHANGELOG.md` 记一条 Changed："文档口径清理（P5-11）"；不升版本号。
+
+【DoD——自证逐项贴输出】
+- 旧串 grep 零残留：`664 个初中知识点` / `1018 条先修边` / `2803 道初中题` / `过滤初中（grade 7–9）` /
+  `本次未导入` / `verified 1738` / `物理 368 题`，在 `seeds/README.md` 与 `docs/` 内不得再出现
+  （`CHANGELOG.md` / `TICKETS.md` 历史词条除外）；
+- 新口径数字与两个 source JSON 的 `counts` 逐字一致（1821/450/664/707、2917、7431/1800/2803/2828、5996/1435）；
+- 全量 `pytest -q` 仍 **833 passed**、`ruff check --no-cache .` 全仓绿、`selfcheck --strict` 18 OK / 0 DRIFT / 0 WARN；
+- `git diff --name-only` 不含 `wengu-api/app`、`wengu-api/scripts`、`wengu-api/tests`、`seeds/data`、`migrations`。
+
+【允许改动的文件】`seeds/README.md`、`CHANGELOG.md`、`docs/STATUS.md`。
+【禁止】改 `seeds/data/*`、任何测试/代码、转录模板 `version`；改写 CHANGELOG 历史词条原文
+（P5-9 只许词条尾加括注）；改 `docs/STATUS.md` §67 等历史数字（扩段前快照存档，已带注释）；
+在 README 手抄 verify reasons 明细；为"顺手"升任何版本号。
+
+【投单纪律】git fetch origin; git switch -c docs/p5-11-doc-cleanup origin/main；
+一票一 PR 分支冻结；中文 commit 用 `git commit -F <仓库外 UTF-8 文件>`；
+提交前 `git diff --name-only` 核对并贴清单（应恰为白名单 3 文件）；
+交付给"你自己实跑"的 grep/pytest/ruff 输出 + 单列「审核方需复核的点」；
+代码与本卡不符时以实际代码为准，先读再改，不一致上报不要硬凑。
