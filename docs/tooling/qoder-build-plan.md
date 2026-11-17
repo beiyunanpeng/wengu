@@ -2850,10 +2850,17 @@ TICKETS.md 的 **P5-12 卡**（范围/DoD/禁止的权威版）与 P5-10 卡（�
    - 零写入守卫：脚本无任何写路径参数，测试断言计算函数不接受输出路径。
 3. 文档：`seeds/README.md` 加「上游更新检查」段（何时跑、怎么读报告、有更新后走什么流程——指向
    §19-F-1 重取证，明确"同步是另一票"）；`docs/STATUS.md` 下一步口径；`CHANGELOG.md` Added 一条。
+4. **附加：P5-11 交付报告两条残留（审核方裁定并入本票，两文件本就在白名单内）**：
+   - `seeds/README.md:11`：首行注释"转换后的 cn-math-taxonomy **初中包**" → "全量包（小学+初中+高中）"
+     （P5-11 卡漏列此行，审核方第 18 次卡面缺陷）；
+   - `docs/STATUS.md:265`：P5-10 bullet 标题"**已交付（待审核）**" → "已合并（2026-11-17，PR#63 →
+     main `6edd2b8`）"，bullet 内文不动（审核方合并流程漏项：合并留痕未翻转状态行）。
 
 【DoD——自证逐项贴输出】
 - 实跑自证：`--pinned d58785cef744341bf02d41e5568ebb953595ab18` 对仓内真数据跑 delta **全 0**，
   且报告数字字面 == source JSON `counts`（1821/450/664/707、2917、7431/1800/2803/2828）；
+- 残留清理自证：`grep -rn "cn-math-taxonomy 初中包" seeds/README.md` 与
+  `grep -n "P5-10 全量收录已交付（待审核）" docs/STATUS.md` 均**零命中**（贴输出）；
 - 全量 `pytest -q` / `ruff check --no-cache .` / `selfcheck --strict` 绿；
 - `git diff --name-only` 不含 `wengu-api/app`、`wengu-api/migrations`、`wengu-api/requirements.txt`、
   `seeds/data/**`、`wengu-web/**`；
