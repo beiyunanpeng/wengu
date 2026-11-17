@@ -1326,7 +1326,11 @@
   - **默认零变化**：不写该键时，三个面的读数与合并前**逐字相同**（快照断言或独立重算对齐，不许写死期望值）。
   - **NULL 保留**：`grade=None` 的本地 seed 点在 `ceiling=6` 时仍在列表内。
   - **回溯不受限**：造一条 `初中 → 小学` 先修边，`ceiling=9` 时诊断/前置路径**仍返回小学点**，
-    同时该小学点**不出现在** `quiz_topics` 里（两件事必须同时成立，缺一即口径写歪）。
+    ~~同时该小学点**不出现在** `quiz_topics` 里（两件事必须同时成立，缺一即口径写歪）。~~
+    ⚠️ **后半句是审核方 DoD 自相矛盾（第 16 次，类型同 §19-H 互斥算式），P5-9 验收时由施工方上报**：
+    `ceiling=9` 是**上限式**、本就包含小学，有题的小学点就该能主动选。
+    正确不变量三条：回溯链完整（`prerequisites_of` / `edges_total` 不受 ceiling 影响）+
+    **有题的低学段点仍可主动选** + 越界学段不可选。已按此实现并另加测试钉死，规矩见 §19-L 纪律⑥。
   - **计数同尺**：`seed_summary.topics_total` == 同 ceiling 下 `seed_topics` 的 total（一条集成断言钉死）。
   - **服务端过滤证明**：`wengu-web/src` 内**不得**出现 `ceiling` 字样的过滤逻辑（grep 断言）；
     且孩子区未解锁时 `GET /api/config` 仍被挡、而列表端点照常按 ceiling 收窄（证明不依赖前端读配置）。
@@ -1336,6 +1340,78 @@
   在前端做过滤或让前端读 ceiling；做成多选/年级选择器；把 ceiling 用于隐藏复习队列或诊断回溯；
   顺手导入小学/高中数据（那是 P5-10，混投会让"默认零变化"断言失去意义）；
   为容纳 list 值而扩 `validate_updates` 的类型系统；把作用域存进 SQLite 新表或 app-config 之外的新位置。
+
+### P5-10 全量收录小学与高中 seed（v2.8 §19-G-1 的后半；改变数据面；零迁移、零新依赖）
+- **前置**：P5-9 学段作用域已上线（`seed_grade_ceiling`，默认 16）。
+  **顺序不可反**——AGENTS §7 写死"先写消费逻辑（过滤 + 测试），再加采集字段"，
+  作用域先被证伪，扩数据才是纯增益、可回滚。
+- **三条定案（决策人 2026-11-17 点头）**：
+  ① **ceiling 默认值保持 16（方案 A）**。理由：默认 9 对高中家庭是**功能不可用**（组不了本学段卷）、
+     对初中家庭只是**噪音**（列表多出够不到的点），不可用 > 噪音；且开源产品不替用户假设孩子学段。
+     代价与缓解：初中家庭升级后选择器出现小学/高中点 → README 与 STATUS 明确写
+     "初中家庭建议在家长设置把学段作用域调到 9"，向导文案同步改口径。**不新增采集字段**（方案 C 否）。
+  ② **转录目录维持初中-scoped**（`topics_junior.tsv` 仍 665 行），扩段与"候选集变化"分两票——
+     后者要真实使用信号（非初中家庭真用转录时才设计按家庭生成目录）。
+  ③ **新增数据 mismatch != 0 → 丢弃并上报**，不整批暂缓、也不静默收。
+- **现状（2026-11-17 读盘 main `e95fc66`）**：
+  - `scripts/import_seed.py`：`JUNIOR_GRADES = range(7, 10)`（:27）、过滤 :76、
+    先修边"两端点都在装载集内" :104-116（跨学段丢弃计数 :128）、`filter` 与 `grade_semantics_note`
+    两个字面串 :174-175。快照 commit 已钉死 `d58785ce…`（P5-5），**扩段不需要重取快照**——
+    小学与高中数据本来就在快照里，只是被过滤器筛掉。
+  - 上游快照实测：知识点 **1821 = 小学 450 + 初中 664 + 高中 707**；先修边 **2917**
+    （初中→初中 1018、初中→小学 **74**、小学→小学 620、高中→初中 196、高中→小学 3、高中→高中 1006）；
+    题 **7431 = 小学 1800 + 初中 2803 + 高中 2828**。**初中→高中先修边 0 条**（回溯只向下）。
+  - 现库 664 / 1018 / 2803；`load_bank` 实测 **373 ms**（verified 1738 / unverifiable 1065，
+    其中 532 无 `verify`、492 `sandbox:forbidden_call`）。全量线性外推约 1.0 s——**性能不是约束**。
+  - ⚠️ **转录目录是"借来的过滤"（本票最容易漏的一处）**：`scripts/export_topics_junior.py` 的 docstring
+    明写"过滤（grade 7–9）已在 P1-1b 的 import_seed.py 完成，这里不重造逻辑"。import_seed 一旦不过滤，
+    `docs/templates/topics_junior.tsv`（现 665 行 = 表头 + 664）会**静默涨到约 1822 行**，
+    外部转录的 `suggested_topic_id` 候选集随之含小学/高中点、发给第三方工具的提示文本体积近三倍。
+  - 会被推翻的测试（4 处，都是"改对"不是"放宽"）：`test_bank_seed.py`（`total == 2803`、
+    `topics_total == 664`、`topics_with_questions == 664`，以及 P1-5 的"2803 题自答全对"硬回归）、
+    `test_seed_provenance.py:186-188`（664/1018/2803）、`test_quiz_api.py:417`
+    （P5-9 的 ceiling 测试**前提就是"真实 seed 题库 664 点全为 7–9"**）、
+    `test_local_seed.py:632`（TSV `1 + 664 + 1` 行——只要导出脚本自己过滤就继续成立）。
+  - 会被推翻的文档口径（10 处）：`AGENTS.md:72`「seed 全量装载初中 7–9」、`README.md:99` 的 2803 题、
+    `LICENSE-data.md:12-14` 三条计数、`THIRD-PARTY-NOTICES.md` §1、`docs/STATUS.md` 140/290/301/582/668/915、
+    `docs/methodology/evals.md:13`「2803 题自答全对」、`SetupPage.tsx:198`「初中 7–9 全量装载」、
+    `_source.json` 的 `filter` / `modified` / `counts` / `grade_semantics_note` 四字段。
+- 交付：
+  ① `import_seed.py` / `import_questions.py` 的学段过滤改为**参数驱动**（如 `--grades primary,junior,senior`，
+     默认仍 7-9 以保持脚本可复现），实际生效的过滤写进 `_source.json.filter`；产出全量 1821 / 2917 / 7431。
+     **不得**把 `JUNIOR_GRADES` 语义删掉而不留可复现路径。
+  ② **转录目录自己过滤**：`export_topics_junior.py` 显式按 grade 7–9 过滤（不再继承 import_seed 的行为），
+     `topics_junior.tsv` 仍 665 行；本票**不改模板 `version`**（契约字段未变、只是候选集来源变了），
+     但 CHANGELOG 须记一句"目录生成改为脚本内过滤，输出内容不变"。
+  ③ 两个 source 文件同步：`filter`、`modified`（改为"全学段收录；小学/高中为新增"）、`counts`
+     （含新增部分的 verified/unverifiable/mismatch 分布）、`grade_semantics_note`；
+     **`upstream_commit` 与 `commit_evidence` 不变**（同一快照，改了要重新取证）。
+  ④ 测试改对：`test_seed_provenance.py::test_seed_data_not_expanded` **改名**为
+     `test_seed_data_counts_match_snapshot` 并断言 1821 / 2917 / 7431；`test_bank_seed.py` 的条数与
+     "自答全对"回归扩到全量，**mismatch 必须为 0**；`test_quiz_api.py:417` 的 ceiling 测试
+     **改用受控夹具**，不再依赖"真实库全为 7–9"。
+  ⑤ 文档 10 处口径同步（逐条列行号）；向导文案改"全学段收录 + 可用学段作用域收窄"；
+     README/STATUS 加"初中家庭建议设为 9"。
+- DoD（成对断言已按 §19-L 纪律⑥逐条验过可满足性）：
+  - **收录完整性**：`topics.json` 1821 且分桶 == 450 / 664 / 707；`dependencies.json` 2917；
+    `questions.json` 7431 且 == 1800 / 2803 / 2828。**断言写死数字字面，不从被测文件反算**（纪律①）。
+  - **转录目录不受扩段影响**（与上一条**可同时成立，已验**）：`topics_junior.tsv` 仍 `1 + 664 + 1` 行、
+    且不含任何 grade ∉ 7–9 的行。**变异**：删掉导出脚本的过滤 → 必须红。
+  - **初中面零变化**：扩段前后 `ceiling=9` 时 `seed_topics` / `quiz_topics` / `seed_summary` 读数逐字相同。
+    ⚠️ **不得**写成"默认 16 时零变化"——扩段后那句**不可满足**（这正是纪律⑥要拦的写法）。
+  - **回溯复活**：取真实数据里一条 初中→小学 先修边，断言 `prerequisites_of(初中点)` 返回该小学点、
+    `edges_total == 2917`；并断言该小学点在 `ceiling=9` 下**仍可主动组卷**（有题）——上限式不是硬隔离。
+  - **新增数据质量如实上报**：报新增 4628 题的 `verified / unverifiable / mismatch` 分布与丢弃数；
+    **mismatch != 0 时本票不得合并**，停下上报后另定策略（装载器已有 `verify_mismatch` 丢弃路径，
+    静默缩水比报错更坏）。
+  - **实测启动耗时**：`load_bank(7431)` 与 `load_seed`（1821 点 + 2917 边 upsert 到临时库）各实测报数，
+    **阈值 3 s**；超阈值不得靠"少导一点数据"绕过，须上报原因。
+  - 全量 `pytest -q` 绿（当前基线 **824**，如实报新数）、`ruff check --no-cache .` 全仓绿、
+    `selfcheck --strict` 仍 18 OK / 0 DRIFT、`npm lint/test/build` 绿；**零迁移**、零新依赖。
+- 禁止：重取上游快照或改 `upstream_commit`；引入语文（上游 `cnl_` 是 2026-10-24 新增、**不在本快照**）
+  或化学（上游从未做过）；把 `topics_junior.tsv` 扩到全学段；为"按家庭生成目录"给向导加采集字段
+  （撞 AGENTS §7 年级红线）；放宽 `test_bank_seed.py` 的自答回归或删 mismatch 丢弃逻辑来"让它过"；
+  改模板 `version`；只改文档不改测试，或只改测试不改文档；把 ceiling 默认值改成 9（定案是 16）。
 
 ---
 

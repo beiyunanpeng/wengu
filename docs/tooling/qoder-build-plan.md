@@ -2652,6 +2652,97 @@ GitHub 仓库 `description` / `topics` / `homepage`、首个 Release、开启 Di
 > 5. 一处取证遗留由审核方处置：vite 孤儿进程 PID `39972` 仍监听 `127.0.0.1:5191`
 >    （8011 / 9333 已释放）；施工方按权限拦截**未强行绕过**，做法正确。
 
-<!-- P5-10（全量收录小学 450 点 / 高中 707 点）尚未出卡：本文件此刻没有它的可投单块，
-     出卡时须含——实测启动装载耗时（阈值 3s）、`_source.json` 的 `modified` 与 counts 同步改写、
-     `test_seed_data_not_expanded` 改为断言新条数并改名、ceiling 三档在真实数据下的条目数目视核对。 -->
+## P5-10 —— 全量收录小学与高中 seed（v2.8 §19-G-1 的后半；改变数据面；零迁移、零新依赖）
+
+```
+你在 wengu 仓库工作。开工前完整读：AGENTS.md §3（seed 与题库以 JSON 随仓库分发、运行时读入内存索引、
+不塞 SQLite；化学/语文空 seed 起步走教材包机制）、§5（事实源 + 确定性重放；外部数据分发与净化）、
+§7（**"实施顺序必须是先写消费逻辑（过滤 + 测试），再加采集字段，不得反过来"**；
+不采集年级的重开条件；grade 10-16 语义是"册"的警告）、§8（一票一 PR、DoD 含 CHANGELOG）
++ 设计文档 §19-G-1（方案 1 定案与分票顺序）与 §19-L（断言与变异纪律，尤其纪律⑥成对断言可满足性）
++ wengu-api/scripts/import_seed.py（`JUNIOR_GRADES = range(7, 10)` :27、过滤 :76、
+  先修边"两端点都在装载集内" :104-116、跨学段丢弃计数 :128、`filter`/`grade_semantics_note` :174-175）
++ wengu-api/scripts/import_questions.py（过滤是 `topicId ∈ seeds/data/topics.json`；写文件 :191-196）
++ ⚠️ wengu-api/scripts/export_topics_junior.py（docstring 明写"过滤（grade 7–9）已在 import_seed.py 完成，
+  这里不重造逻辑"——**这是本票最容易漏的一处**：import_seed 一旦不过滤，转录目录会静默涨到约 1822 行）
++ docs/templates/topics_junior.tsv（现 665 行 = 表头 + 664；本票后**必须仍是 665 行**）
++ seeds/data/_source.json 与 questions_source.json（`filter`/`modified`/`counts`/`grade_semantics_note` 要同步；
+  **`upstream_commit` 与 `commit_evidence` 不变**——扩段用同一快照 `d58785cef744341bf02d41e5568ebb953595ab18`）
++ wengu-api/app/seed/bank.py（装载期逐题过 AST 沙箱；`verify_mismatch` 走丢弃路径 `_drop`，
+  统计在 `BankStats.verify_reasons` / `dropped`）
++ wengu-api/tests/unit/test_bank_seed.py（2803 / 664 / topics_with_questions 664 + "自答全对"硬回归）、
+  test_seed_provenance.py（:186-188 条数守卫）、
+  wengu-api/tests/integration/test_quiz_api.py（:417 的 ceiling 测试前提就是"真实库全为 7–9"）、
+  test_local_seed.py（:632 TSV 行数）
++ wengu-api/app/api/seed.py（`_grade_scope_condition`）与 app/api/quizzes.py（`_within_grade_scope`）
+  ——扩段后 ceiling 才第一次在真实数据上起作用，本票**不改**这两个文件
++ 文档口径的 10 处：AGENTS.md:72、README.md:99、LICENSE-data.md:12-14、THIRD-PARTY-NOTICES.md §1、
+  docs/STATUS.md 140/290/301/582/668/915、docs/methodology/evals.md:13、
+  wengu-web/src/pages/SetupPage.tsx:198、`_source.json` 四字段
++ TICKETS.md 的 P5-10、P5-9、P5-5。
+
+【三条已定案，不要重开】① `seed_grade_ceiling` **默认保持 16**（默认 9 对高中家庭是"组不了卷"、
+对初中家庭只是"列表变吵"，不可用 > 噪音；开源产品不替用户假设孩子学段）。② **转录目录维持初中-scoped**
+（扩段与"候选集变化"分两票，后者要真实使用信号）。③ **mismatch != 0 → 丢弃并停下上报**，
+不整批暂缓、也不静默收。
+
+【投单纪律】1) git fetch origin; git switch -c feat/p5-10-full-seed origin/main
+2) 一票一 PR，分支冻结；提交前 `git diff --cached --name-only` 核对并贴清单。
+3) 中文 commit message 用 `git commit -F <仓库外 UTF-8 文件>`；lint 用 `ruff check --no-cache`。
+4) 交付给"你自己实跑"的数字（**含实测启动耗时与新增数据质量分布**）+ 单列「审核方需复核的点」。
+5) 代码与本卡不符时以实际代码为准，先读再改，不一致上报不要硬凑。
+允许改动的文件：`wengu-api/scripts/import_seed.py`、`import_questions.py`、`export_topics_junior.py`、
+`seeds/data/topics.json`、`seeds/data/dependencies.json`、`seeds/data/questions.json`、
+`seeds/data/_source.json`、`seeds/data/questions_source.json`、`docs/templates/topics_junior.tsv`
+（应无变化，但要能自证）、`wengu-api/tests/unit/test_seed_provenance.py`、`test_bank_seed.py`、
+新建 `wengu-api/tests/unit/test_seed_full_coverage.py`、
+`wengu-api/tests/integration/test_quiz_api.py`、`test_local_seed.py`、
+`wengu-web/src/pages/SetupPage.tsx`、`README.md`、`AGENTS.md`、`LICENSE-data.md`、
+`THIRD-PARTY-NOTICES.md`、`docs/STATUS.md`、`docs/methodology/evals.md`、
+**`CHANGELOG.md`**（AGENTS §8 DoD 必需项）。
+**不得**碰：`migrations/**`、`app/models/**`、`app/services/**`、`app/api/**`（ceiling 逻辑已就位，
+本票不改）、依赖清单、`docs/templates/doubao_transcribe_v1.md`（模板 `version` 不动）。
+
+【任务】
+1. `import_seed.py` / `import_questions.py` 的学段过滤改为**参数驱动**（如 `--grades primary,junior,senior`，
+   **默认仍 7-9**，保证脚本可复现、可回退），实际生效的过滤写进 `_source.json.filter`；
+   产出全量：知识点 1821、先修边 2917、题 7431。
+2. **转录目录自己过滤**：`export_topics_junior.py` 显式按 grade 7–9 过滤，不再继承 import_seed 的行为；
+   `topics_junior.tsv` 仍 665 行、内容不变。CHANGELOG 记一句"目录生成改为脚本内过滤，输出不变"，
+   **不升模板 version**（契约字段没变，只是候选集来源变了）。
+3. 两个 source 文件同步 `filter` / `modified` / `counts` / `grade_semantics_note`；
+   `counts` 里补新增部分的 `verified / unverifiable / mismatch` 分布与丢弃数。
+   **`upstream_commit` 与 `commit_evidence` 保持原值**（同一快照，改了要重新取证）。
+4. 测试改对而非放宽：`test_seed_data_not_expanded` **改名**为 `test_seed_data_counts_match_snapshot`
+   并断言 1821 / 2917 / 7431；`test_bank_seed.py` 的条数与"自答全对"回归扩到全量；
+   `test_quiz_api.py:417` 的 ceiling 测试**改用受控夹具**，不再依赖"真实库全为 7–9"。
+5. 文档 10 处口径逐条同步（交付里列出每处的行号与改后文案）；向导文案改
+   "全学段收录 + 可用学段作用域收窄"；README 与 STATUS 加一句"初中家庭建议把作用域调到 9"。
+
+【DoD——成对断言已逐条验过可满足性（§19-L 纪律⑥）】
+- **收录完整性**：`topics.json` 1821 且分桶 == 小学 450 / 初中 664 / 高中 707；`dependencies.json` 2917；
+  `questions.json` 7431 且 == 1800 / 2803 / 2828。**断言写死数字字面串，不从被测文件反算**（纪律①）。
+- **转录目录不受扩段影响**（与上一条可同时成立，已验）：TSV 仍 `1 + 664 + 1` 行、
+  且不含任何 grade ∉ 7–9 的行。**变异**：删掉导出脚本的过滤 → 必须红。
+- **初中面零变化**：扩段前后，`ceiling=9` 时 `seed_topics` / `quiz_topics` / `seed_summary` 读数逐字相同。
+  ⚠️ **不得**写成"默认 16 时零变化"——扩段后该句不可满足，写了就是口径错。
+- **回溯复活**：取真实数据里一条 初中→小学 先修边，断言 `prerequisites_of(初中点)` 返回该小学点、
+  `edges_total == 2917`；并断言该小学点在 `ceiling=9` 下**仍可主动组卷**（有题）——上限式不是硬隔离。
+- **新增数据质量如实上报**：报新增 4628 题的 `verified / unverifiable / mismatch` 分布与丢弃数；
+  **mismatch != 0 时停下上报、本票不合并**（装载器已有 `verify_mismatch` 丢弃路径，静默缩水比报错更坏）。
+- **实测启动耗时**：`load_bank(7431)` 与 `load_seed`（1821 点 + 2917 边 upsert 进临时库）各实测并报数，
+  **阈值 3 s**；超阈值不得靠"少导一点"绕过，须上报原因。
+- 全量 `pytest -q` 绿（当前基线 **824**，如实报新数）、`ruff check --no-cache .` 全仓绿、
+  `transcribe/validate.py selfcheck --strict` 仍 18 OK / 0 DRIFT / 0 WARN、`npm lint/test/build` 绿；
+  **零迁移**（`git diff --name-only` 不含 `migrations/`）、零新依赖。
+
+【禁止】
+- 重取上游快照、改 `upstream_commit` 或 `commit_evidence`（扩段用同一快照即可）；
+- 引入语文（上游 `cnl_` 是 2026-10-24 新增、**不在这份快照里**）或化学（上游从未做过）——
+  这两科继续走本地 seed 机制；
+- 把 `topics_junior.tsv` 扩到全学段，或为"按家庭生成目录"给安装向导加采集字段（撞 AGENTS §7 年级红线）；
+- 改 `docs/templates/doubao_transcribe_v1.md` 或升其 `version`（本票未改契约字段）；
+- 放宽 `test_bank_seed.py` 的自答回归、删掉 `verify_mismatch` 丢弃逻辑，或用 `--skip`/`xfail` 让新增数据"过"；
+- 把 `seed_grade_ceiling` 默认值改成 9（定案是 16）；改动 `app/api/seed.py` / `app/api/quizzes.py` 的 ceiling 逻辑；
+- 只改文档不改测试，或只改测试不改文档（两侧必须同步，否则"文档与盘上一致"立刻破）。
+```
