@@ -69,3 +69,13 @@ def test_license_literals() -> None:
     text = _read("README-en.md")
     for literal in ["MIT", "CC BY-NC 4.0", "non-commercial", "not OSI"]:
         assert literal in text
+
+
+@pytest.mark.unit
+def test_no_merged_item_drift() -> None:
+    """两侧同一把尺：已合并项/已交付项的旧「待做」口径不得回流（P5-14 二次折入）。"""
+
+    for rel in ["README.md", "README-en.md"]:
+        text = _read(rel)
+        for literal in ["P4-1c 命令行备份入口", "P4-1c CLI backup entry", "剩英文 README"]:
+            assert literal not in text
