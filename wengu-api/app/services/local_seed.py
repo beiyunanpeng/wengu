@@ -1,7 +1,9 @@
 """家长自建章级 seed：文件真源（`<data_dir>/seeds_local/topics_<学科>.json`）+ SQLite 副本。
 
-纪律（TICKETS P3-5 前置 / AGENTS §3）：
-- 只有语文（`cnl_`）/ 化学（`cnc_`）允许本地录点；上游学科一律拒绝，防搅乱既有 id 空间。
+纪律（TICKETS P3-5 前置 / AGENTS §3 / P5-15）：
+- 只有语文/化学允许本地录点（白名单键不变）；上游学科一律拒绝，防搅乱既有 id 空间。
+- **本地 id 统一 `loc_` 单前缀（loc_001…），学科由 subject 字段承载**（P5-15 定案一）：
+  上游 10 科前缀全在 cn?_ 家族内，loc_ 永不冲突；判据按 source='local'，不按前缀。
 - 文件是唯一真源：先原子写文件，再 upsert `knowledge_seed`；重启后由装载器按文件恢复。
 - 本地行固定 `source='local'`、`unaudited=true`、`blind_verified=false`。
 - 删除只允许 local 行：从文件移除 + 删行，引用侧（`mistakes.primary_topic_id` /
@@ -26,8 +28,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Settings
 from app.models import Concept, KnowledgeSeed, Mistake, PrerequisiteEdge, ProblemBankItem
 from app.seed.loader import (
+    LOCAL_PREFIX,
     LOCAL_SOURCE,
-    LOCAL_SUBJECT_PREFIXES,
+    LOCAL_SUBJECTS,
     SeedFormatError,
     next_local_id,
     validate_local_topic,
@@ -169,9 +172,9 @@ def _clean_criteria(value: Any) -> list[str] | None:
 
 
 def _require_subject(subject: str) -> str:
-    if subject not in LOCAL_SUBJECT_PREFIXES:
+    if subject not in LOCAL_SUBJECTS:
         raise LocalSeedError(
-            f"暂只支持本地自建 {'/'.join(LOCAL_SUBJECT_PREFIXES)} 知识点；"
+            f"暂只支持本地自建 {'/'.join(LOCAL_SUBJECTS)} 知识点；"
             "数学/英语/物理请使用仓库 seed"
         )
     return subject
@@ -293,7 +296,7 @@ async def create_local_topic(
             "章级 40–80 点即可，细粒度请用错题受控生长"
         )
 
-    prefix = LOCAL_SUBJECT_PREFIXES[subject]
+    prefix = LOCAL_PREFIX
     path = local_topics_path(settings, subject)
     async with _FILE_LOCK:
         entries = _read_entries(path)

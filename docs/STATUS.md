@@ -40,7 +40,7 @@
   `coverage`/`thin`/`bank_gap` 随池更新。`BankPick.pool_ids` 随池增长，旧记录在新池下
   `replay` 显式抛 `BankReplayError`（绝不静默换题），旧记录仍可用只读 seed 池复现。
 - **P3-8 家长自建章级 seed 已交付**：语文/化学不再只能"空 seed 起步"——家长在
-  `/local-seed`「学科 seed」页按教材目录建章级点（语文 `cnl_` / 化学 `cnc_`），
+  `/local-seed`「学科 seed」页按教材目录建章级点（语文/化学统一 `loc_` 前缀，P5-15），
   **文件真源 = `<data_dir>/seeds_local/topics_<学科>.json`**，装载器按
   `仓库 seeds/data/topics.json → seeds/local/*.json → data/seeds_local/*.json` 多源合并、
   按 id upsert 幂等；本地行固定 `source='local'` / `unaudited=true` / `blind_verified=false`，
@@ -317,7 +317,7 @@
 |---|---|---|
 | P1-0 Repo 骨架 | 已完成 | FastAPI + `/health` + SQLite WAL + Alembic + React + Docker Compose + CI |
 | P1-1 数据模型 + 事件溯源/幂等 | 已完成 | `learning_events` 只追加；确定性重算；幂等写入 |
-| P1-1b 知识点 seed 装载 | 已完成 | 1821 个知识点（全学段，P5-10）+ 2917 条先修边（初中子集 664/1018 不变）；`unaudited` / `blind_verified` 透传；多源装载 `仓库 seed → seeds/local → data/seeds_local`（**家长自建章级点已独立为 P3-8**：语文 `cnl_` / 化学 `cnc_`，文件真源、原子写、CRUD API + `/local-seed` 页） |
+| P1-1b 知识点 seed 装载 | 已完成 | 1821 个知识点（全学段，P5-10）+ 2917 条先修边（初中子集 664/1018 不变）；`unaudited` / `blind_verified` 透传；多源装载 `仓库 seed → seeds/local → data/seeds_local`（**家长自建章级点已独立为 P3-8**：语文/化学统一 `loc_` 前缀（P5-15），文件真源、原子写、CRUD API + `/local-seed` 页） |
 | P1-2 / P1-2b / P1-2c Provider 与模型分档 | **已退役（P1-12）** | 依赖注入式 provider、故障转移、成本护栏、`model_runs` 全部删除 |
 | P1-3 / P1-3b / P1-3c 采集与切片 | **已退役（P1-12）** | 上传、OCR 行聚类切题、配图切片几何全部删除；入本改走外部转录 |
 | P1-4 结构化提取 + 质量闸门 | **已退役（P1-12）** | VLM 提取等删除；质量闸门语义由导入契约 + 核对页承接 |
@@ -591,8 +591,8 @@
   按 id upsert 幂等，重启后本地点仍在；单文件坏 JSON 只告警跳过，不阻塞服务与其余源；
   id 与上游/先前本地冲突 → error 日志并拒绝该条。装载器跳过下划线开头的文件
   （`_id_counters.json` 是运行期簿记，不是 topics 数组）。
-- **契约**：与上游 topics.json 同 schema 子集；语文前缀 `cnl_`、化学 `cnc_`
-  （与 `cnm_`/`cne_`/`cnp_` 隔离）；装载/API 统一强制 `source='local'`、`unaudited=true`、
+- **契约**：与上游 topics.json 同 schema 子集；统一 `loc_` 单前缀（P5-15，学科由 subject
+  字段承载，与上游 `cn?_` 家族隔离）；装载/API 统一强制 `source='local'`、`unaudited=true`、
   `blind_verified=false`；**无迁移**（`knowledge_seed.source` 已存在）。
 - **写入**：原子写（同目录 tmp + fsync + `os.replace`，进程内锁串行），先写文件再
   upsert/改行；id 由服务端按前缀 + 递增序号生成（零填充 3 位）。
@@ -616,7 +616,7 @@
   引用计数与「家长自建 · 未经教师审核」，新增/编辑弹窗、删除确认显示受影响计数。
 - **本地点不作历史改写**：删除点不会回写 `mistake_versions` 的标签快照；快照里的旧
   `category_id` 仍在，但名称解析为 None（只影响展示，不影响事实与排期）。
-- **P3-2d 运行态证据（2026-10-31）**：临时库 + uvicorn `127.0.0.1:8111`。连续创建语文点
+- **P3-2d 运行态证据（2026-10-31，P5-15 前 `cnl_` 命名空间的历史快照）**：临时库 + uvicorn `127.0.0.1:8111`。连续创建语文点
   得 `cnl_001..003`，计数器 `{"语文": 3}`；删除 `cnl_003` 后计数器仍为 3；再创建得
   **`cnl_004`**（非 003），计数器 4。重启服务后装载器仍见 `cnl_001/002/004`，
   `_id_counters.json` 未被当作 seed；重启后再创建得 `cnl_005`，计数器 5。
@@ -974,7 +974,7 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
 | 入库题无编辑/作废 | 已关闭（P3-1c） | 家长可在 `/bank` 列表内编辑（重跑同一套闸门）或软作废/撤销；作废题退出检索池，不物理删除、不改写历史 | 后续如需要"当时题面快照"，另开 attempts 展示层工单 |
 | 主动加练污染闭环 | 已关闭（P3-2 / P3-2d） | 加练只写 `practice_records(kind=variant)`，不写 attempts/事件/错题本，不影响掌握度/排期/打卡；可整表清空；gap 只提示不硬凑；提交按 `(topic_id, seed, question_id)` 幂等，重复提交不增行并回 `reused=true` | category/错因/难度筛选、「上一组」身份重放可另开增量工单 |
 | 录题审核逐条 | 部分缓解 | 草稿只能逐条通过/驳回，批量录入时家长操作成本高 | 观察真实使用量后决定是否做批量确认；不得改为无人确认自动入库 |
-| 空 seed 学科无法录题挂点 | 已关闭（P3-8） | 家长可在 `/local-seed` 建语文/化学章级点（`cnl_`/`cnc_`），错题主考点与题库 `topic_id` 均可挂，到期考核闭环打通 | 教材包自动导入/多教材切换仍归 P5-4；细粒度仍走错题受控生长 |
+| 空 seed 学科无法录题挂点 | 已关闭（P3-8） | 家长可在 `/local-seed` 建语文/化学章级点（统一 `loc_` 前缀，P5-15），错题主考点与题库 `topic_id` 均可挂，到期考核闭环打通 | 教材包自动导入/多教材切换仍归 P5-4；细粒度仍走错题受控生长 |
 | P0-1 样本扩容 | 待按 v2.5 重新定义 | 外部转录质量是新的主瓶颈 | 用真实"已批改卷"样本测转录模板 + 核对页漏/错项率 |
 | P0-2 黄金评测集 | 未开始（需重新界定） | 系统内核已无模型，原 prompt/供应商回归失去对象 | 若做，只针对外部转录质量与题库/判分回归 |
 | P1-7b 前置回溯诊断 | 未开始 | 无法定位根因先修 | `prerequisite_edges` 就绪 |

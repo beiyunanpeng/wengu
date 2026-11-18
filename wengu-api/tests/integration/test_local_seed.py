@@ -1,9 +1,9 @@
-"""P3-5 前置 / P1-1b 延伸：家长自建章级 seed（语文 cnl_ / 化学 cnc_）。
+"""P3-5 前置 / P1-1b 延伸：家长自建章级 seed（语文/化学，统一 loc_ 前缀，P5-15）。
 
 DoD（TICKETS P3-5 前置）：
 1. 装载：`<data_dir>/seeds_local` 的语文点重启后仍在（source='local'、
    unaudited=1、blind_verified=0）；坏文件只告警不阻塞其余源；id 冲突拒绝。
-2. CRUD：POST 生成 cnl_001 → 原子落盘 → GET 可见 → PATCH 生效；
+2. CRUD：POST 生成 loc_001 → 原子落盘 → GET 可见 → PATCH 生效；
    非 local 行 PATCH/DELETE 404；上游学科提交 422。
 3. 端到端：新建语文点 → 题库录题挂点 → 错题确认 → 到期队列出 quiz（gap 关闭）。
 4. DELETE 联动：mistakes.primary_topic_id / problem_bank.topic_id 置 NULL、
@@ -54,7 +54,7 @@ UPSTREAM_TOPIC = {
 
 LOCAL_TOPICS = [
     {
-        "id": f"cnl_{index:03d}",
+        "id": f"loc_{index:03d}",
         "subject": "语文",
         "name": name,
         "domain": "阅读",
@@ -215,17 +215,18 @@ async def test_loader_merges_local_sources_and_survives_restart(
     settings = _settings(tmp_path)
     _write_json(settings.seeds_dir / "data" / "topics.json", [UPSTREAM_TOPIC])
     _write_json(settings.seeds_dir / "data" / "dependencies.json", [])
+    # 单前缀命名空间下两科共用 loc_ 序号空间：化学夹具避开语文的 loc_001..003
     _write_json(settings.seeds_dir / "local" / "topics_化学.json", [
-        {"id": "cnc_001", "subject": "化学", "name": "物质构成的奥秘", "grade": 9}
+        {"id": "loc_101", "subject": "化学", "name": "物质构成的奥秘", "grade": 9}
     ])
     _write_json(settings.data_dir / "seeds_local" / "topics_语文.json", LOCAL_TOPICS)
     # 坏文件：只跳过该文件
     (settings.data_dir / "seeds_local" / "broken.json").write_text(
         "{not json", encoding="utf-8"
     )
-    # 重复 id：与 seeds/local 的 cnc_001 冲突，拒绝并记 error
+    # 重复 id：与 seeds/local 的 loc_101 冲突，拒绝并记 error
     _write_json(settings.data_dir / "seeds_local" / "conflict.json", [
-        {"id": "cnc_001", "subject": "化学", "name": "重复点"}
+        {"id": "loc_101", "subject": "化学", "name": "重复点"}
     ])
 
     factory = _migrated(tmp_path)
@@ -235,16 +236,16 @@ async def test_loader_merges_local_sources_and_survives_restart(
         rows = (await session.execute(select(KnowledgeSeed))).scalars().all()
 
     by_id = {row.id: row for row in rows}
-    assert set(by_id) == {"cnm_001", "cnc_001", "cnl_001", "cnl_002", "cnl_003"}
+    assert set(by_id) == {"cnm_001", "loc_101", "loc_001", "loc_002", "loc_003"}
     assert by_id["cnm_001"].source is None
-    for topic_id in ("cnc_001", "cnl_001", "cnl_002", "cnl_003"):
+    for topic_id in ("loc_101", "loc_001", "loc_002", "loc_003"):
         row = by_id[topic_id]
         assert row.source == "local"
         assert row.unaudited is True
         assert row.blind_verified is False
-    assert by_id["cnl_001"].grade == "7"
-    assert by_id["cnl_001"].mastery_criteria == '["能概括段落大意"]'
-    assert index.topics["cnl_001"]["chapter"] == "第1单元"
+    assert by_id["loc_001"].grade == "7"
+    assert by_id["loc_001"].mastery_criteria == '["能概括段落大意"]'
+    assert index.topics["loc_001"]["chapter"] == "第1单元"
 
     # 重启（再次装载）不重复、不丢：文件即真源
     async with factory() as session:
@@ -253,7 +254,7 @@ async def test_loader_merges_local_sources_and_survives_restart(
         count = len((await session.execute(select(KnowledgeSeed))).scalars().all())
     assert count == 5
 
-    assert next_local_id("cnl_", {"cnl_001", "cnl_009", "cnx_100"}) == "cnl_010"
+    assert next_local_id("loc_", {"loc_001", "loc_009", "cnx_100"}) == "loc_010"
 
 
 @pytest.mark.integration
@@ -268,7 +269,7 @@ async def test_local_topic_crud_writes_atomic_file(tmp_path: Path) -> None:
         assert empty.json() == {"items": [], "total": 0}
 
         created = await _create_topic(client)
-        assert created["id"] == "cnl_001"
+        assert created["id"] == "loc_001"
         assert created["unaudited"] is True
         assert created["blind_verified"] is False
         assert created["grade"] == "7"
@@ -277,11 +278,11 @@ async def test_local_topic_crud_writes_atomic_file(tmp_path: Path) -> None:
         path = settings.data_dir / "seeds_local" / "topics_语文.json"
         assert path.exists()
         entries = json.loads(path.read_text(encoding="utf-8"))
-        assert [entry["id"] for entry in entries] == ["cnl_001"]
+        assert [entry["id"] for entry in entries] == ["loc_001"]
         assert not list(path.parent.glob(".topics-*.tmp"))  # 无半写临时文件
 
         second = await _create_topic(client, name="济南的冬天")
-        assert second["id"] == "cnl_002"
+        assert second["id"] == "loc_002"
 
         listed = await client.get("/api/local-seed/topics", params={"subject": "语文"})
         assert listed.json()["total"] == 2
@@ -295,7 +296,7 @@ async def test_local_topic_crud_writes_atomic_file(tmp_path: Path) -> None:
         assert rejected_subject.status_code == 422
 
         patched = await client.patch(
-            "/api/local-seed/topics/cnl_001",
+            "/api/local-seed/topics/loc_001",
             json={"name": "春（改）", "chapter": "第二单元"},
         )
         assert patched.status_code == 200, patched.text
@@ -306,7 +307,7 @@ async def test_local_topic_crud_writes_atomic_file(tmp_path: Path) -> None:
         assert entries[0]["chapter"] == "第二单元"
 
         missing = await client.patch(
-            "/api/local-seed/topics/cnl_999", json={"name": "不存在"}
+            "/api/local-seed/topics/loc_999", json={"name": "不存在"}
         )
         assert missing.status_code == 404
 
@@ -345,13 +346,13 @@ async def test_local_topic_crud_writes_atomic_file(tmp_path: Path) -> None:
             )
         ).status_code == 422
 
-        removed = await client.delete("/api/local-seed/topics/cnl_002")
+        removed = await client.delete("/api/local-seed/topics/loc_002")
         assert removed.status_code == 200, removed.text
         assert removed.json()["removed"] is True
         entries = json.loads(path.read_text(encoding="utf-8"))
-        assert [entry["id"] for entry in entries] == ["cnl_001"]
+        assert [entry["id"] for entry in entries] == ["loc_001"]
         assert (
-            await client.delete("/api/local-seed/topics/cnl_002")
+            await client.delete("/api/local-seed/topics/loc_002")
         ).status_code == 404
 
     assert _seed_digest() == before
@@ -370,34 +371,34 @@ async def test_local_seed_id_counter_never_reuses_deleted_ids(tmp_path: Path) ->
         second = await _create_topic(client, name="济南的冬天")
         third = await _create_topic(client, name="雨的四季")
         assert [first["id"], second["id"], third["id"]] == [
-            "cnl_001",
-            "cnl_002",
-            "cnl_003",
+            "loc_001",
+            "loc_002",
+            "loc_003",
         ]
         assert json.loads(counter_path.read_text(encoding="utf-8")) == {"语文": 3}
 
-        removed = await client.delete("/api/local-seed/topics/cnl_003")
+        removed = await client.delete("/api/local-seed/topics/loc_003")
         assert removed.status_code == 200, removed.text
         # 删除不回退计数器
         assert json.loads(counter_path.read_text(encoding="utf-8")) == {"语文": 3}
 
         fourth = await _create_topic(client, name="古代诗歌")
-        assert fourth["id"] == "cnl_004"
+        assert fourth["id"] == "loc_004"
         assert json.loads(counter_path.read_text(encoding="utf-8")) == {"语文": 4}
 
         # 再删一次后仍不复用 004
         assert (
-            await client.delete("/api/local-seed/topics/cnl_004")
+            await client.delete("/api/local-seed/topics/loc_004")
         ).status_code == 200
         fifth = await _create_topic(client, name="现代文阅读")
-        assert fifth["id"] == "cnl_005"
+        assert fifth["id"] == "loc_005"
 
         topics_path = settings.data_dir / "seeds_local" / "topics_语文.json"
         entries = json.loads(topics_path.read_text(encoding="utf-8"))
         assert [entry["id"] for entry in entries] == [
-            "cnl_001",
-            "cnl_002",
-            "cnl_005",
+            "loc_001",
+            "loc_002",
+            "loc_005",
         ]
         assert not list(topics_path.parent.glob("._counters-*.tmp"))
 
@@ -408,7 +409,7 @@ async def test_local_seed_id_counter_never_reuses_deleted_ids(tmp_path: Path) ->
         await load_seed(session, settings.seeds_dir, settings.data_dir)
     async with factory() as session:
         ids = set((await session.execute(select(KnowledgeSeed.id))).scalars())
-    assert ids == {"cnm_001", "cnl_001", "cnl_002", "cnl_005"}
+    assert ids == {"cnm_001", "loc_001", "loc_002", "loc_005"}
 
 
 @pytest.mark.integration
@@ -421,11 +422,11 @@ async def test_loader_skips_underscore_files_in_both_local_sources(
     _write_json(settings.seeds_dir / "data" / "topics.json", [UPSTREAM_TOPIC])
     _write_json(settings.seeds_dir / "data" / "dependencies.json", [])
     _write_json(settings.seeds_dir / "local" / "_hidden.json", [
-        {"id": "cnc_777", "subject": "化学", "name": "不应装载"}
+        {"id": "loc_777", "subject": "化学", "name": "不应装载"}
     ])
     _write_json(settings.data_dir / "seeds_local" / "_id_counters.json", {"语文": 7})
     _write_json(settings.data_dir / "seeds_local" / "_hidden.json", [
-        {"id": "cnl_777", "subject": "语文", "name": "不应装载"}
+        {"id": "loc_777", "subject": "语文", "name": "不应装载"}
     ])
     _write_json(settings.data_dir / "seeds_local" / "topics_语文.json", LOCAL_TOPICS[:1])
 
@@ -438,7 +439,7 @@ async def test_loader_skips_underscore_files_in_both_local_sources(
         await load_seed(session, settings.seeds_dir, settings.data_dir)
     async with factory() as session:
         ids = set((await session.execute(select(KnowledgeSeed.id))).scalars())
-    assert ids == {"cnm_001", "cnl_001"}
+    assert ids == {"cnm_001", "loc_001"}
     # 计数器文件本身未被改写
     assert json.loads(
         (settings.data_dir / "seeds_local" / "_id_counters.json").read_text(
@@ -587,9 +588,9 @@ async def test_local_seed_requires_parent(tmp_path: Path) -> None:
             "/api/local-seed/topics", json={"subject": "语文", "name": "春"}
         )
         patched = await locked.patch(
-            "/api/local-seed/topics/cnl_001", json={"name": "春"}
+            "/api/local-seed/topics/loc_001", json={"name": "春"}
         )
-        deleted = await locked.delete("/api/local-seed/topics/cnl_001")
+        deleted = await locked.delete("/api/local-seed/topics/loc_001")
     assert [
         listed.status_code,
         created.status_code,
@@ -607,7 +608,7 @@ def test_export_merges_local_rows_without_touching_upstream(
     local_dir = tmp_path / "local"
     _write_json(local_dir / "topics_语文.json", [
         {
-            "id": "cnl_001",
+            "id": "loc_001",
             "subject": "语文",
             "name": "春",
             "grade": 7,
@@ -617,7 +618,7 @@ def test_export_merges_local_rows_without_touching_upstream(
     ])
     _write_json(local_dir / "conflict.json", [
         {
-            "id": "cnl_001",
+            "id": "loc_001",
             "subject": "语文",
             "name": "春（重复）",
             "grade": 7,
@@ -632,9 +633,9 @@ def test_export_merges_local_rows_without_touching_upstream(
     assert len(lines) == 1 + 664 + 1
     assert sum(by_subject.values()) == 665
     assert by_subject["语文"] == 1
-    assert any(line.startswith("cnl_001\t语文\t") for line in lines)
+    assert any(line.startswith("loc_001\t语文\t") for line in lines)
     assert not out.read_bytes().startswith(b"\xef\xbb\xbf")
     stderr = capsys.readouterr().err
-    assert "冲突" in stderr and "cnl_001" in stderr
+    assert "冲突" in stderr and "loc_001" in stderr
     assert "broken.json" in stderr
     assert _seed_digest() == before

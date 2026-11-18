@@ -417,9 +417,9 @@ export default function LocalSeedPage() {
       </Group>
 
       <Alert color="blue" variant="light">
-        仓库 seed（数学/英语/物理）只读；这里只管理语文（cnl_）与化学（cnc_）
-        的家长自建章级知识点。文件真源在 `data/seeds_local/`，随备份走；
-        SQLite 只是装载副本，重启后按文件恢复。
+        仓库 seed（数学/英语/物理）只读；这里只管理语文与化学的家长自建章级知识点，
+        本地自建点统一 loc_ 前缀（学科由 subject 字段承载）。文件真源在
+        `data/seeds_local/`，随备份走；SQLite 只是装载副本，重启后按文件恢复。
       </Alert>
 
       {notice && (

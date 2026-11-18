@@ -14,7 +14,7 @@ seeds/
 │  ├─ questions.json        #   7431 题（小学 1800 + 初中 2803 + 高中 2828；数学 3459 + 英语 2896 + 物理 1076；P1-10）
 │  ├─ _source.json          #   知识点/先修边署名：上游 URL / License / NC 声明 / 计数 / 快照 commit 与取证
 │  └─ questions_source.json #   题库署名：同上 + 题目计数 / 配图 / verify 统计
-├─ local/                   # 家长自建，不进 Git：化学/语文等同契约 seed 文件
+├─ local/                   # 家长自建，不进 Git：语文/化学同契约 seed 文件（统一 loc_ 前缀，P5-15）
 ├─ mappings/                # 家长自建，不进 Git：教材包对照（<版本id>.json）
 └─ README.md
 ```
@@ -99,16 +99,24 @@ python wengu-api/scripts/check_upstream.py --pinned <sha>   # 快照一致性复
 make seed-questions
 ```
 
-## 化学、语文（上游无数据）：local/ 起步
+## 化学、语文：local/ 自建（统一 loc_ 前缀）
 
 > **（2026-11-17 标注）**：本节描述的是钉死快照 `d58785ce`（2026-10-23）的事实——该快照里上游确无
 > 化学/语文。上游此后已大规模扩科（2026-11-15 `8b57f2e` 实测出现 cnb_/cnc_/cnd_/cng_/cnh_/cnk_/cns_
 > 等 7 个新前缀，跑 `python wengu-api/scripts/check_upstream.py` 可见）；是否引入属"同步另票"的人工决策。
 
-`cn-math-taxonomy` 不含化学、语文。这两科**空 seed 起步**，家长复用同款 topics 契约在 `local/`
+钉死快照 `cn-math-taxonomy` 不含化学、语文（见上方标注）。家长复用同款 topics 契约在 `local/`
 放同结构 JSON（如 `local/topics.chemistry.json`），按课本目录录**章级粗粒度 40–80 点**
 （`mastery_criteria` 可精简、无诊断题、`unaudited: true`），细粒度交给"错题驱动受控生长"。
-装载器容忍缺文件/空数组。
+装载器容忍缺文件/空数组。本地自建保留的理由是**教材版本差异 + 家长自建章级点**
+（上游 HEAD 已有语文/化学，是否引入属"同步另票"的人工决策）。
+
+**本地 id 约定（P5-15，§19-G-3 定案一）**：统一 **`loc_` 单前缀**（`loc_001`、`loc_002`…），
+学科由 `subject` 字段承载（白名单现语文/化学）；装载器/API 强制 `source='local'`，
+导出脚本"本地恒保留"判据**只读 `source` 标记、不按 id 前缀**。上游 10 科前缀全在 `cn?_` 家族内，
+`loc_` 永不冲突，加新学科零改动。legacy `cnl_`/`cnc_` 本地文件**装载时明确拒绝**
+（`seed_loaded=false` 显式降级，错误文案含改名指引，如"请将 cnl_001 改为 loc_001"），
+绝不静默装载；不提供迁移脚本（实测零 legacy 本地点，真有的家庭另开迁移票）。
 
 ## 多教材版本：mappings/ 机制照抄、数据自建
 
