@@ -1681,6 +1681,27 @@
     `git diff README-en.md` 相对 `1b16067` 只允许 +2 / −1。
 
 ### P5-15 本地自建命名空间解耦（§19-G-3 定案一；判据改按 `source='local'`；先于同步票）
+- **状态：已合并（2026-11-18，PR#68 squash → main `4f7e101`；原分支已删）**。
+  验收：全量 pytest **887 passed**（882 + 5 新守卫）、`ruff --no-cache` 全仓绿、`selfcheck --strict` 18 OK、
+  前端 `tsc` 0 / 57 pass / build ✓；`docs/templates/topics_junior.tsv` **零 diff、仍 665 行**；
+  范围恰 11 文件，`migrations/`、`seeds/data/`、依赖清单零改动。
+  main 上判据实测确认：`export_topics_junior.py:58` 为 `topic.get("source") == "local"`、
+  两模块各自 `LOCAL_PREFIX = "loc_"`、`LOCAL_SUBJECT_PREFIXES` 在三个源文件中出现次数为 0。
+  **审核方自主变异（两个新靶点，都在打标侧；施工方三个都在判据/常量/异常侧）**：
+  ① 删 `export` 的 `item["source"] = "local"` → `test_upstream_chinese_filtered_by_grade_not_prefix` 红；
+  ② 删 `loader.validate_local_topic` 的 `topic["source"] = LOCAL_SOURCE` → **4 红**
+  （装载合并/重启存活、CRUD、id 计数器、删除解绑）——DB 侧标记同样被守住；还原 sha256 一致。
+  施工方三条变异（判据退回按前缀 / `LOCAL_PREFIX="cnl_"` / 删 `except LegacyLocalIdError: raise`）各自红、还原绿。
+  CI run `44294872213` 三 job 绿（api 3m40s = Linux 全量 887）。分支两提交：`4cd41de`（主票）+
+  `55ca6ab`（折入 README 双语 P3-8 括注）。
+- **裁定采纳的三点施工方判断**：① 常量形态 dict → `LOCAL_PREFIX` + `LOCAL_SUBJECTS` tuple（单前缀下
+  per-subject dict 冗余；export 保持纯标准库不 import app，重复由字面守卫 + 相等探针双保险）；
+  ② 化学夹具用 `loc_101` 而非 naive 的 `loc_001`（单前缀下两科共用序号空间，会撞语文 `loc_001..003`）；
+  ③ **legacy 两侧语义差异**——runtime 硬拒绝整次装载 + P4-4 降级，export 工具 warn+skip 带改名指引
+  （沿用 dev 工具"坏文件跳过并告警"契约），两侧都有测试钉死。没有为了"看起来统一"把 export 改成硬失败，
+  这个取舍是对的。
+- **登记第 22 次卡面缺陷（引用清单漏项）**：卡面写"STATUS 现状口径三处"，盘上实为四处（漏 P1-1b 表格行）；
+  施工方按"以实际代码为准"一并更新并上报。教训同 §19-L：清单类引用必须由 grep 实况生成，不手写条数。
 - **前置**：设计文档 §19-G-3 三条定案已落盘（main `06628a2`）。本票是"全量同步扩科"的**前置闸门**，
   顺序不可反（同 AGENTS §7「先写消费逻辑（过滤 + 测试），再加采集字段」）。
 - **为什么要改**：上游 `cnc_` = **语文**（其 README 明写 `subject=chinese`、编号 `cnc_j`/`cnc_p`），

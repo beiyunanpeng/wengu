@@ -1,7 +1,7 @@
 # STATUS.md — 开发计划与完成情况
 
-> 快照日期：2026-11-18（**P5-13 STATUS 状态行对账**，本票；main 已含 P5-12 / PR #65）
-> 基线：`main` = `9f78d98`（P5-13 / PR #66 已合并）；P5-12 / PR #65 → `caf3b45` 已合并
+> 快照日期：2026-11-18（**P5-15 本地自建命名空间解耦**已合并；main 已含 P5-14 / PR #67）
+> 基线：`main` = `4f7e101`（P5-15 / PR #68 已合并）；P5-14 / PR #67 → `847bc03` 已合并
 > 全量测试：**742 passed**（2026-11-13 施工方实跑，unit 496 / integration 235 / **e2e 11**，较 P4-5 的 618 增 124：公式单测 119 + 集成 5；含返工① +10 白名单单测、返工② +1 集成）；`ruff check --no-cache .` 全绿；`npm run build` 绿（5.45s）、`npm test` **26 passed**（20 基线 + 6 新增）；`requirements.txt` 零变化（`git diff` 为空）
 > Alembic head：`0023_learning_events_occurred_at`；业务表 **22 张**（P4-6 零迁移、零新依赖；`sympy` 为已声明依赖首次真正启用）
 
@@ -291,6 +291,25 @@
   **AGENTS.md §8 新增「合并留痕双写」规则**：每票合并留痕必须同步翻转本文件对应状态行并附
   PR→SHA 锚点，只写 TICKETS 不翻 STATUS 视为留痕不完整——**本条即首次实践**。
   纯文档、零代码、零测试；审核方实跑 875 passed / ruff 全仓绿 / selfcheck 18 OK / CI 三绿。
+- **P5-14 英文 README 已合并（PR#67 → `847bc03`）**：仓库根 `README-en.md` 全译 10 个 section，
+  首段定位句与 `README.md` **逐字一致**（462 字符，守卫钉死）、数字/命令同源同值
+  （`1821 / 2917 / 7431`、`5173 / 8000`、`./data/inbox`）、许可写明 MIT + CC BY-NC 4.0 +
+  non-commercial + **not OSI-approved open source**、中文文档链接保留中文标题加英文括注、
+  顶部声明 Chinese version is authoritative；`README.md` 顶部加一行互链。
+  新建 `tests/unit/test_readme_english.py`（折入后共 7 条字面守卫，含"两侧不得回流已合并项旧口径"的
+  漂移守卫）。**AGENTS §7「LICENSE + 中英 README + 隐私声明 + CHANGELOG + .env.example」至此全部达成**，
+  P5-5 遗留清零。纯文档 + 守卫，零代码 / 零前端 / 零数据；881 → 882 passed，CI run `44259395949` 三绿。
+  过程：卡面两次补强（`c4875a2` 中文侧折入、`6d59c6e` 英文侧镜像折入 + 第 5 次白名单写窄登记）。
+- **P5-15 本地自建命名空间解耦已合并（PR#68 → `4f7e101`）**：家长自建统一 **`loc_` 单前缀**
+  （学科由 `subject` 字段承载），所有"是否本地"判断改按 **`source='local'`**——旧判据按前缀识别，
+  而同步进来的上游语文前缀正是 `cnc_`，会把上游点当本地点绕过 grade 过滤、让转录目录静默膨胀
+  （P5-10"借来的过滤"坑的第二次复发形态，本票把它堵死）。legacy `cnl_`/`cnc_` 本地文件装载时
+  **硬拒绝 + P4-4 显式降级**（`seed_loaded=false`、`seed_error="format"`、文案给改名指引），
+  不写迁移脚本（实测两个运行时目录均无 `seeds_local/`、生产库零 legacy 本地点）。
+  新建 `tests/integration/test_local_namespace.py` 5 条守卫；`topics_junior.tsv` 零 diff、仍 665 行。
+  887 passed（882 + 5）；审核方另打两个打标侧变异（删 export 打标 → 核心夹具红；删 loader 打标 → 4 红），
+  还原 sha256 一致；CI run `44294872213` 三绿。零迁移、零新依赖、`seeds/data/` 未动。
+  下一票 = 全量同步扩科（§19-G-3 定案一的后半：判据已就位，现在才允许加数据）。
 - **下一步（v2.6 决策轮定的顺序）**：① ~~P5-6 口径清理~~、~~P0-3 端到端回归~~、
   ~~P3-3a 手填背诵~~、~~P3-3b 词表导入~~、~~P3-3c 从错题抽词~~、~~P5-1a 配置持久化修复~~、
   ~~P5-1b 首次运行向导 UI~~、~~P1-3e 移动端投递~~、~~P1-3f BOM 剥离~~、

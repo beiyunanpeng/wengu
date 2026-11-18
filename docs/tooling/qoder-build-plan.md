@@ -3124,3 +3124,21 @@ TICKETS.md 的 **P5-15 卡**（现状读盘/任务/DoD/禁止的权威版）；
 **登记第 22 次卡面缺陷（引用清单漏项）**：卡面"STATUS 现状口径三处"实为四处（漏 P1-1b 表格行），
 施工方按"以实际代码为准"一并更新并上报，处置正确。教训同 §19-L：清单类引用必须由 grep 实况生成，
 不手写条数。
+
+**交付后补记（2026-11-18，审核方）**：PR#68 squash → main `4f7e101`，分支已删。两提交
+`4cd41de`（主票）+ `55ca6ab`（折入 README 双语 P3-8 括注）。验收：887 passed（882 + 5 新守卫）/
+ruff / selfcheck 18 OK / 前端 57 + build ✓；`topics_junior.tsv` 零 diff、仍 665 行；范围恰 11 文件，
+`migrations/`、`seeds/data/`、依赖清单零改动。main 上判据实测：`export_topics_junior.py:58`
+= `topic.get("source") == "local"`，两模块 `LOCAL_PREFIX = "loc_"`，`LOCAL_SUBJECT_PREFIXES` 三文件零出现。
+**审核方两个打标侧变异**：删 `export` 的 source 打标 → 核心夹具红；删 `loader` 的 source 打标 → 4 红
+（合并/重启、CRUD、id 计数器、删除解绑）；还原 sha256 一致。CI run `44294872213` 三绿（api 3m40s）。
+
+**采纳的三点施工方判断**：常量形态 dict → `LOCAL_PREFIX` + `LOCAL_SUBJECTS`；化学夹具 `loc_101`
+（避开与语文 `loc_001..003` 撞号，这个判断比卡面细）；legacy 两侧语义差异（runtime 硬拒绝 + 降级 /
+export warn+skip + 指引）不为"统一"而牺牲 dev 工具可用性。
+
+**留痕时的流程发现（已补进 AGENTS §8）**：P5-14 / P5-15 两票的卡面只要求"更新现状口径"，
+没要求"STATUS 交付区新增本票条目"，导致双写**无处可翻**——卡设计缺口，记在审核方头上。
+§8 已补严：无对应条目则留痕时新增 bullet；出卡时必须把"交付区新增本票条目"写进任务；
+头部「快照日期/基线」同属一把尺，不得漂过两票以上。本次留痕按新规则补了 P5-14 / P5-15 两条 bullet
+并把头部基线更新为 `4f7e101`。
