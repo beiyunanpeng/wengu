@@ -119,7 +119,8 @@ Windows 上若 `make` 不在 PATH，重开终端或安装 [GNU Make](https://win
 - ✅ **P4-1 默认只绑回环 + Tailscale 可达性**（2026-11-04）：Docker 的 api/web 端口默认只发布到 `127.0.0.1`（`WENGU_BIND_ADDR` 可覆盖），原生 Vite 的 `server.host` 同步改回环；新增 `deploy/tailscale/serve.json`（官方 `TS_SERVE_CONFIG` 格式、`AllowFunnel=false`）与分平台 Tailscale 说明（Linux/群晖 sidecar；Windows/macOS 宿主机 `tailscale serve`）；新增只读 `scripts/remote-check.ps1` 与手机/平板接入指南。远程访问口径统一为只认 tailnet，无迁移、无新依赖。
 - ✅ **P4-1b 部署面命令体检**（2026-11-05）：删除死 `make backup` 目标与 `.PHONY` 里无规则的 `restore`（备份唯一入口仍是家长区「备份」页导出）；`make dev-api` 默认只绑 `127.0.0.1`，局域网调试用 `HOST=0.0.0.0` 显式覆盖；`make lint` 加 `--no-cache`；修 `seeds/README.md` 的 `--src` 层级与 `make help` 文案；清理 `docs/manuals/` 空骨架。无迁移、无新依赖。
 - ✅ **P5-10 全量收录小学与高中 seed**（2026-11-17）：同一上游快照 `d58785ce` 全量内置——知识点 **1821 点**（小学 450 / 初中 664 / 高中 707）、先修边 **2917 条**（跨学段边不再丢弃，初中→小学 74 条回溯复活）、题库 **7431 题**；`import_seed.py` / `import_questions.py` 学段过滤改参数驱动（`--grades primary,junior,senior`，默认仍 junior 可复现可回退）。**初中家庭建议把「学段作用域」调到 9**（`/setup` ②或家长配置页）：默认 16 全学段可见，选择器会多出够不到的点；作用域只收窄主动选择面，诊断回溯仍可向下看见小学根因点。初中面数据逐字不变（664 点 / 1018 边 / 2803 题子集 byte-identical）；转录目录 `topics_junior.tsv` 维持初中-scoped（665 行）不变。新增 4628 题质量如实标注：verified 4258 / unverifiable 370 / mismatch 丢弃 0；`blind_verified` 仍只给初中数学。零迁移、零新依赖。
-- ⏳ 下一步：**P4-1c 命令行备份入口**（需先定产物位置/权限模型/计划任务/告警四问）；P0-1 样本扩容 + P1-7b 前置回溯诊断仍待做；P5-5 剩英文 README（另票）与发布打包（仓库元数据/首个 Release 属审核方侧 GitHub 动作）。
+- ✅ **P5-14 英文 README**（2026-11-18）：仓库根 [`README-en.md`](./README-en.md) 全译 10 个 section，首段定位句与本页逐字一致（守卫钉死）；数字/命令同源同值（1821 / 2917 / 7431、5173 / 8000、`./data/inbox`）；许可分层写明 MIT + CC BY-NC 4.0 + non-commercial + not OSI-approved；中文文档链接保留中文标题 + 英文括注；**中文为准**。零代码、零前端、零数据改动。
+- ⏳ 下一步：P0-1 样本扩容 + P1-7b 前置回溯诊断仍待做；发布打包剩 homepage / Discussions（审核方侧 GitHub 动作）；英文 README 已交付（见上条 P5-14）。
 
 > 完整的工单状态、实测数字、阻塞项与下一步建议见 [`docs/STATUS.md`](./docs/STATUS.md)。
 

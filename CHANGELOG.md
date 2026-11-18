@@ -15,7 +15,8 @@
   （测试写死同一句守卫，两处不许分叉）；数字与命令同源同值（seed 1821 / 2917 / 7431、`docker compose`、
   端口 5173 / 8000、投递目录 `./data/inbox`）；许可分层明写 **MIT + CC BY-NC 4.0 + non-commercial +
   not OSI-approved open source**；指向中文文档的链接保留中文标题 + 英文括注（不假装翻译）；顶部回指
-  `README.md` 并写明 Chinese version is authoritative。`README.md` 仅顶部 +1 行互链（中文正文零改动）。
+  `README.md` 并写明 Chinese version is authoritative。`README.md` 顶部 +1 行互链；审核方裁定折入：「当前进度」新增 P5-14 条目 + 改写「下一步」行，
+  同步清掉 README「下一步」行三处过实（P4-1c / 英文 README / 首个 Release）。
   新守卫 `wengu-api/tests/unit/test_readme_english.py` 6 组字面断言（前 12 行四关键词 / 负断言
   AI learning workbench / 互链双向 / 定位句一致 / 数字字面 / 许可字面），两处变异 RED→GREEN 自证。
   `docs/STATUS.md` 四处与 `目录结构.md` 同步为「英文 README 已交付（待评审）」（不写死 PR 号，
