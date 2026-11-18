@@ -1680,6 +1680,71 @@
   - DoD 追加：`grep -n "P4-1c CLI backup entry\|剩英文 README" README.md README-en.md` 零命中；
     `git diff README-en.md` 相对 `1b16067` 只允许 +2 / −1。
 
+### P5-15 本地自建命名空间解耦（§19-G-3 定案一；判据改按 `source='local'`；先于同步票）
+- **前置**：设计文档 §19-G-3 三条定案已落盘（main `06628a2`）。本票是"全量同步扩科"的**前置闸门**，
+  顺序不可反（同 AGENTS §7「先写消费逻辑（过滤 + 测试），再加采集字段」）。
+- **为什么要改**：上游 `cnc_` = **语文**（其 README 明写 `subject=chinese`、编号 `cnc_j`/`cnc_p`），
+  上游**没有 `cnl_`**；而我们现有约定 `LOCAL_SUBJECT_PREFIXES = {"语文": "cnl_", "化学": "cnc_"}`。
+  同步扩科后两处危害：① 家长本地点与上游语文点撞进同一 ID 空间；
+  ② `export_topics_junior._in_junior_catalog` **按前缀**判"本地恒保留" →
+  上游语文点会被当本地点**绕过 grade 过滤**，转录目录静默膨胀——**P5-10"借来的过滤"坑的第二次复发形态**。
+- **定案（决策人 2026-11-18 选 A）**：本地自建统一 **`loc_` 单前缀**（`loc_001`、`loc_002`…），
+  学科由 `subject` 字段承载。理由：上游 10 个前缀全在 `cn?_` 家族内，`loc_` 永不与之冲突；
+  加新学科零改动；判据天然与前缀识别解绑。代价明记：id 上看不出学科（UI 与导出都有 subject 列）。
+- **现状读盘（行号为本会话实读）**：
+  - `app/seed/loader.py`：`:37 LOCAL_SOURCE = "local"`、`:38 LOCAL_SUBJECT_PREFIXES`、
+    `:160-176 validate_local_topic()`（学科白名单 + `id.startswith(prefix)` + 强制
+    `source/unaudited/blind_verified`）、`:200-210 next_local_id(prefix, taken_ids, issued)`；
+  - `app/services/local_seed.py`：`:4` docstring「只有语文（cnl_）/ 化学（cnc_）允许本地录点」、
+    `:170-176 _require_subject()`、`:296 prefix = LOCAL_SUBJECT_PREFIXES[subject]`；
+  - `scripts/export_topics_junior.py`：`:9` docstring、`:37` 同名常量、
+    `:44-50 _in_junior_catalog()`（按前缀恒保留）、`load_local_topics()`（约 :110-125，按前缀校验本地条目）；
+  - `wengu-web/src/pages/LocalSeedPage.tsx:420`：文案「这里只管理语文（cnl_）与化学（cnc_）」；
+  - 判据基础：`KnowledgeSeed.source` 为 `Text nullable`（`app/models/knowledge.py:31`），
+    上游行 NULL、本地行已由 `validate_local_topic` 写 `'local'`；
+    **`seeds/data/topics.json` 不含 `source` 键** → 导出脚本侧必须由 `load_local_topics`
+    给本地条目**同样打 `source='local'`**，判据改读该标记。
+- **任务**：
+  1. 命名空间：本地前缀常量统一改为 `loc_`（保留 `LOCAL_SUBJECT_PREFIXES` 结构还是换成单一
+     `LOCAL_PREFIX = "loc_"` 由施工方按最小改动决定并在交付里说明）；`validate_local_topic` 的
+     id 校验改判 `loc_`；`next_local_id("loc_", …)`；`local_seed.py` 与 `export_topics_junior.py` 同步。
+     **学科白名单的键（语文/化学）不动**（扩白名单是另一件事，见【禁止】）。
+  2. 判据：`_in_junior_catalog` 从"按前缀"改为 **按 `source == 'local'`**；
+     `load_local_topics` 为本地条目补 `source='local'`（与 loader 同一约定）。
+  3. **legacy 本地文件（`cnl_`/`cnc_` 开头）→ 装载时明确拒绝并降级**，复用 P4-4 的
+     `seed_loaded=false` + 安全错误类别机制，错误文案给出改名指引（"本地知识点 id 需以 `loc_` 开头，
+     请将 `cnl_001` 改为 `loc_001`"）。**不写迁移脚本**——审核方实测两个运行时目录均无 `seeds_local/`、
+     生产库 `concepts` 各只有 1 条 `source='student'`、零 `cnl_`/`cnc_` 本地点；
+     真出现有本地点的家庭再开迁移票。
+  4. 前端文案 `LocalSeedPage.tsx:420` 改为不点名 `cnl_`/`cnc_`（改述"本地自建点统一 `loc_` 前缀"）。
+  5. 测试：`test_local_seed.py`（大量 `cnl_`/`cnc_` 字面，含 `next_local_id("cnl_", …)`、
+     TSV 行 `cnl_001\t语文`、重复 id 冲突警告）与 `test_seed_status.py:251-271`（夹具 `cnl_z`）
+     字面全部改 `loc_`；新增 DoD 要求的两条守卫 + legacy 拒绝守卫。
+  6. 文档：`seeds/README.md`（local 一节 + 前缀说明）、`目录结构.md`、
+     `docs/STATUS.md:43 / :594 / :977` 现状口径、`CHANGELOG.md`。
+- **DoD（成对断言先验可满足性，§19-L 纪律⑥）**：
+  - **核心可证伪夹具**：造一个**上游语文点 `cnc_j001`（`source` 非 local、grade=10）**，
+    断言它在 `ceiling=9` 下**被过滤掉**、且**不出现在转录目录**；
+    变异：把 `_in_junior_catalog` 判据改回"按前缀" → 该测试必须红。
+  - **回流守卫**：断言本地前缀常量**不含任何 `^cn[a-z]_` 形态**值（防手滑改回 `cnl_`）。
+  - **转录目录零副作用**：`docs/templates/topics_junior.tsv` 仍 665 行、**零 diff**
+    （本票不碰上游数据、本地无点 → 输出必然不变；这是判据改造无副作用的自证）。
+  - **legacy 拒绝路径有测试**：给一个含 `cnl_001` 的本地文件 → 装载报错 + `seed_loaded=false`，
+    错误文案含改名指引；**不得静默装载**。
+  - 全量 `pytest -q` 绿（基线 **882**，如实报新数）、`ruff check --no-cache .` 全仓绿、
+    `selfcheck --strict` 18 OK / 0 DRIFT / 0 WARN、前端 `npm run lint / test / build` 绿；
+  - **零迁移、零新依赖**，`git diff --name-only` 不含 `migrations/`、`seeds/data/`；
+  - 三个源文件 + 前端文案 + 文档四处**不得**再把 `cnl_`/`cnc_` 当本地约定；
+    `wengu-api/tests/unit/test_check_upstream.py` 里的 `cnl_`/`cnc_` 是"上游未知前缀样例"，
+    **本票豁免不动**（同步票必须重审它，已写进同步票范围防丢项）。
+- **白名单**：`wengu-api/app/seed/loader.py`、`wengu-api/app/services/local_seed.py`、
+  `wengu-api/scripts/export_topics_junior.py`、`wengu-web/src/pages/LocalSeedPage.tsx`、
+  `wengu-api/tests/integration/test_local_seed.py`、`wengu-api/tests/integration/test_seed_status.py`、
+  新建守卫测试文件、`seeds/README.md`、`目录结构.md`、`docs/STATUS.md`、`CHANGELOG.md`。
+- **禁止**：扩本地学科白名单（语文/化学之外）；动 `seeds/data/*` 或做任何数据同步（下一票）；
+  写 id 迁移脚本；改 `check_upstream.py` 的前缀样例；把 TSV 行数/内容改掉；
+  引入新依赖或迁移；用 `--skip`/`xfail` 让测试"过"。
+
 ---
 
 ## 作废清单（v2.5，保留标题供追溯，勿实现）

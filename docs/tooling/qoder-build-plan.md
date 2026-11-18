@@ -3037,3 +3037,74 @@ C（单文件双语混排）= 中文主页翻倍长 + 破坏"前 12 行定位"�
 **过程登记**：第 21 次卡面缺陷（行号漂移 `README.md:5`→`:6`）；第 5 次白名单/范围写窄（一次折入漏英文侧
 镜像，施工方按"白名单未列不动"上报，正确）；两次卡面补强落 main `c4875a2` / `6d59c6e`。
 **§8 双写第二次实践**：留痕同时翻转 STATUS 四处「已交付（待评审）」→「已合并（PR#67 → `847bc03`）」。
+
+## P5-15 —— 本地自建命名空间解耦（§19-G-3 定案一；判据改按 `source='local'`；先于同步票；基线 main `06628a2`，pytest 882）
+
+你在 wengu 仓库工作。开工前先完整读：AGENTS.md §3（本票要改的那句已在 main `06628a2` 加删除线推翻）、
+§7「先写消费逻辑（过滤 + 测试），再加采集字段」、§8（一票一 PR、DoD、合并留痕双写）；
+设计文档 **§19-G-3**（三条定案的权威版）与 §19-G-1/G-2（收录作用域与 ceiling 语义）；
+TICKETS.md 的 **P5-15 卡**（现状读盘/任务/DoD/禁止的权威版）；
+代码四处：`wengu-api/app/seed/loader.py`（`:37-38`、`validate_local_topic()`、`next_local_id()`）、
+`wengu-api/app/services/local_seed.py`（docstring、`_require_subject()`、`prefix = …` 那行）、
+`wengu-api/scripts/export_topics_junior.py`（`LOCAL_SUBJECT_PREFIXES`、`_in_junior_catalog()`、
+`load_local_topics()`）、`wengu-web/src/pages/LocalSeedPage.tsx`（文案行）；
+`wengu-api/app/models/knowledge.py`（`KnowledgeSeed.source` 是 `Text nullable`）；
+测试 `wengu-api/tests/integration/test_local_seed.py` 与 `test_seed_status.py`。
+
+【为什么有这张票】上游 `cnc_` = **语文**（其 README：`subject=chinese`、编号 `cnc_j`/`cnc_p`），
+上游**没有 `cnl_`**；而我们的本地约定是 `{"语文": "cnl_", "化学": "cnc_"}`。下一票要把上游 10 个学科
+全量同步进来，届时两处会炸：① 家长本地点与上游语文点撞同一 ID 空间；
+② `export_topics_junior._in_junior_catalog` **按前缀**判"本地恒保留"，会把上游语文点当本地点
+**绕过 grade 过滤**，让转录目录静默膨胀——这正是 P5-10 修过的"借来的过滤"坑的第二次复发形态。
+所以**判据改造必须先行**，本票不碰任何上游数据。
+
+【定案（决策人 2026-11-18 选 A，不要重开）】本地自建统一 **`loc_` 单前缀**（`loc_001`…），
+学科由 `subject` 字段承载。上游 10 个前缀全在 `cn?_` 家族内，`loc_` 永不冲突；加新学科零改动；
+判据与前缀解绑。代价明记：id 上看不出学科（UI 与导出都有 subject 列）。
+
+【任务】
+1. 命名空间：本地前缀常量统一改 `loc_`（保留 `LOCAL_SUBJECT_PREFIXES` 结构还是换成单一
+   `LOCAL_PREFIX = "loc_"` 由你按最小改动决定，并在交付里说明理由）；`validate_local_topic` 的
+   id 校验改判 `loc_`；`next_local_id("loc_", …)`；`local_seed.py`、`export_topics_junior.py` 同步。
+   **学科白名单的键（语文/化学）不动。**
+2. 判据：`_in_junior_catalog` 从"按前缀"改为**按 `source == 'local'`**；
+   `load_local_topics()` 给本地条目补 `source='local'`（与 loader 同一约定——注意
+   `seeds/data/topics.json` 里没有 `source` 键，所以必须由本地装载路径打标记）。
+3. legacy 本地文件（`cnl_`/`cnc_` 开头）→ **装载时明确拒绝并显式降级**（复用 P4-4 的
+   `seed_loaded=false` + 安全错误类别），错误文案给改名指引；**不写迁移脚本**
+   （审核方实测：两个运行时目录均无 `seeds_local/`，生产库 `concepts` 各只有 1 条 `source='student'`）。
+4. 前端文案 `LocalSeedPage.tsx` 不再点名 `cnl_`/`cnc_`，改述"本地自建点统一 `loc_` 前缀"。
+5. 测试：`test_local_seed.py` 与 `test_seed_status.py` 里的 `cnl_`/`cnc_` 字面全部改 `loc_`；
+   新增三条守卫（DoD ①②③）。
+6. 文档：`seeds/README.md`（local 一节 + 前缀说明）、`目录结构.md`、
+   `docs/STATUS.md` 现状口径三处、`CHANGELOG.md`。
+
+【DoD——自证逐项贴输出，缺一项按未交付处理】
+① **核心可证伪夹具**：造一个上游语文点 `cnc_j001`（`source` 非 local、grade=10），
+   断言 `ceiling=9` 下它**被过滤掉**且**不进转录目录**；
+   **变异**：把 `_in_junior_catalog` 判据改回"按前缀" → 该测试必须红（贴 RED→GREEN）。
+② **回流守卫**：断言本地前缀常量不含任何 `^cn[a-z]_` 形态值。
+③ **legacy 拒绝**：含 `cnl_001` 的本地文件 → 装载报错 + `seed_loaded=false` + 文案含改名指引，
+   不得静默装载。
+④ **转录目录零副作用**：`docs/templates/topics_junior.tsv` 仍 665 行、`git diff` 零变化。
+⑤ 全量 `pytest -q`（基线 882，如实报新数）；`ruff check --no-cache .` 全仓绿；
+   `selfcheck --strict` 18 OK / 0 DRIFT / 0 WARN；前端 `npm run lint / test / build` 绿。
+⑥ `git diff --name-only` 不含 `wengu-api/migrations/`、`seeds/data/`；零新依赖。
+⑦ 三个源文件 + 前端文案 + 文档四处不再把 `cnl_`/`cnc_` 当本地约定；
+   `wengu-api/tests/unit/test_check_upstream.py` 的 `cnl_`/`cnc_` 是"上游未知前缀样例"，
+   **本票豁免不动**（同步票会重审）。
+⑧ 中文 commit 用 `git commit -F <仓库外 UTF-8 文件>`；普通提交，不 amend/force/rebase。
+
+【允许改动的文件】`wengu-api/app/seed/loader.py`、`wengu-api/app/services/local_seed.py`、
+`wengu-api/scripts/export_topics_junior.py`、`wengu-web/src/pages/LocalSeedPage.tsx`、
+`wengu-api/tests/integration/test_local_seed.py`、`wengu-api/tests/integration/test_seed_status.py`、
+新建守卫测试文件、`seeds/README.md`、`目录结构.md`、`docs/STATUS.md`、`CHANGELOG.md`。
+
+【禁止】扩本地学科白名单（语文/化学之外）；动 `seeds/data/*` 或做任何数据同步（下一票）；
+写 id 迁移脚本；改 `check_upstream.py` 的前缀样例；把 TSV 行数/内容改掉；引入新依赖或迁移；
+用 `--skip`/`xfail` 让测试"过"；把 `source='local'` 的判定再退回前缀比较。
+
+【投单纪律】git fetch origin; git switch -c feat/p5-15-local-namespace origin/main；
+一票一 PR 分支冻结；提交前 `git diff --name-only` 核对并贴清单；
+交付给"你自己实跑"的输出（含 ①②③ 三条守卫与 ④ 零副作用自证）+ 单列「审核方需复核的点」；
+代码与本卡不符时以实际代码为准，先读再改，不一致上报不要硬凑。
