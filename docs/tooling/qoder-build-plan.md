@@ -2943,3 +2943,55 @@ number,state,mergeCommit`（锚点唯一来源）。
 **登记第 20 次卡面缺陷**：卡写"17 处"、盘上 19 处/18 行——卡面不该写会漂的计数，只写判定规则。
 **§8「合并留痕双写」首次实践**：本次留痕同时翻转 STATUS（:4 基线 → `9f78d98`、新增 P5-13 bullet），
 不再只写 TICKETS。
+
+## P5-14 —— 英文 README（纯文档 + 守卫；清掉 AGENTS §7 最后一项"中英 README"缺口；基线 main `9a4b256`，pytest 875）
+
+你在 wengu 仓库工作。开工前先完整读：AGENTS.md §7（开源分发护栏：LICENSE + **中英 README** + 隐私声明 +
+CHANGELOG + `.env.example`）、§8（一票一 PR、DoD、**合并留痕双写**）；TICKETS.md 的 **P5-14 卡**
+（形态定案/任务/DoD/禁止的权威版）与 P5-5 / P5-13 卡（"仍缺英文 README"的出处与对账规则）；
+`README.md` 全文（170 行 10 个 section；**:5 已有现成英文定位句，本票不许另造**）、
+`wengu-api/tests/unit/test_seed_provenance.py::test_readme_positioning_in_first_lines`（中文侧守卫口径）、
+`docs/STATUS.md` 四处"英文 README 仍缺/另票"（`:297 / :312 / :1142 / :1207`）、`目录结构.md:8`。
+
+【形态定案（决策人 2026-11-18 点头 = 方案 A）】仓库根 `README-en.md` + 中文主页顶部一行互链。
+B（`docs/en/` 目录树）= 为"整站本地化"这一**无消费方的假想需求**铺路，否；
+C（单文件双语混排）= 中文主页翻倍长 + 破坏"前 12 行定位"守卫窗口，否。
+
+【任务】
+1. 新建 `README-en.md`：10 个 section 全译（核心闭环 / 明确不做 / 技术栈 / 快速开始 / 本地开发 /
+   当前进度 / 文档地图 / 安全与合规 / 贡献 / License）。硬约束：
+   - 首段定位句与 `README.md:5` 的英文句**逐字一致**（两处不许分叉）；
+   - 数字与命令与中文侧同源同值：seed **1821 / 2917 / 7431**、`docker compose` 命令、
+     端口 `5173 / 8000`、投递目录 `./data/inbox`；
+   - 许可分层含 `MIT` + `CC BY-NC 4.0` + **non-commercial**，并明说 **not OSI-approved open source**
+     （不许简化成 "open source"）；
+   - "当前进度 / 文档地图"里指向中文文档的链接**保留中文标题 + 英文括注**（不假装翻译）；
+   - 顶部一行回指 `README.md` 并写明"Chinese version is authoritative"。
+2. `README.md` **只加一行互链**（顶部；中文正文一字不动，diff 里 README.md 只允许 +1 行）。
+3. 新建 `wengu-api/tests/unit/test_readme_english.py`（断言右侧一律字面串，§19-L 纪律①）：
+   前 12 行四要素 `local-first` / `no grading of real homework` / `no generated explanations` /
+   `zero-model`；负断言 `AI learning workbench`；互链双向；两文件都含**测试里写死的**同一句定位句；
+   数字字面 `1821`/`2917`/`7431`；许可含 `MIT`/`CC BY-NC 4.0`/`non-commercial`/`not OSI`；
+   变异自证：删任一互链 → 红，`zero-model`→`AI-powered` → 红。
+4. STATUS 四处（`:297 / :312 / :1142 / :1207`）"仍缺/另票"→"**英文 README 已交付（待评审）**"；
+   **不许写死 PR 号**（合并后由审核方按 §8 双写翻正）；`目录结构.md:8` 注释列出 `README-en.md`。
+5. `CHANGELOG.md` Added 一条。
+
+【DoD——自证逐项贴输出】
+- 全量 `pytest -q` 绿（基线 875，如实报新数）+ 新守卫 6 组断言与两处变异 RED→GREEN 输出；
+- `ruff check --no-cache .` 全仓绿；`transcribe/validate.py selfcheck --strict` 18 OK / 0 DRIFT / 0 WARN；
+- 前端 `npm run lint / test / build` 仍绿（零前端改动，跑一遍自证）；
+- `grep -n "英文 README" docs/STATUS.md` 四处均为"已交付（待评审）"、无"仍缺/另票"残留；
+- `git diff --name-only` 恰白名单 6 文件；`git diff README.md` 只有 +1 行。
+
+【允许改动的文件】`README-en.md`（新）、`README.md`（仅互链一行）、
+`wengu-api/tests/unit/test_readme_english.py`（新）、`docs/STATUS.md`、`目录结构.md`、`CHANGELOG.md`。
+
+【禁止】翻译 `PRIVACY.md` / `LICENSE-data.md` / `THIRD-PARTY-NOTICES.md` / `AGENTS.md` / `TICKETS.md` /
+`docs/**`；引入 i18n 框架、`docs/en/` 目录树或任何构建期本地化机制；改 `README.md` 中文正文；
+写死未来 PR 号；把"不称 OSI 开源软件"译成 `open source`；动代码/前端/`seeds/data`；顺手多翻别的文档。
+
+【投单纪律】git fetch origin; git switch -c docs/p5-14-readme-en origin/main；
+一票一 PR 分支冻结；中文 commit 用 `git commit -F <仓库外 UTF-8 文件>`；
+提交前 `git diff --name-only` 核对并贴清单；交付附实跑输出 + 单列「审核方需复核的点」；
+卡面行号与盘上不符时以 grep 实况为准并上报，不要硬凑。
