@@ -3008,3 +3008,20 @@ C（单文件双语混排）= 中文主页翻倍长 + 破坏"前 12 行定位"�
   其余中文正文一字不动；`grep -n "P4-1c 命令行备份入口\|剩英文 README" README.md` 零命中。
 - **登记第 21 次卡面缺陷（行号漂移）**：卡写定位句在 `README.md:5`，盘上实为 `:6`（`:5` 是空行）；
   施工方按实际句逐字复制、守卫通过，处理正确。
+
+**卡面补强二（2026-11-18，折入复核点 2 后审核方裁定；白名单/范围第 5 次写窄）**
+
+折入时只列了 `README.md` + `CHANGELOG.md`，**漏了英文侧镜像**：`README-en.md` :118「⏳ Next」仍带被推翻的
+旧口径（`P4-1c CLI backup entry (four questions…)` 等），且进度列表缺 P5-14 条目。施工方按"白名单未列不动"
+上报，处理正确。追加授权（同属本票，分支未 push）：
+
+- `README-en.md` 允许两处：① 进度 ✅ 列表末尾（P5-10 之后）新增一行 **P5-14**（英文，与中文侧同口径：
+  本文件即英文 README、定位句逐字一致由守卫钉死、`1821 / 2917 / 7431` 与 `5173 / 8000` / `./data/inbox` 同源、
+  MIT + CC BY-NC 4.0 + non-commercial + not OSI-approved、Chinese version remains authoritative）；
+  ② 改写 :118「⏳ Next」为镜像新中文行：
+  `- ⏳ Next: P0-1 sample expansion + P1-7b prerequisite backtracking diagnosis still pending; release packaging remaining: homepage / Discussions (maintainer-side GitHub actions); the English README is delivered (see P5-14 above).`
+- **新增 1 条守卫**（两侧同一把尺，防同类漂移复发）：断言 `README.md` 与 `README-en.md` 均不含
+  `P4-1c 命令行备份入口`、`P4-1c CLI backup entry`、`剩英文 README`；变异自证：塞回任一侧 → 红。
+- `CHANGELOG.md` P5-14 条目折入范围补全为「中文侧 + 英文侧镜像 + 漂移守卫」。
+- DoD 追加：`grep -n "P4-1c CLI backup entry\|剩英文 README" README.md README-en.md` 零命中；
+  `git diff README-en.md` 相对 `1b16067` 只允许 +2 / −1。
