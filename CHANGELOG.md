@@ -615,7 +615,8 @@
   ceiling=9 被过滤且不进转录目录 / 前缀常量不得取 `^cn[a-z]_` 形态 / legacy 拒绝 + 降级 + 改名恢复 /
   导出侧 legacy 告警），三处变异 RED→GREEN 自证；`test_local_seed.py` / `test_seed_status.py`
   字面全部改 `loc_`。`docs/templates/topics_junior.tsv` 仍 665 行零 diff；`seeds/data/` 零改动。
-  文档同步：`seeds/README.md` local 一节、`目录结构.md`、`docs/STATUS.md` 现状口径。
+  文档同步：`seeds/README.md` local 一节、`目录结构.md`、`docs/STATUS.md` 现状口径；
+  README 双语 P3-8 历史条目加时间性括注（条目正文未改）。
 - **STATUS 状态行对账 + 留痕流程固化（P5-13）**（2026-11-18）：纯文档票——`docs/STATUS.md` 盘上实测
   **19 处**「待评审/待审核」状态词漂移逐处最小改动清零（卡面写 17，以 grep 实况为准），只翻状态词 +
   补「PR 号 → squash SHA」锚点，bullet 正文与历史数字一字不动；锚点全部实查（`gh pr view` /
