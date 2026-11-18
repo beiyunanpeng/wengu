@@ -1547,7 +1547,38 @@
 - **禁止**：改 `seeds/data/*`、`app/`、`migrations`、依赖清单、前端；接入 `apscheduler` / 生命周期 /
   CI cron / make 目标（跑法就是 `python wengu-api/scripts/check_upstream.py`，写进 README）；
   自动创建 issue / PR / 自动重导入；把 token 或 secret 写进仓库；本票做"同步"或动 `upstream_commit`。
-- **审核方侧（票外）**：合并后执行 Watch 上游仓库（`gh api` subscription）。
+- **审核方侧（票外）**：合并后执行 Watch 上游仓库（`gh api` subscription）。**已执行**（2026-11-17，
+  `subscribed: true`）。
+
+### P5-13 STATUS 状态行对账 + 留痕流程固化（纯文档；零代码、零测试改动）
+- **背景**：P5-10 / P5-12 两次交付报告都撞见同一类残留——票早已合并，`docs/STATUS.md` 状态行还写
+  "待评审/待审核"（盘上实测 17 处），另有两处事实过实（头部快照停在 2026-11-13；"首个 Release 未做"
+  而 v0.7.0 已于 2026-11-17 发布）。根因在**审核方自己的留痕流程**：合并留痕只写 TICKETS、从不翻
+  STATUS。本票一次对账清零 + 把规则固化进 AGENTS §8，防再犯。
+- **对账清单（行号以开工时盘上 `grep -n "待评审\|待审核" docs/STATUS.md` 实况为准，逐条翻转）**：
+  - 头部 :3-4：快照日期/基线 → 更新为开工时 `origin/main` 实况（`git log --oneline -1` 实查）；
+  - :205 / :224 / :234：P4-4 / P4-5 / P4-6「已交付（待评审）」→ 已合并（PR#51 / #52 / #53）；
+  - :275 / :290：P5-12「已交付（待审核）」→ 已合并（PR#65 → main `caf3b45`）；
+  - :289 / :303 / :1133 / :1198：P5-5「已交付待评审」→ 已合并（PR#61 → `0928104`）；
+  - :302 / :1183 / :1186-1188 / :1194 / :1201：P4-1 / P4-4 / P4-5 / P4-6 / P5-1b / P5-8 行内
+    「待评审」→ 已合并（P5-1b 的 PR 号**实查后填**；P5-8 = PR#50 → `30785d0`）；
+  - :303 / :1198："首个 Release / 发布打包**未做**" → 已做：v0.7.0 已发布（tag→`9bbcb6b`，
+    2026-11-17，`gh release view v0.7.0` 实查）、description/topics 已设；**homepage 留空、
+    Discussions 未做照实保留，不得写成已做**。
+- **规则（写死）**：只翻状态词 + 补"PR 号 → squash SHA"锚点；**bullet 正文一字不动、历史数字不动**；
+  每处锚点必须实查（`git log --oneline` / `gh pr view --json number,mergeCommit`），
+  查得到才翻、查不到保留原样并上报，**不许凭记忆填 SHA**。
+- **流程固化（本票第二件事）**：AGENTS.md §8 加一条——**每票合并后的留痕提交必须同步翻转
+  `docs/STATUS.md` 对应 bullet/表格行的状态词并附 PR→SHA 锚点；只写 TICKETS 不翻 STATUS 视为留痕不完整**。
+- **DoD**：
+  - `grep -n "待评审\|待审核" docs/STATUS.md` **清零**（贴前后对照，逐条列全 17 处的去向）；
+  - 每处翻转附实查锚点输出片段；
+  - 全量 `pytest -q` **875 passed**（不动任何测试）、`ruff check --no-cache .` 全仓绿、
+    `selfcheck --strict` 18 OK / 0 DRIFT / 0 WARN；
+  - `git diff --name-only` 不含代码/测试/`seeds/data`。
+- **白名单**：`docs/STATUS.md`、`AGENTS.md`、`CHANGELOG.md`。
+- **禁止**：改 bullet 正文与历史数字；动代码/测试；凭记忆填 SHA（查不到就保留原样上报）；
+  顺手改 TICKETS / 设计文档；把 homepage / Discussions 写成已做；升版本。
 
 ---
 

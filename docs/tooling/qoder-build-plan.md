@@ -2893,3 +2893,44 @@ CI run `44084515667` 三绿（head `7dd3443`）；范围恰白名单 5 文件。
 （`subscribed: true`）。**卡面歧义登记**：`--pinned` 语义（审核方第 19 次卡面缺陷，施工方按唯一
 自洽读法实现并上报，处理正确）。**后续**：STATUS 存量"待评审"漂移面大 → P5-13 对账票
 （含流程固化：每票合并留痕必须翻转 STATUS 状态行）。
+
+## P5-13 —— STATUS 状态行对账 + 留痕流程固化（纯文档；零代码、零测试改动；基线 main `1e69d7f`，pytest 875）
+
+你在 wengu 仓库工作。开工前先完整读：AGENTS.md §8（本票要在末尾加一条流程规则）、
+TICKETS.md 的 **P5-13 卡**（对账清单/规则/DoD/禁止的权威版）、P5-10 与 P5-12 卡尾部的过程记录
+（本票两条残留的出处）、`docs/STATUS.md` 全文（对账对象；先 `grep -n "待评审\|待审核" docs/STATUS.md`
+拿实况清单，行号会漂，以 grep 输出为准）、`git log --oneline -40` 与 `gh pr view <n> --json
+number,state,mergeCommit`（锚点唯一来源）。
+
+【为什么有这张票】票已合并、STATUS 状态行还写"待评审/待审核"（盘上 17 处），另有"头部快照停在
+2026-11-13"与"首个 Release 未做"两处事实过实（v0.7.0 已于 2026-11-17 发布）。根因是审核方留痕
+流程只写 TICKETS、不翻 STATUS——本票一次对账清零，并把规则固化进 AGENTS §8 防再犯。
+
+【任务】
+1. STATUS 对账：按 P5-13 卡清单逐条翻转状态词并补"PR 号 → squash SHA"锚点。硬规则：
+   - **只翻状态词与补锚点，bullet 正文一字不动、历史数字不动**；
+   - 每个锚点必须实查（`git log --oneline` / `gh pr view --json number,mergeCommit`），
+     查得到才翻、查不到保留原样并在交付里上报，**严禁凭记忆填 SHA**；
+   - :303/:1198 的"发布打包未做"改"已做"时，**homepage 留空、Discussions 未做照实保留**，
+     不得写成已做；v0.7.0 事实以 `gh release view v0.7.0` 输出为准（tag→`9bbcb6b`）。
+2. 流程固化：AGENTS.md §8 加一条——每票合并后的留痕提交必须同步翻转 `docs/STATUS.md` 对应
+   bullet/表格行的状态词并附 PR→SHA 锚点；只写 TICKETS 不翻 STATUS 视为留痕不完整。
+3. `CHANGELOG.md` Changed 记一条"STATUS 状态行对账 + 留痕流程固化（P5-13）"；不升版本。
+
+【DoD——自证逐项贴输出】
+- `grep -n "待评审\|待审核" docs/STATUS.md` **清零**；贴"前后对照表"（17 处逐条：原句 → 新句 → 锚点来源命令）；
+- 全量 `pytest -q` **875 passed**（本票不动任何测试文件）、`ruff check --no-cache .` 全仓绿、
+  `transcribe/validate.py selfcheck --strict` 18 OK / 0 DRIFT / 0 WARN；
+- `git diff --name-only` 恰为白名单 3 文件（`docs/STATUS.md`、`AGENTS.md`、`CHANGELOG.md`），
+  不含代码/测试/`seeds/data`/`migrations`。
+
+【允许改动的文件】`docs/STATUS.md`、`AGENTS.md`、`CHANGELOG.md`。
+
+【禁止】改 bullet 正文与历史数字；动代码/测试/`seeds/data`；凭记忆填 SHA；
+顺手改 TICKETS / 设计文档 /投单块；把 homepage / Discussions 写成已做；升版本号；
+用"整段重写 STATUS"的方式清理（必须逐处最小改动，diff 里每一行都要能对上锚点）。
+
+【投单纪律】git fetch origin; git switch -c docs/p5-13-status-reconcile origin/main；
+一票一 PR 分支冻结；中文 commit 用 `git commit -F <仓库外 UTF-8 文件>`；
+提交前 `git diff --name-only` 核对并贴清单；交付附逐处对照表 + 实查锚点输出 +
+单列「审核方需复核的点」；卡面行号与盘上不符时以 grep 实况为准并上报。
