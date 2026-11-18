@@ -584,6 +584,15 @@
 
 ### Changed
 
+- **STATUS 状态行对账 + 留痕流程固化（P5-13）**（2026-11-18）：纯文档票——`docs/STATUS.md` 盘上实测
+  **19 处**「待评审/待审核」状态词漂移逐处最小改动清零（卡面写 17，以 grep 实况为准），只翻状态词 +
+  补「PR 号 → squash SHA」锚点，bullet 正文与历史数字一字不动；锚点全部实查（`gh pr view` /
+  `git log`）：P4-1=PR#39→`170b5da`、P4-4=PR#51→`cb6ab4c`、P4-5=PR#52→`c7511cb`、P4-6=PR#53→`6a4346a`、
+  P5-1b=PR#33→`285fba7`、P5-5=PR#61→`0928104`、P5-8=PR#50→`30785d0`、P5-12=PR#65→`caf3b45`。
+  头部快照更新为开工时 origin/main 实况（`9ac3786`）；两处事实过实纠正：首个 Release **v0.7.0 已发布**
+  （2026-11-17，tag→`9bbcb6b`，`gh release view` 实查）、description/topics 已设；**homepage 留空、
+  Discussions 未做照实保留**。`AGENTS.md` §8 新增「合并留痕双写」规则：每票合并留痕必须同步翻转
+  STATUS 状态词并附 PR→SHA 锚点，只写 TICKETS 不翻 STATUS 视为留痕不完整。零代码、零测试、零数据改动。
 - **文档口径清理（P5-11）：seeds/README 全量口径 + P5-9 词条括注 + 耗时措辞**（2026-11-17）：纯文档票——
   `seeds/README.md` 目录布局 / 转换规则 / 题库统计 / thin 说明改全量口径（1821 / 2917 / 7431，
   reasons 明细指向 `questions_source.json` 的 `counts.load_quality`，不手抄）；P5-9 词条尾加
