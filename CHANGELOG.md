@@ -598,6 +598,25 @@
 
 ### Changed
 
+- **本地自建命名空间解耦（P5-15；§19-G-3 定案一；先于扩科同步票；零迁移、零新依赖）**（2026-11-18）：
+  本地自建知识点 id 从「语文 `cnl_` / 化学 `cnc_`」改为**统一 `loc_` 单前缀**（`loc_001`…），
+  学科由 `subject` 字段承载（白名单键语文/化学不变）；上游 10 科前缀全在 `cn?_` 家族内，`loc_` 永不冲突
+  （上游 `cnc_` = 语文，旧约定会与之撞同一 ID 空间）。**判据与前缀解绑**：
+  `export_topics_junior._in_junior_catalog` 的「本地恒保留」改按 `source == 'local'`，
+  导出脚本 `load_local_topics` 为本地条目补 `source='local'`（`seeds/data/topics.json` 无 source 键，
+  必须由本地装载路径打标记）——杜绝上游语文点被当本地点绕过 grade 过滤、转录目录静默膨胀
+  （P5-10「借来的过滤」坑的第二次复发形态）。**legacy `cnl_`/`cnc_` 本地文件装载时明确拒绝**：
+  `LegacyLocalIdError` → 整次装载失败 + P4-4 降级（`seed_loaded=false`、类别 `format`），
+  错误文案含改名指引（"请将 cnl_001 改为 loc_001"），绝不静默装载；不写迁移脚本
+  （审核方实测两个运行时目录均无 `seeds_local/`、零 legacy 本地点）。常量形态：
+  `LOCAL_SUBJECT_PREFIXES` dict → `LOCAL_PREFIX = "loc_"` + `LOCAL_SUBJECTS = ("语文", "化学")`
+  （loader 与导出脚本各持一份，守卫钉死两侧一致）。前端 `/local-seed` 文案不再点名旧前缀。
+  新守卫 `tests/integration/test_local_namespace.py` 5 条（上游语文点 `cnc_j001` grade=10
+  ceiling=9 被过滤且不进转录目录 / 前缀常量不得取 `^cn[a-z]_` 形态 / legacy 拒绝 + 降级 + 改名恢复 /
+  导出侧 legacy 告警），三处变异 RED→GREEN 自证；`test_local_seed.py` / `test_seed_status.py`
+  字面全部改 `loc_`。`docs/templates/topics_junior.tsv` 仍 665 行零 diff；`seeds/data/` 零改动。
+  文档同步：`seeds/README.md` local 一节、`目录结构.md`、`docs/STATUS.md` 现状口径；
+  README 双语 P3-8 历史条目加时间性括注（条目正文未改）。
 - **STATUS 状态行对账 + 留痕流程固化（P5-13）**（2026-11-18）：纯文档票——`docs/STATUS.md` 盘上实测
   **19 处**「待评审/待审核」状态词漂移逐处最小改动清零（卡面写 17，以 grep 实况为准），只翻状态词 +
   补「PR 号 → squash SHA」锚点，bullet 正文与历史数字一字不动；锚点全部实查（`gh pr view` /

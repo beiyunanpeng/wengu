@@ -10,8 +10,10 @@
   `<data_dir>/seeds_local/*.json`（家长运行时自建，文件真源）。
   本地条目 id 与上游/先前本地条目冲突即拒绝并记 error 日志；单文件解析失败只跳过该文件。
 - 本地条目强制 `source='local'`、`unaudited=true`、`blind_verified=false`。
+- **本地 id 统一 `loc_` 单前缀（P5-15），学科由 subject 字段承载**；legacy `cnl_`/`cnc_`
+  本地 id 明确拒绝整次装载（LegacyLocalIdError → P4-4 降级），绝不静默跳过。
 - 教材包 mappings/*.json 只校验 + 暴露进索引，不写数据库、不随仓库分发数据。
-- 化学/语文空 seed 起步：缺文件 / 空数组容忍；契约见 seeds/README.md。
+- 本地语文/化学 seed 缺文件 / 空数组容忍（教材版本差异 + 家长自建章级点）；契约见 seeds/README.md。
 """
 
 from __future__ import annotations
@@ -35,12 +37,19 @@ logger = logging.getLogger(__name__)
 
 MAPPING_STATUSES = {"example", "draft", "reviewed"}
 LOCAL_SOURCE = "local"
-LOCAL_SUBJECT_PREFIXES = {"语文": "cnl_", "化学": "cnc_"}
-
+# P5-15：本地自建统一 loc_ 单前缀（上游 10 科全在 cn?_ 家族，永不冲突）；
+# 学科由 subject 字段承载，白名单键不变。判据按 source='local'，不按前缀。
+LOCAL_PREFIX = "loc_"
+LOCAL_SUBJECTS = ("语文", "化学")
+LEGACY_LOCAL_PREFIXES = ("cnl_", "cnc_")
 
 
 class SeedFormatError(ValueError):
     """seed 包或教材包 JSON 结构非法（导入即不可信输入，fail-fast）。"""
+
+
+class LegacyLocalIdError(SeedFormatError):
+    """legacy cnl_/cnc_ 本地 id（P5-15）：拒绝整次装载并给改名指引，绝不静默跳过。"""
 
 
 def classify_seed_error(exc: BaseException) -> str:
@@ -130,7 +139,8 @@ def local_seed_files(seeds_dir: Path, data_dir: Path) -> list[Path]:
 def read_local_topics(
     paths: list[Path], taken_ids: set[str]
 ) -> list[dict[str, Any]]:
-    """读取本地 seed 文件并合并；坏文件/坏条目跳过，id 冲突拒绝且记 error 日志。"""
+    """读取本地 seed 文件并合并；坏文件/坏条目跳过，id 冲突拒绝且记 error 日志；
+    legacy cnl_/cnc_ id 抛 LegacyLocalIdError，整次装载明确失败。"""
 
     merged: dict[str, dict[str, Any]] = {}
     for path in paths:
@@ -145,6 +155,9 @@ def read_local_topics(
         for item in raw:
             try:
                 topic = validate_local_topic(item)
+            except LegacyLocalIdError:
+                # legacy 命名空间不是"坏条目"：整次装载明确失败（P4-4 降级），逼家长改名。
+                raise
             except SeedFormatError as exc:
                 logger.warning("跳过本地 seed 条目（%s）：%s", path.name, exc)
                 continue
@@ -158,17 +171,22 @@ def read_local_topics(
 
 
 def validate_local_topic(raw: Any) -> dict[str, Any]:
-    """本地条目校验：契约子集 + 学科前缀 + 强制 local 标签。"""
+    """本地条目校验：契约子集 + 学科白名单 + loc_ 前缀 + 强制 local 标签。"""
 
     topic = _validate_topic(raw)
-    prefix = LOCAL_SUBJECT_PREFIXES.get(topic["subject"])
-    if prefix is None:
+    for legacy in LEGACY_LOCAL_PREFIXES:
+        if topic["id"].startswith(legacy):
+            renamed = LOCAL_PREFIX + topic["id"][len(legacy) :]
+            raise LegacyLocalIdError(
+                f"本地知识点 id 需以 {LOCAL_PREFIX} 开头，请将 {topic['id']} 改为 {renamed}"
+            )
+    if topic["subject"] not in LOCAL_SUBJECTS:
         raise SeedFormatError(
-            f"本地知识点学科仅支持 {sorted(LOCAL_SUBJECT_PREFIXES)}，实际 {topic['subject']!r}"
+            f"本地知识点学科仅支持 {sorted(LOCAL_SUBJECTS)}，实际 {topic['subject']!r}"
         )
-    if not topic["id"].startswith(prefix):
+    if not topic["id"].startswith(LOCAL_PREFIX):
         raise SeedFormatError(
-            f"本地知识点 id 必须以 {prefix} 开头（学科 {topic['subject']}），实际 {topic['id']!r}"
+            f"本地知识点 id 必须以 {LOCAL_PREFIX} 开头，实际 {topic['id']!r}"
         )
     topic["source"] = LOCAL_SOURCE
     topic["unaudited"] = True
@@ -198,7 +216,7 @@ _ID_SEQUENCE = re.compile(r"^(.+?)(\d+)$")
 
 
 def next_local_id(prefix: str, taken_ids: set[str], issued: int = 0) -> str:
-    """按学科前缀 + 递增序号生成 id（cnl_001…），跳过已占用序号。
+    """按前缀 + 递增序号生成 id（loc_001…），跳过已占用序号。
 
     `issued` 是已发放过的最大序号（计数器），永远只增不减：删除过的 id 不会回收。
     """

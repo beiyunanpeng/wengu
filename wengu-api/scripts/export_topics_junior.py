@@ -4,11 +4,14 @@
 时，需要一份紧凑的"知识点 id + 名称"清单。本脚本**只做只读投影**——
 但学段过滤（grade 7–9）由本脚本**自行**完成（P5-10）：import_seed 已改参数驱动全量收录，
 若继承其收录范围 TSV 会静默涨到全学段（约 1822 行）；故这里显式过滤，输出维持初中-scoped。
-本地自建语文/化学无学段带概念，不受此过滤（仍是转录候选）。
+本地自建语文/化学无学段带概念，不受此过滤（仍是转录候选）——**判据按 `source='local'`，
+不按 id 前缀**（P5-15：上游语文 `cnc_` 与本地点曾共用前缀空间，按前缀判会把上游点当本地点
+绕过 grade 过滤，转录目录静默膨胀）。
 
-本地自建 seed（语文 `cnl_` / 化学 `cnc_`）按装载器同一顺序合并：
+本地自建 seed（语文/化学，统一 `loc_` 前缀）按装载器同一顺序合并：
     seeds/local/*.json（开发机）→ <data_dir>/seeds_local/*.json（家长运行时）
-坏文件跳过、id 冲突跳过并告警；`seeds/data/topics.json` 只读不改。
+坏文件跳过、id 冲突跳过并告警；legacy `cnl_`/`cnc_` id 拒绝并给改名指引；
+`seeds/data/topics.json` 只读不改。
 
 开发者本地运行（不进容器、不进运行时）：
     python wengu-api/scripts/export_topics_junior.py
@@ -34,7 +37,11 @@ DEFAULT_LOCAL_DIR = PROJECT_ROOT / "seeds" / "local"
 DEFAULT_DATA_DIR = Path(os.environ.get("WENGU_DATA_DIR", API_DIR / "data"))
 DEFAULT_OUT = PROJECT_ROOT / "docs" / "templates" / "topics_junior.tsv"
 
-LOCAL_SUBJECT_PREFIXES = {"语文": "cnl_", "化学": "cnc_"}
+# 与 app/seed/loader.py 同一约定（P5-15）；本脚本保持纯标准库、不 import app，
+# 两侧常量一致性由 tests/integration/test_local_namespace.py 守卫钉死。
+LOCAL_PREFIX = "loc_"
+LOCAL_SUBJECTS = ("语文", "化学")
+LEGACY_LOCAL_PREFIXES = ("cnl_", "cnc_")
 # 转录目录维持初中-scoped（P5-10 定案二）：不继承 import_seed 的收录范围。
 JUNIOR_GRADES = range(7, 10)
 
@@ -42,10 +49,13 @@ COLUMNS = ["topic_id", "subject", "grade", "semester", "name", "domain", "chapte
 
 
 def _in_junior_catalog(topic: dict) -> bool:
-    """seed 点按 grade 7–9 收窄；本地自建语文/化学无学段带概念，恒保留。"""
+    """seed 点按 grade 7–9 收窄；本地自建点（source='local'）无学段带概念，恒保留。
 
-    topic_id = str(topic.get("id", ""))
-    if any(topic_id.startswith(prefix) for prefix in LOCAL_SUBJECT_PREFIXES.values()):
+    判据只认装载路径打的 source 标记（seeds/data/topics.json 无 source 键），
+    绝不按 id 前缀——上游语文 cnc_ 点必须照常被 grade 过滤（P5-15）。
+    """
+
+    if topic.get("source") == "local":
         return True
     return topic.get("grade") in JUNIOR_GRADES
 
@@ -115,19 +125,34 @@ def load_local_topics(directories: list[Path], taken_ids: set[str]) -> tuple[lis
                 warnings.append(f"跳过本地条目（{path.name}）：缺少字符串 id")
                 continue
             subject = item.get("subject")
-            prefix = LOCAL_SUBJECT_PREFIXES.get(subject) if isinstance(subject, str) else None
-            if prefix is None or not isinstance(item.get("name"), str):
+            if (
+                not isinstance(subject, str)
+                or subject not in LOCAL_SUBJECTS
+                or not isinstance(item.get("name"), str)
+            ):
                 warnings.append(f"跳过本地条目 {item['id']}（{path.name}）：学科/名称非法")
                 continue
-            if not item["id"].startswith(prefix):
+            legacy = next(
+                (p for p in LEGACY_LOCAL_PREFIXES if item["id"].startswith(p)), None
+            )
+            if legacy is not None:
+                renamed = LOCAL_PREFIX + item["id"][len(legacy) :]
                 warnings.append(
-                    f"跳过本地条目 {item['id']}（{path.name}）：id 必须以 {prefix} 开头"
+                    f"拒绝 legacy 本地条目 {item['id']}（{path.name}）："
+                    f"本地知识点 id 需以 {LOCAL_PREFIX} 开头，请将 {item['id']} 改为 {renamed}"
+                )
+                continue
+            if not item["id"].startswith(LOCAL_PREFIX):
+                warnings.append(
+                    f"跳过本地条目 {item['id']}（{path.name}）：id 必须以 {LOCAL_PREFIX} 开头"
                 )
                 continue
             if item["id"] in taken_ids:
                 warnings.append(f"本地 seed id 冲突，已跳过：{item['id']}（{path.name}）")
                 continue
             taken_ids.add(item["id"])
+            # topics.json 无 source 键：本地装载路径必须自己打标记，判据才与前缀解绑。
+            item["source"] = "local"
             topics.append(item)
     return topics, warnings
 
