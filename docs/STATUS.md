@@ -1,7 +1,7 @@
 # STATUS.md — 开发计划与完成情况
 
-> 快照日期：2026-11-13（**P4-6 公式题判分**，待评审；main 已含 P4-5 / PR #52）
-> 基线：`main` = `c7511cb`（P4-5 / PR #52 已合并）；P4-6 在分支 `feat/p4-6-formula-judge`，待评审
+> 快照日期：2026-11-18（**P5-13 STATUS 状态行对账**，本票；main 已含 P5-12 / PR #65）
+> 基线：`main` = `9ac3786`（P5-13 出卡落盘）；P5-12 / PR #65 → `caf3b45` 已合并
 > 全量测试：**742 passed**（2026-11-13 施工方实跑，unit 496 / integration 235 / **e2e 11**，较 P4-5 的 618 增 124：公式单测 119 + 集成 5；含返工① +10 白名单单测、返工② +1 集成）；`ruff check --no-cache .` 全绿；`npm run build` 绿（5.45s）、`npm test` **26 passed**（20 基线 + 6 新增）；`requirements.txt` 零变化（`git diff` 为空）
 > Alembic head：`0023_learning_events_occurred_at`；业务表 **22 张**（P4-6 零迁移、零新依赖；`sympy` 为已声明依赖首次真正启用）
 
@@ -202,7 +202,7 @@
   `0011/mistakes=2` 与 `0012/mistakes=3` 两份平行库之间正确切换、缺库退出码 1；两组证伪（忽略
   `--data-dir`、让 dry-run 落盘）都能让新用例变红。审核方另修掉一处文档缺陷：§2.1 第一条命令照抄
   跑不通（缺 `cd wengu-api`、`--data-dir` 基准错）。零迁移、零新依赖。
-- **P4-4 后端健壮性与可观测性小修已交付（待评审）**（2026-11-13，分支 `feat/p4-4-robustness`，设计文档 §19-E）：
+- **P4-4 后端健壮性与可观测性小修已合并（PR#51 → `cb6ab4c`）**（2026-11-13，分支 `feat/p4-4-robustness`，设计文档 §19-E）：
   ① **seed 装载失败显式降级**——新增进程内状态 `app/seed/state.py` + `loader.classify_seed_error()`
   把异常映射成安全类别（`format/json/io/unknown`，绝不回传 `str(exc)`/绝对路径/题目/堆栈）；
   `main.py` lifespan 改 `logger.error(类别)` + `set_seed_status`（**不用 `logger.exception`**，其堆栈含
@@ -221,7 +221,7 @@
   RED→GREEN（改坏 0023 downgrade 索引名、`logger.error`→`exception` 各让对应用例变红再改回变绿）。
   **残留**：`occurred_at` 索引为前瞻性——dashboard 仍 `ORDER BY id` 全量加载 + Python 排序，查询计划未变、
   未重构 dashboard（按禁止）；`to_thread` 暴露的模块级锁跨循环脆弱性已用 conftest 每测试换锁隔离（仅测试）。
-- **P4-5 掌握度改近期窗口已交付（待评审）**（2026-11-13，分支 `feat/p4-5-mastery-window`，设计文档 §5.4 / §19-E）：
+- **P4-5 掌握度改近期窗口已合并（PR#52 → `c7511cb`）**（2026-11-13，分支 `feat/p4-5-mastery-window`，设计文档 §5.4 / §19-E）：
   `recompute.mastery()` 从「该 concept 全历史正确率」收敛为「**最近 `MASTERY_WINDOW_SIZE`=20 次计入作答**正确率」——
   按 concept 过滤 + 双来源（`student_self`/`system_quiz`，缺 source 旧事件按历史自评）+ 申诉去重（同一 grading 只计最高版本），
   按 `occurred_at + repr` 稳定排序取末尾 20；**样本 < `MASTERY_MIN_SAMPLE`=5 回退全历史**。两常量模块级、不做运行时可配。
@@ -231,7 +231,7 @@
   **一字未改**：`GRADUATION_STREAK`=3 / `is_graduated` / `stats` / `review_interval` 公式形状 / 多 concept 取最小。
   实跑 **618 passed**（unit 377 / integration 230 / e2e 11，+8 条 DoD 单测）、`ruff check --no-cache .` 绿；零迁移、零新依赖、前端零改动。
   **残留**：N=20>MIN_SAMPLE=5 时回退对 n<20 与 `[-20:]` 同效（按工单显式实现的冷启动守卫）；≥20 条真实存量数据尚未观测（无生产复跑）。
-- **P4-6 公式题判分已交付（待评审）**（2026-11-13，分支 `feat/p4-6-formula-judge`，设计文档 §19-E / §5.2）：
+- **P4-6 公式题判分已合并（PR#53 → `6a4346a`）**（2026-11-13，分支 `feat/p4-6-formula-judge`，设计文档 §19-E / §5.2）：
   系统自造同类题考核的**公式类答案**新增确定性等值判断——`judge/latex_subset.py` 把受限 LaTeX 子集
   （`\frac`/`\sqrt`/`^{}`/`\cdot`/`\times`/`\div`/`\left\right`/`\%`/`\pi`/`e^{x}`/四则/括号/等号）纯字符串归一，
   超出子集（积分/求和/矩阵/`\begin`/未知宏）抛 `UnsupportedLatex`；`normalize.formula_equivalent(a,b)->bool|None`
@@ -272,7 +272,7 @@
   默认 16 全学段可见，选择器会多出够不到的点；回溯不受作用域限制）。全量 pytest **833 passed**
   （824 基线 + 7 新覆盖守卫 + 2 参数化守卫；连带改对 4 个票面清单外测试文件，见 CHANGELOG）。
   零迁移、零新依赖。
-- **P5-12 上游更新检查已交付（待审核）**：新增 `wengu-api/scripts/check_upstream.py`（纯开发者侧、
+- **P5-12 上游更新检查已合并（PR#65 → `caf3b45`）**：新增 `wengu-api/scripts/check_upstream.py`（纯开发者侧、
   手动跑；只读 GET 无鉴权、对 `seeds/data/` 零写入、无状态不落盘缓存）。从 `_source.json` 读
   `upstream_commit`（不硬编码），对比上游最新触及 `data/` 的 commit：已同步 exit 0 / 有更新 exit 1
   （下载该 sha 三 JSON 只算不写，topics 分带分科、deps、questions delta + 未知前缀点名）/
@@ -286,8 +286,8 @@
   ~~P3-3a 手填背诵~~、~~P3-3b 词表导入~~、~~P3-3c 从错题抽词~~、~~P5-1a 配置持久化修复~~、
   ~~P5-1b 首次运行向导 UI~~、~~P1-3e 移动端投递~~、~~P1-3f BOM 剥离~~、
   ~~P1-13 归并 UI~~、~~P1-13b 归并弹窗取消预选~~ 已完成 → ② 开源分发剩余项：英文 README（另票）+
-  发布打包（P5-5 收口票已交付待评审：LICENSE 纯 MIT + `LICENSE-data.md` + `PRIVACY.md` + seed provenance；
-  GitHub 侧元数据/Release 属审核方动作）→ ③ P3-4 听力默写。上游更新检查脚本已随 P5-12 交付（待审核）：
+  发布打包（P5-5 收口票已合并 PR#61 → `0928104`：LICENSE 纯 MIT + `LICENSE-data.md` + `PRIVACY.md` + seed provenance；
+  GitHub 侧元数据/Release 属审核方动作）→ ③ P3-4 听力默写。上游更新检查脚本已随 P5-12 合并（PR#65 → `caf3b45`）：
   手动跑、只读 GET、零写入；**上游同步永远是另一票**（重导入 + §19-F-1 重取证 + 重新策展，人工决定）。
   **PWA 已砍**（设计文档 §17-A / §12 反清单）。
 
@@ -299,8 +299,8 @@
 | Phase 1 | 核心闭环 | 进行中 | P1-0～P1-13b 完成（模型在环旧链路已退役，含 P1-3e 投递入口、P1-3f BOM 归一、P1-13 归并 UI、P1-13b 归并弹窗不预选）；仅剩 P1-7b，P1-7c 阻塞 |
 | Phase 2 | 每日任务 + 家长看板 | 进行中 | P2-5 家长看板、P2-4 两角色 + 本地 PIN、P2-6 极简打卡、P2-1 日队列（本轮仅到期复习/考核）、P2-3 课表/日历约束层、P2-2 番茄钟执行、P2-7 打印导出已完成；背诵铺底已随 P3-3a 以独立到期端点 + 复习页入口交付；P2-8 导航 sidebar、P2-9 搜索/掌握态、P2-10 回收站已完成（v2.7）；作业 deadline 与硬事件抬权重未开始 |
 | Phase 3 | 内容与扩展 | 进行中 | P3-1 家长录题（真题入库审核流水线）+ P3-1b 家长题接入检索池 + P3-1c 题库修订/软作废 + P3-2 主动加练变式 + **P3-3a 家长手填英语背诵** + **P3-3b 词表批量导入** + **P3-3c 从错题抽词**已完成；P3-5 前置（语文/化学家长自建章级 seed）已交付；听力默写、语文客观题、信奥、长期计划未开始 |
-| Phase 4 | 基础设施演进 | 进行中 | **P4-1 Tailscale 可达性 + 默认只绑回环已合并**（PR#39；两项待试用机实测：`tailscale serve` CLI 形式、sidecar 路径 A 运行时验证）；**P4-1b 部署面命令体检已合并**（PR#40 → `6f6c4cf`；死 `make backup`/`.PHONY restore` 删除、`make dev-api` 默认回环、`make lint --no-cache`、`seeds/README.md --src` 层级、`docs/manuals` 空骨架清理）；P4-1c 命令行备份入口已合并（PR#41 → `8bbef94`；CLI 只调 `create_backup`，与 UI 同目录同命名同 10 份轮转、无 PIN、Windows 计划任务示例已实测）；**P4-4 后端健壮性与可观测性小修已交付**（2026-11-13，待评审；seed 显式降级 + 迁移 0023 `occurred_at` 索引 + `save_config` 改 `to_thread` + 0013/0019 回退说明）；**P4-6 公式题判分已交付**（2026-11-13，待评审；受限 LaTeX 子集 + `sympy` 等值、不可判降级自评标 `formula_fallback`、不引入 antlr、`requirements.txt` 零变化）；P4-2 可移植部署、P4-3 可选本地模型未开始 |
-| Phase 5 | 开源分发与打包 | 部分完成 | LICENSE / README / CHANGELOG / `.env.example` / 第三方署名已就位；**P5-5 开源基线收口已交付**（2026-11-16，待评审；LICENSE 恢复纯 MIT + 数据许可另置 `LICENSE-data.md` + 独立隐私声明 `PRIVACY.md` + seed 快照 provenance 钉死 `d58785ce` + `--upstream-commit` 显式探测；英文 README 另票，仓库元数据/首个 Release 属审核方侧 GitHub 动作、未做）；P5-2 备份 v1（导出一致性快照 + 停机恢复脚本）已交付；首次运行向导、在线恢复、云备份 / 清空级联、鉴权开关、教材包安装器未做 |
+| Phase 4 | 基础设施演进 | 进行中 | **P4-1 Tailscale 可达性 + 默认只绑回环已合并**（PR#39；两项待试用机实测：`tailscale serve` CLI 形式、sidecar 路径 A 运行时验证）；**P4-1b 部署面命令体检已合并**（PR#40 → `6f6c4cf`；死 `make backup`/`.PHONY restore` 删除、`make dev-api` 默认回环、`make lint --no-cache`、`seeds/README.md --src` 层级、`docs/manuals` 空骨架清理）；P4-1c 命令行备份入口已合并（PR#41 → `8bbef94`；CLI 只调 `create_backup`，与 UI 同目录同命名同 10 份轮转、无 PIN、Windows 计划任务示例已实测）；**P4-4 后端健壮性与可观测性小修已合并**（2026-11-13，PR#51 → `cb6ab4c`；seed 显式降级 + 迁移 0023 `occurred_at` 索引 + `save_config` 改 `to_thread` + 0013/0019 回退说明）；**P4-6 公式题判分已合并**（2026-11-13，PR#53 → `6a4346a`；受限 LaTeX 子集 + `sympy` 等值、不可判降级自评标 `formula_fallback`、不引入 antlr、`requirements.txt` 零变化）；P4-2 可移植部署、P4-3 可选本地模型未开始 |
+| Phase 5 | 开源分发与打包 | 部分完成 | LICENSE / README / CHANGELOG / `.env.example` / 第三方署名已就位；**P5-5 开源基线收口已合并**（2026-11-16，PR#61 → `0928104`；LICENSE 恢复纯 MIT + 数据许可另置 `LICENSE-data.md` + 独立隐私声明 `PRIVACY.md` + seed 快照 provenance 钉死 `d58785ce` + `--upstream-commit` 显式探测；英文 README 另票，仓库元数据/首个 Release 属审核方侧 GitHub 动作：v0.7.0 已发布（2026-11-17，tag→`9bbcb6b`）、description/topics 已设；homepage 留空、Discussions 未做）；P5-2 备份 v1（导出一致性快照 + 停机恢复脚本）已交付；**P5-1b 首次运行向导已合并（PR#33 → `285fba7`）**；在线恢复、云备份 / 清空级联、鉴权开关、教材包安装器未做 |
 
 ## 3. Phase 1 工单完成情况（v2.5 收口后）
 
@@ -1130,7 +1130,7 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
    本地 `.json`，原文直发 `POST /api/imports`、422 逐行报错；后端零改动、无迁移。
    ~~**P1-3f BOM 显式剥离**~~ 已完成（2026-11-04）：`submitRaw` 先剥 `^\uFEFF+` 再 trim，
    带/不带 BOM 同一 sha256；e2e 第 9 条；无迁移、无新依赖。
-   **下一步开源分发剩余项：英文 README（另票）+ 发布打包（P5-5 收口票已交付待评审：独立隐私声明
+   **下一步开源分发剩余项：英文 README（另票）+ 发布打包（P5-5 收口票已合并 PR#61 → `0928104`：独立隐私声明
    `PRIVACY.md`、`LICENSE-data.md`、seed 快照 provenance 已就位；GitHub 侧元数据/Release 属审核方动作）**；不引入语音/ASR。
 2. **P1-7b 前置回溯诊断**：`prerequisite_edges` 已装载，固定种子 `replay` 必须可重建。
 3. **复习掌握度归因**：把已确认 concept 写入事实，让 mastery 不再恒 0.0。
@@ -1180,25 +1180,25 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
 
 | 工单 | 状态 | 目标 |
 |---|---|---|
-| P4-1 | 已完成 | Tailscale 可达性 + 端口默认只绑回环；分平台接入与只读自检（2026-11-04，待评审） |
+| P4-1 | 已完成 | Tailscale 可达性 + 端口默认只绑回环；分平台接入与只读自检（2026-11-04，PR#39 → `170b5da` 已合并） |
 | P4-2 | 未开始 | 可移植部署：镜像原样上云，SQLite 文件 + 挂载卷；Postgres 仅可选 |
 | P4-3 | 未开始 | 可选本地模型层：若回退模型决策，另行评审，不默认引入 |
-| P4-4 | 已完成 | **后端健壮性与可观测性小修（2026-11-13，待评审，设计文档 §19-E）**：seed 装载失败显式降级（进程内状态 + 安全错误类别 `format/json/io/unknown`，`GET /api/setup/status` 增 `seed_loaded`/`seed_error`，前端 `seed_loaded===false` 红色横幅；服务不崩溃、错误明细不含题目/路径/堆栈）；迁移 0023 给 `learning_events.occurred_at` 建索引（可逆、纯加索引不碰 0008 触发器）；`save_config` 写盘改 `asyncio.to_thread`（原子写 + 文件锁语义不变）；backup-restore 补 0013/0019「逻辑可逆·数据不可回退」节。实跑 610 passed、ruff/build 绿、两次可证伪 RED→GREEN |
-| P4-5 | 已完成 | **掌握度改近期窗口（2026-11-13，待评审，设计文档 §5.4 / §19-E）**：`recompute.mastery()` 从全历史正确率收敛为最近 `MASTERY_WINDOW_SIZE`=20 次计入作答正确率（concept 过滤 + 双来源 + 申诉去重 + `occurred_at` 稳定排序取末尾 20；样本 <`MASTERY_MIN_SAMPLE`=5 回退全历史；常量模块级不可运行时配）；修「久会近错」孩子 mastery 仍高、复习间隔反被拉长。影响 review 取最小 + dashboard 概念/曲线三处（仅 concept ≥20 条时值变，间隔可能整体缩短属预期）；`GRADUATION_STREAK`/`is_graduated`/`review_interval` 公式一字未改。实跑 618 passed、ruff 绿；零迁移零新依赖 |
-| P4-6 | 已完成 | **公式题判分（2026-11-13，待评审，设计文档 §19-E / §5.2）**：受限 LaTeX 子集归一（`judge/latex_subset.py`，超出抛 `UnsupportedLatex`）+ `normalize.formula_equivalent` 走 `sympy` 等值（sympify 前后双白名单、禁 eval/exec/属性/下标/任意调用、`Eq`/`simplify` 不用 `.equals()`、含自由符号等式保守 `None`）；不可判降级 `student_self` 自评标 `formula_fallback`（quiz/practice/review 三面，review 抛 422 `reason=formula_fallback`；标签不进判分结论/掌握度/排期，practice 零 attempts/events）；仅 LaTeX 标记触发、`【依赖图形】` 题不启用；**不引入 antlr**、`sympy` 已声明依赖首次启用、`requirements.txt` 零变化；`judge_answer` 非公式路径与 `verify_sandbox.py` 一字未改。实跑 742 passed、ruff/build 绿、npm test 26；零迁移零新依赖。**返工只补测试与口径、实现不动**：+10 白名单承重墙单测（`nodes=[]` 变异全红/还原全绿）+1 标签惰性集成断言（mastery/到期日/结论字段与剥标签孪生一致 + mastery=0 反证）；口径=仅标记触发、`answer_kind==formula` 未实现 |
+| P4-4 | 已完成 | **后端健壮性与可观测性小修（2026-11-13，PR#51 → `cb6ab4c` 已合并，设计文档 §19-E）**：seed 装载失败显式降级（进程内状态 + 安全错误类别 `format/json/io/unknown`，`GET /api/setup/status` 增 `seed_loaded`/`seed_error`，前端 `seed_loaded===false` 红色横幅；服务不崩溃、错误明细不含题目/路径/堆栈）；迁移 0023 给 `learning_events.occurred_at` 建索引（可逆、纯加索引不碰 0008 触发器）；`save_config` 写盘改 `asyncio.to_thread`（原子写 + 文件锁语义不变）；backup-restore 补 0013/0019「逻辑可逆·数据不可回退」节。实跑 610 passed、ruff/build 绿、两次可证伪 RED→GREEN |
+| P4-5 | 已完成 | **掌握度改近期窗口（2026-11-13，PR#52 → `c7511cb` 已合并，设计文档 §5.4 / §19-E）**：`recompute.mastery()` 从全历史正确率收敛为最近 `MASTERY_WINDOW_SIZE`=20 次计入作答正确率（concept 过滤 + 双来源 + 申诉去重 + `occurred_at` 稳定排序取末尾 20；样本 <`MASTERY_MIN_SAMPLE`=5 回退全历史；常量模块级不可运行时配）；修「久会近错」孩子 mastery 仍高、复习间隔反被拉长。影响 review 取最小 + dashboard 概念/曲线三处（仅 concept ≥20 条时值变，间隔可能整体缩短属预期）；`GRADUATION_STREAK`/`is_graduated`/`review_interval` 公式一字未改。实跑 618 passed、ruff 绿；零迁移零新依赖 |
+| P4-6 | 已完成 | **公式题判分（2026-11-13，PR#53 → `6a4346a` 已合并，设计文档 §19-E / §5.2）**：受限 LaTeX 子集归一（`judge/latex_subset.py`，超出抛 `UnsupportedLatex`）+ `normalize.formula_equivalent` 走 `sympy` 等值（sympify 前后双白名单、禁 eval/exec/属性/下标/任意调用、`Eq`/`simplify` 不用 `.equals()`、含自由符号等式保守 `None`）；不可判降级 `student_self` 自评标 `formula_fallback`（quiz/practice/review 三面，review 抛 422 `reason=formula_fallback`；标签不进判分结论/掌握度/排期，practice 零 attempts/events）；仅 LaTeX 标记触发、`【依赖图形】` 题不启用；**不引入 antlr**、`sympy` 已声明依赖首次启用、`requirements.txt` 零变化；`judge_answer` 非公式路径与 `verify_sandbox.py` 一字未改。实跑 742 passed、ruff/build 绿、npm test 26；零迁移零新依赖。**返工只补测试与口径、实现不动**：+10 白名单承重墙单测（`nodes=[]` 变异全红/还原全绿）+1 标签惰性集成断言（mastery/到期日/结论字段与剥标签孪生一致 + mastery=0 反证）；口径=仅标记触发、`answer_kind==formula` 未实现 |
 
 ### Phase 5 — 开源分发与打包
 
 | 工单 | 状态 | 目标 |
 |---|---|---|
-| P5-1 | 已完成 | **P5-1a（2026-11-04）**：配置真源迁 `<data_dir>/app-config.json` + 仓库根只读回退 + `GET/PUT /api/config`（require_parent、白名单区间、422 不写盘）+ 备份纳入；**P5-1b（2026-11-04，待评审）**：单页 `/setup` + 未完成横幅，**不采集年级、不做学科勾选**，只展示 seed 覆盖（缺席按 0 + `/local-seed`）、设置复习/背诵上限、完成/跳过写同一 `setup_completed` 键；调 P5-1a 端点、不重启、不劫持路由 |
+| P5-1 | 已完成 | **P5-1a（2026-11-04）**：配置真源迁 `<data_dir>/app-config.json` + 仓库根只读回退 + `GET/PUT /api/config`（require_parent、白名单区间、422 不写盘）+ 备份纳入；**P5-1b（2026-11-04，PR#33 → `285fba7` 已合并）**：单页 `/setup` + 未完成横幅，**不采集年级、不做学科勾选**，只展示 seed 覆盖（缺席按 0 + `/local-seed`）、设置复习/背诵上限、完成/跳过写同一 `setup_completed` 键；调 P5-1a 端点、不重启、不劫持路由 |
 | P5-2 | 部分完成 | 已完成：家长区导出 `VACUUM INTO` 一致性快照 + `uploads`/`seeds_local`/未处理 `inbox` + **`app-config.json`（P5-1a 起）** 打包 + manifest（sha256/表计数/迁移版本），保留最近 10 份；`scripts/restore.ps1` 停机整库替换 + 恢复文档。未做：在线热恢复、可选加密云备份、清空级联清理 |
 | P5-3 | 未开始 | 可选密码 session 鉴权（默认关）；README 醒目警告公网暴露风险 |
 | P5-4 | 未开始 | 教材 seed 包机制：多教材可安装可切换（mappings 机制已有，安装 UI 未做） |
-| P5-5 | 部分完成 | **已在盘上**：LICENSE（P5-5 恢复纯 MIT）/ 中文 README / CHANGELOG / `wengu-api/.env.example` / 第三方署名（`THIRD-PARTY-NOTICES.md`）/ 两法点名（README §安全与合规）。**P5-5 收口票已交付（2026-11-16，待评审）**：`LICENSE-data.md`（CC BY-NC 4.0 分层 + 快照 `d58785ce` 取证）、`PRIVACY.md`（数据本土化 + 外部转录上云字段 + 监护人单独同意 + 离线 `/import`）、两 source 文件 provenance 键、`--upstream-commit` 探测参数、README 克隆地址/口径校正。**仍缺**：**英文 README**（另票；此前本行写"中英 README 已就位"属过实，2026-11-02 审计修正）、发布打包（仓库 description/topics/homepage、首个 Release、Discussions 属审核方侧 gh 动作，未做） |
+| P5-5 | 部分完成 | **已在盘上**：LICENSE（P5-5 恢复纯 MIT）/ 中文 README / CHANGELOG / `wengu-api/.env.example` / 第三方署名（`THIRD-PARTY-NOTICES.md`）/ 两法点名（README §安全与合规）。**P5-5 收口票已合并（2026-11-16，PR#61 → `0928104`）**：`LICENSE-data.md`（CC BY-NC 4.0 分层 + 快照 `d58785ce` 取证）、`PRIVACY.md`（数据本土化 + 外部转录上云字段 + 监护人单独同意 + 离线 `/import`）、两 source 文件 provenance 键、`--upstream-commit` 探测参数、README 克隆地址/口径校正。**仍缺**：**英文 README**（另票；此前本行写"中英 README 已就位"属过实，2026-11-02 审计修正）、发布打包（仓库 description/topics 已设、首个 Release v0.7.0 已发布（2026-11-17，tag→`9bbcb6b`）；homepage 留空、Discussions 未做，属审核方侧 gh 动作） |
 | P5-6 | 部分完成 | 交付口径与盘上一致性清理（v2.6 审计新增）。**已完成孤儿表切片**：迁移 0019 DROP `problem_extractions`/`photo_capture_items`/`photo_captures`（可逆、含备份说明、不留悬空 FK）、删 ORM 类与备份表计数，业务表 22 → 19，见 §4.18。**剩余**：Phase 5 行与 §7 表格的进一步口径复核；见 `docs/audit/pr1-24-retrospective.md` |
 | P5-7 | 已完成 | **转录可选包 T1（2026-11-12，PR #49 已合）**：`transcribe/` 随仓库分发（SOP README + CONTRACT + 纯标准库 `validate.py` + 契约镜像 + 通用 Skill + 13 条脱敏 fixtures）；不进 requirements/镜像/CI 主链依赖。包内修复：GBK 控制台编码、selfcheck 增 portable Skill 校验、2 处 UP038。三方字段对齐留 P5-8 |
-| P5-8 | 已完成 | **转录契约收口 T2（2026-11-13，待评审）**：契约 `fields` 补 `correction_notes:500`→10 键与后端一致、`template.version`→2、`status`→active；模板保持 v2（只补施工方口径、未改模型指令/schema_fields，故不升 v3）；`verify` 声明题库专用（`bank_only_fields`），selfcheck 按「契约字段−bank_only==模板 schema_fields」显式判定 + 模板 id 断言 + 回归目录存在检查；模板/旧 Skill 回归目录改指 `transcribe/evals/`、旧 Skill 存档迁移并删本机绝对路径；后端新增行为锚定测试消费同一批 fixtures（可证伪）；CI 增独立 transcribe job（不装额外包）。实跑 selfcheck 18 OK/0 DRIFT/0 WARN、evals 13/13、全量 602 passed、ruff/build 绿 |
+| P5-8 | 已完成 | **转录契约收口 T2（2026-11-13，PR#50 → `30785d0` 已合并）**：契约 `fields` 补 `correction_notes:500`→10 键与后端一致、`template.version`→2、`status`→active；模板保持 v2（只补施工方口径、未改模型指令/schema_fields，故不升 v3）；`verify` 声明题库专用（`bank_only_fields`），selfcheck 按「契约字段−bank_only==模板 schema_fields」显式判定 + 模板 id 断言 + 回归目录存在检查；模板/旧 Skill 回归目录改指 `transcribe/evals/`、旧 Skill 存档迁移并删本机绝对路径；后端新增行为锚定测试消费同一批 fixtures（可证伪）；CI 增独立 transcribe job（不装额外包）。实跑 selfcheck 18 OK/0 DRIFT/0 WARN、evals 13/13、全量 602 passed、ruff/build 绿 |
 
 ## 11. 维护约定
 
