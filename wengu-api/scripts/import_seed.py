@@ -229,9 +229,9 @@ def write_out(
 
 
 def _write_json(path: Path, value: object) -> None:
-    path.write_text(
-        json.dumps(value, ensure_ascii=False, indent=1) + "\n", encoding="utf-8"
-    )
+    # P5-17：仓库文本产物写死 LF——write_text 随平台翻译换行，Windows 生成即 CRLF
+    with path.open("w", encoding="utf-8", newline="\n") as fh:
+        fh.write(json.dumps(value, ensure_ascii=False, indent=1) + "\n")
 
 
 class SeedConvertError(ValueError):
