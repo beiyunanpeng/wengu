@@ -630,7 +630,10 @@
 
 ### 4.15 家长自建章级 seed（P3-8 / P3-5 前置）
 
-- **定位**：语文/化学从**空 seed 起步**，家长按教材目录录章级粗粒度知识点（40–80 点即止，
+- **定位**：~~语文/化学从**空 seed 起步**~~（2026-11-19 P5-16 纠正：该口径只对旧钉死快照
+  `d58785ce` 成立；上游 `8b57f2e` 已有语文 683 点 / 化学 147 点，已全量同步入仓）。
+  本地自建机制**保留**，理由 = **教材版本差异 + 家长自建章级点**（§19-G-3 定案一）：
+  家长按教材目录录章级粗粒度知识点（40–80 点即止，
   不做细粒度树）；有了本地点，语文/化学错题可挂主考点、题库可挂 `topic_id`，
   到期考核不再只能 `redo`。细粒度仍走错题受控生长，**不允许家长覆盖上游 seed 行**。
 - **文件真源**：`<data_dir>/seeds_local/topics_<学科>.json`（Docker 内 `./seeds` 只读，
@@ -639,6 +642,14 @@
   按 id upsert 幂等，重启后本地点仍在；单文件坏 JSON 只告警跳过，不阻塞服务与其余源；
   id 与上游/先前本地冲突 → error 日志并拒绝该条。装载器跳过下划线开头的文件
   （`_id_counters.json` 是运行期簿记，不是 topics 数组）。
+- **幽灵点语义（P5-16 钉死）**：点与边的同步是**有意的不对称**——`knowledge_seed` 只
+  upsert 不删行（上游删掉的点在老库升级后残留为"幽灵行"，保护 `mistakes.primary_topic_id`
+  等 FK 引用与历史事实）；`prerequisite_edges` 全量 delete 重建（边只被本表引用，JSON 即真源）。
+  因此 **seed 计数以 DB 为准**：老库升级后可能比 JSON 多 N 个幽灵点，不得断言"必须等于
+  JSON 条数"。幽灵点无题 → 到期任务退回 `redo`（原题重做自评）、组卷受控
+  `QuizTopicNotFound`，不崩。清理幽灵点走 P1-13 归并/删除机制，**不在装载器里做破坏性删除**。
+  守卫：`tests/integration/test_seed_ghost_topics.py`（变异自证：装载器改成删行 → 必红，
+  RED 实证为 FK constraint failed）。
 - **契约**：与上游 topics.json 同 schema 子集；统一 `loc_` 单前缀（P5-15，学科由 subject
   字段承载，与上游 `cn?_` 家族隔离）；装载/API 统一强制 `source='local'`、`unaudited=true`、
   `blind_verified=false`；**无迁移**（`knowledge_seed.source` 已存在）。

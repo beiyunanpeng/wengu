@@ -45,7 +45,10 @@
     grade∈7–9；删导出过滤变异必红）；模板 version 未升。
   - **测试**：29 条失效字面逐条改对（右侧一律字面串、不从被测文件反算；不 skip / 不 xfail / 不放宽），
     全量 pytest **899 passed**（870 基线 + 29 归零）；`test_figure_integrity.py` 只改 267→640、7430→14374
-    两处字面，机制与其余 10 条不动。
+    两处字面，机制与其余 10 条不动。补充（审核方读盘裁定折入）：新增 `test_seed_ghost_topics.py`
+    2 条钉死**幽灵点语义**——点 upsert 不删 / 边全量重建是有意的不对称（保护错题 FK 引用与历史事实，
+    清理走 P1-13，装载器不做破坏性删除；变异自证 RED→GREEN），并纠正 STATUS §4.15
+    「语文/化学空 seed 起步」过实现状口径（上游已有语文 683 / 化学 147 点）；全量 pytest **901 passed**。
   - **文档口径**：README 中英双侧（历史条目保留原文 + 时间性括注，新增 P5-16 条）、`LICENSE-data.md`、
     `THIRD-PARTY-NOTICES.md`、`seeds/README.md`、`docs/STATUS.md`、`docs/methodology/evals.md` 同步；
     `Makefile` 的 `--src` 仍指旧 zip 路径（不在本票白名单，另票更新），`seeds/README.md` 已写明重跑须显式传 `--src`。
