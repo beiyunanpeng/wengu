@@ -150,7 +150,7 @@ def test_repo_manifest_covers_every_figure_segment() -> None:
         for choice in question.get("choices") or []:
             if choice.get("figure"):
                 slots[f"{question['id']}:choice:{choice['key']}"] = choice["figure"]
-    assert len(manifest) == 267
+    assert len(manifest) == 640
     assert set(manifest) == set(slots)
     for key, text in slots.items():
         assert manifest[key] == _hash(text), key
@@ -169,7 +169,7 @@ def test_repo_tamper_one_figure_drops_exactly_one(tmp_path: Path) -> None:
         json.dumps(questions, ensure_ascii=False), encoding="utf-8"
     )
     bank = load_bank(tmp_path)
-    assert bank.stats.total == 7430
+    assert bank.stats.total == 14374
     assert bank.stats.dropped == {"figure_hash_mismatch": 1}
     assert bank.question(victim["id"]) is None
 

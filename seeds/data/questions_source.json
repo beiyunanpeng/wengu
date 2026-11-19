@@ -3,7 +3,7 @@
  "upstream_url": "https://github.com/xiaoyang111222/cn-math-taxonomy",
  "upstream_commit": "8b57f2e353ac041f81ba705a66503c9a9e2d8ba8",
  "upstream_commit_date": "2026-11-15T11:27:27Z",
- "upstream_author": "xiaoyang111222（GitHub；X @hassanyehiaa；math.pansgo.com）",
+ "upstream_author": "Aifeng（GitHub xiaoyang111222；X @hassanyehiaa；math.pansgo.com）",
  "upstream_spdx": "CC-BY-NC-4.0",
  "code_spdx": "ISC",
  "code_license_note": "上游 package.json（2026-10-24 首次新增，d58785ce 时不存在）声明 ISC；README「许可证 / License」节声明全项目（数据+诊断工具代码+文档）CC BY-NC 4.0，assets/vendor/ 第三方库保持各自 MIT。上游两处声明不一致，如实记录；wengu 只取数据（LICENSE 文件 + README 均为 CC BY-NC 4.0，无歧义）、不取代码。",
@@ -15,11 +15,12 @@
  "grade_semantics_note": "上游 grade 10-16 语义为'册'（高中）；本次收录：grade 1-16（小学+初中+高中）",
  "modified": "已修改：全量收录 topicId ∈ 全量 3557 点的题（小学 5924 / 初中 5215 / 高中 3236），按学段作用域呈现；字段名 camelCase→snake_case；SVG 净化前移到构建期（P5-16 路线 B），附 figures_sha256.json 逐段完整性清单（640 段）",
  "disclaimer": "上游自述：AI 生成初稿、未经一线教师审核（unaudited: true）；仅初中数学做过二遍盲解复核（315 点，mismatch=0），其余学科答案与 verify 同源、无二遍盲解，作为参考冷启动、家长复核后再用。上游持续修订题目内容：相对上一快照 d58785ce，7427 道共同题中 1064 道内容有变（422 道答案有变），cnm_p109 点及其 4 题被上游删除。",
- "snapshot_source": "git clone（--filter=blob:none --no-checkout，完整历史带 .git）+ detached checkout 到 8b57f2e；upstream_commit 由 git rev-parse HEAD 真实探测，四 blob 与 GitHub contents API 交叉验证",
+ "snapshot_source": "git clone（--filter=blob:none --no-checkout，完整历史带 .git）+ detached checkout 到 8b57f2e；upstream_commit 由 git rev-parse HEAD 真实探测，四 blob 与 GitHub API（contents/trees）交叉验证",
  "commit_evidence": [
   "来源从「GitHub zip of main」改为 git clone（--filter=blob:none --no-checkout，完整历史带 .git、blob 按需取），detached checkout 到 8b57f2e353ac041f81ba705a66503c9a9e2d8ba8，git rev-parse HEAD 逐字相等——真实探测，不再用内容寻址反查。",
-  "四 blob 交叉验证（本地 git hash-object == GitHub contents API ref=8b57f2e，逐一 match）：data/topics.json 4a5d7eb084bc85a90556f637381d768ec859a4f7 / data/dependencies.json 7aab6f220b0bc19f25c9bf436852b721a6a485c2 / data/questions.json 600cae28825fbd48f82264b5f3269613699dde2a / README.md 92bf760673f20b4b2e8b831c077711611819b296。",
+  "四 blob 交叉验证（2026-11-19 复核）：本地 git hash-object 与 pinned commit tree blob 四段全等；GitHub API 实测 ref=8b57f2e——data/topics.json 4a5d7eb084bc85a90556f637381d768ec859a4f7、data/questions.json 600cae28825fbd48f82264b5f3269613699dde2a、README.md 92bf760673f20b4b2e8b831c077711611819b296 走 contents API，data/dependencies.json 7aab6f220b0bc19f25c9bf436852b721a6a485c2 走 git trees API（contents 大响应网络中断，改小响应 tree 两段查询实测），四段逐一 match。",
   "clone 时上游 HEAD 已前进到 aa2c22058222d0df404f1819e2fbdb97a62049ea（2026-11-16）：按卡停下上报，用户裁定继续钉 8b57f2e；git diff --stat 8b57f2e origin/main -- data/ 为空、四个数据 blob 逐一相等、最新触及 data/ 的提交仍是 8b57f2e（2026-11-15T11:27:27Z）。",
+  "2026-11-19 复核：上游最新触及 data/ 的提交已前进到 df0879d0fe5f5da727fe2ba0d3aba8b79b354b07（2026-11-19T08:58:33Z），本仓库仍按决策钉死 8b57f2e、不同步到更新快照；下一轮同步是有意批量动作（人工决定），check_upstream 报「上游有更新」是常态而非故障。",
   "提交作者 xiaoyang111222 <79557224+xiaoyang111222@users.noreply.github.com>，author/committer 日期 2026-11-15T19:27:27+08:00（UTC 2026-11-15T11:27:27Z）。",
   "旧 zip 目录 ../cn-math-taxonomy-main 保持原样（d58785ce 取证现场），不与本快照掺混；本文件证据全部来自新 clone，不沿用旧证据串。",
   "上游 package.json 声明 ISC（2026-10-24 首次新增，d58785ce 时不存在），README 声明全项目 CC BY-NC 4.0——上游声明不一致，如实记录；wengu 只取数据。"
