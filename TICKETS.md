@@ -1878,6 +1878,70 @@
   为 `difficulty` 新档 `challenge`（1447 题）加枚举/UI/字段——**全仓无消费方，只如实透传**；
   重新引入 `cnl_`/`cnc_` 本地前缀（P5-15 已统一 `loc_`）；把家长题的装载期净化"顺手"去掉。
 
+### P5-17 行尾根治（生成侧显式钉死 LF + `.gitattributes` + 一次性 renormalize；零功能改动）
+- **背景（两次事故 + 一次普查）**：
+  ① P5-10 修复轮——TSV 逐字节守卫在 Linux CI 红、Windows 全绿（§19-L 纪律⑦由此而立）；
+  ② P5-16 折入轮——Qoder CN 撞到 CRLF 幻影 diff（4121+/3897−），**成因是审核方沙箱 git 读不到
+  用户级 `core.autocrlf=false`（只剩系统级 true），做 `git switch --detach` 往返时按 CRLF 写回工作区**；
+  ③ 本票出卡前普查 HEAD blob（327 tracked）发现**含 CRLF 的文本文件有 9 个，不是 1 个**：
+  `docs/templates/topics_junior.tsv`（1268，P5-10 有意为之）、`seeds/data/` 全部 6 个 JSON
+  （`questions.json` 481,568、`topics.json` 107,491、`dependencies.json` 30,794、
+  `figures_sha256.json` 642、`_source.json` 55、`questions_source.json` 104）、
+  `tests/fixtures/extraction/truth.json`（110）、`tests/fixtures/two_page_spread.truth.json`（49）。
+  **根因 = `import_seed` / `import_questions` 的 `_write_json` 一直用 `Path.write_text()`，
+  在 Windows 生成即 CRLF**。P5-10 只治了被断言撞见的那一个 TSV，其余八个没人比对就一直脏着。
+  直接后果：**Linux 上重跑 import 会产出 LF 文件，与仓库 blob 逐字节不同**——纪律⑦ 的病灶仍在。
+- **三条定案**：
+  ① 全仓文本 **LF**，唯一例外 `docs/templates/topics_junior.tsv` 保持 **CRLF**（P5-10 定案，
+     导出脚本已写死 `newline="\r\n"`，不动）；
+  ② **先治生成侧，再 renormalize**——顺序反了就是埋雷：下次谁重跑 import，Windows 又产 CRLF，diff 再炸；
+  ③ renormalize **单独成 commit** 并机械自证"内容零变化"，不许混进功能 commit。
+- **任务**：
+  1. 生成侧写死换行：`_write_json`（`import_seed.py` / `import_questions.py`）与 `figures_sha256.json`
+     写入处改为显式 `open(..., "w", encoding="utf-8", newline="\n")`；**仓库文本产物禁用 `Path.write_text()`**。
+     重跑两个 import 脚本（同一快照 `8b57f2e`，`--upstream-commit` 显式传），产物**仅换行差异、内容零变化**。
+  2. 新增 `.gitattributes`，规则逐条写死（不许只留一行 `* text=auto` 敷衍）：
+     - `* text=auto eol=lf`
+     - `docs/templates/topics_junior.tsv text eol=crlf`（**显式路径**，不用 `*.tsv` 通配，防将来新 TSV 误继承）
+     - `*.ps1 text eol=lf`（PS5.1 要 BOM+LF；BOM 属内容不受 eol 影响。现状 3 个 `.ps1` 已是 LF）
+     - `*.png binary`（`*.jpg` / `*.gif` / `*.ico` 预防性列出；当前二进制仅 12 个 PNG）
+     - 无此类文件就不要加 `.min.js -diff` 之类规则（别造需求）
+  3. 一次性 `git add --renormalize .`，单独 commit。
+  4. 守卫（新测试文件）：
+     - 遍历 tracked 文本文件，断言 HEAD blob 内 `b"\r\n"` 计数为 **0**，例外清单**有且仅有**
+       `docs/templates/topics_junior.tsv`（白名单式例外，新增 CRLF 文件必须显式进例外才放行）；
+     - 断言 `.gitattributes` 存在且含上述关键规则行；
+     - 断言两个 import 脚本源码**不再出现** `write_text(`（源码级守卫，防回退）；
+     - 变异自证：① 把 `_write_json` 改回 `write_text` → 源码守卫红；② 往某 `.md` 塞 CRLF 并 add →
+       产物守卫红。两处 RED→GREEN 贴输出。
+  5. 文档：`AGENTS.md §8` 加一条（新文本产物一律 LF；换行由 `.gitattributes` 决定，
+     **不得依赖本机 `core.autocrlf`**）；设计文档 **§19-L 纪律⑦ 泛化**——原文只覆盖"产物字节 == 仓库文件"
+     的比对场景，本次升级为"**凡生成进仓库的文本，生成侧必须显式钉死换行与编码；仓库侧以
+     `.gitattributes` 兜底**"，并把这次的 9 个 CRLF blob 与两次事故记进去；
+     `seeds/README.md` 重生成段补一句"产物为 LF，TSV 例外"；`CHANGELOG.md` Changed 一条。
+- **DoD**：
+  - **内容零变化自证（最关键）**：renormalize 前后每个受影响文件"去掉全部 CR 后逐字节相等"，贴全量比对；
+    `seeds/data/*` 的 `json.load` 结果前后完全相等；
+  - **跨平台可复现**（本次要买到的东西）：Windows 重跑 import 的产物与仓库 blob **逐字节一致**——必须实测，不许推理；
+  - **TSV 未被波及**：`topics_junior.tsv` 仍 1268 行、CRLF 1268、blob 字节与 renormalize 前完全一致；
+    P5-10 那条"删导出过滤必红"的守卫仍绿；
+  - 全量 `pytest -q` 绿（基线 **901**，如实报新数）、`ruff check --no-cache .` 全仓绿、
+    `selfcheck --strict` 18 OK / 0 DRIFT / 0 WARN、前端 `npm run lint / test / build` 绿；
+  - `git diff --name-only` 不含 `app/api/**`、`app/services/**`、`migrations/**`、`requirements.txt`；
+    **零迁移、零新依赖**。
+- **提交结构**：三个 commit——① 生成侧写死 LF + 重跑产物；② `.gitattributes` + `--renormalize`（纯换行）；
+  ③ 守卫 + 文档。（squash 合并下不构成回滚粒度，仅为审查可读性——措辞按 P5-16 教训校准。）
+- **白名单**：`.gitattributes`（新）、`wengu-api/scripts/import_seed.py`、`wengu-api/scripts/import_questions.py`、
+  `seeds/data/*`（仅换行变化）、`wengu-api/tests/fixtures/**/*.json`（仅换行变化）、新守卫测试文件、
+  `AGENTS.md`、`docs/specs/architecture/StudyDesk-设计说明文档-v2.md`、`seeds/README.md`、`CHANGELOG.md`。
+- **已知代价（需决策人知情）**：renormalize 会产生一个约 **62 万行 / 19 MB** 的纯换行 commit
+  （`questions.json` 48 万行占大头），人眼不可审，只能靠"去 CR 后逐字节相等"的机械自证。
+  一次痛换永久干净，本票认为值得，但明确写在此处。
+- **禁止**：改 `topics_junior.tsv` 的字节；改任何 seed 数据**内容**（只允许换行）；
+  把 `.gitattributes` 写成只有 `* text=auto` 的敷衍版；renormalize 混进功能 commit；
+  用 `git checkout --` 还原或改写已推送历史；为"顺手"引入 `.editorconfig` / prettier / lint-staged
+  （无消费方）；动 `app/**` 运行时逻辑（本票只碰生成脚本）。
+
 ---
 
 ## 作废清单（v2.5，保留标题供追溯，勿实现）
