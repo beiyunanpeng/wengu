@@ -28,7 +28,10 @@ from app.core.config import get_settings
 from app.judge.verify_sandbox import SandboxError, verify_answer
 
 QUESTION_TYPES = frozenset({"choice", "numeric", "short", "self"})
-SUBJECT_BY_PREFIX = {"cnm_": "数学", "cne_": "英语", "cnp_": "物理"}
+SUBJECT_BY_PREFIX = {
+    "cnm_": "数学", "cne_": "英语", "cnp_": "物理", "cnc_": "语文", "cnk_": "化学",
+    "cnb_": "生物", "cns_": "科学", "cnd_": "道德与法治", "cnh_": "历史", "cng_": "地理",
+}
 
 VerifyStatus = Literal["verified", "unverifiable"]
 

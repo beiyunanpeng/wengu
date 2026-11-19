@@ -1,7 +1,7 @@
 """P1-1b 一次性转换脚本：cn-math-taxonomy 上游 → wengu seeds/data/*.json。
 
 开发者本地运行（不进容器、不进运行时）：
-    python wengu-api/scripts/import_seed.py --src D:/MyProducts/StudyDesk/cn-math-taxonomy-main
+    python wengu-api/scripts/import_seed.py --src D:/MyProducts/StudyDesk/cn-math-taxonomy
 
 产出（随 wengu 仓库分发，CC BY-NC 4.0，内嵌 _source.json 署名）：
     seeds/data/topics.json         按 --grades 学段带收录的知识点，snake_case + subject + 质量标签
@@ -26,7 +26,10 @@ UPSTREAM_URL = "https://github.com/xiaoyang111222/cn-math-taxonomy"
 UPSTREAM_LICENSE = "CC BY-NC 4.0"
 NC_STATEMENT = "限个人非商用：署名 + 非商业使用（CC BY-NC 4.0 §3(a)）"
 
-SUBJECT_BY_PREFIX = {"cnm_": "数学", "cne_": "英语", "cnp_": "物理"}
+SUBJECT_BY_PREFIX = {
+    "cnm_": "数学", "cne_": "英语", "cnp_": "物理", "cnc_": "语文", "cnk_": "化学",
+    "cnb_": "生物", "cns_": "科学", "cnd_": "道德与法治", "cnh_": "历史", "cng_": "地理",
+}
 JUNIOR_GRADES = range(7, 10)
 # 学段带（P5-10 参数驱动）：上游 grade 1-6 小学 / 7-9 初中 / 10-16 高中（"册"语义）。
 GRADE_BANDS = {"primary": range(1, 7), "junior": range(7, 10), "senior": range(10, 17)}

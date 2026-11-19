@@ -31,7 +31,10 @@ UPSTREAM_URL = "https://github.com/xiaoyang111222/cn-math-taxonomy"
 UPSTREAM_LICENSE = "CC BY-NC 4.0"
 NC_STATEMENT = "限个人非商用：署名 + 非商业使用（CC BY-NC 4.0 §3(a)）"
 
-SUBJECT_BY_PREFIX = {"cnm_": "数学", "cne_": "英语", "cnp_": "物理"}
+SUBJECT_BY_PREFIX = {
+    "cnm_": "数学", "cne_": "英语", "cnp_": "物理", "cnc_": "语文", "cnk_": "化学",
+    "cnb_": "生物", "cns_": "科学", "cnd_": "道德与法治", "cnh_": "历史", "cng_": "地理",
+}
 QUESTION_TYPES = {"choice", "numeric", "short", "self"}
 # 学段带（P5-10 参数驱动，与 import_seed.py 同口径）：1-6 小学 / 7-9 初中 / 10-16 高中（"册"）。
 GRADE_BANDS = {"primary": range(1, 7), "junior": range(7, 10), "senior": range(10, 17)}

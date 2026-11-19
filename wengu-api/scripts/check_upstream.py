@@ -30,7 +30,10 @@ RAW_URL_TEMPLATE = (
 SNAPSHOT_FILES = ("topics", "dependencies", "questions")
 
 # 与 import_seed.py / import_questions.py 同口径（漂移由单测钉死）。
-SUBJECT_BY_PREFIX = {"cnm_": "数学", "cne_": "英语", "cnp_": "物理"}
+SUBJECT_BY_PREFIX = {
+    "cnm_": "数学", "cne_": "英语", "cnp_": "物理", "cnc_": "语文", "cnk_": "化学",
+    "cnb_": "生物", "cns_": "科学", "cnd_": "道德与法治", "cnh_": "历史", "cng_": "地理",
+}
 GRADE_BANDS = {"primary": range(1, 7), "junior": range(7, 10), "senior": range(10, 17)}
 BAND_ORDER = ("primary", "junior", "senior")
 
