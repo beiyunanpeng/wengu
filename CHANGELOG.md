@@ -9,6 +9,47 @@
 
 ### Added
 
+- **P5-16 全量同步扩科（10 学科，新快照 `8b57f2e`；§19-G-3 定案一后半；改变数据面；零迁移、零新依赖）**（2026-11-19）：
+  - **数据面**：上游快照 `d58785ce` → **`8b57f2e353ac041f81ba705a66503c9a9e2d8ba8`**（2026-11-15T11:27:27Z）——
+    知识点 **3557**（小学 1481 / 初中 1267 / 高中 809）、先修边 **5132**（`dropped_cross_boundary=0`，
+    初中→小学 93 条回溯可达）、题库 **14375**（5924 / 5215 / 3236，`out_of_scope=0`、`topics_without_questions=0`）。
+    `SUBJECT_BY_PREFIX` 三处（import_seed / import_questions / check_upstream）扩至 10 科
+    （新增 cnc_语文 / cnk_化学 / cnb_生物 / cns_科学 / cnd_道德与法治 / cnh_历史 / cng_地理）；
+    `blind_verified` 仍只给初中数学 315 点（复算），不伪造质量标签。
+    **钉死的是 8b57f2e 而非上游最新**：2026-11-19 上游触及 `data/` 的最新提交已前进到
+    `df0879d0fe5f5da727fe2ba0d3aba8b79b354b07`（2026-11-19T08:58:33Z），按决策停钉不动；
+    下一轮同步是有意批量动作（人工决定），`check_upstream` 报「上游有更新」是常态而非故障。
+  - **重新取证（方法变更，不沿用旧证据串）**：git clone（`--filter=blob:none --no-checkout`，
+    新 clone 在 `../cn-math-taxonomy`）+ detached checkout 到 8b57f2e + `git rev-parse HEAD` 真实探测；
+    四 blob 交叉验证——本地 `git hash-object` 与 pinned tree blob 四段全等，GitHub API 实测
+    topics/questions/README 走 contents API、dependencies 走 git trees API（contents 大响应网络中断，
+    改小响应 tree 两段查询实测）。旧 zip 目录 `../cn-math-taxonomy-main` 保持原样（d58785ce 取证现场）。
+    初中面随上游演进**不再逐字不变**：1267 点 / 1638 边 / 5215 题（9 学科）；7427 道共同题中
+    1064 道内容有变、422 道答案有变，cnm_p109 点及其 4 题被上游删除（差异全部来自上游，非本地改动）。
+  - **SVG 路线 B（净化前移 + 装载验哈希）**：`import_questions` 落盘前净化 `figure` / `choices[].figure`，
+    逐段 sha256 落新文件 `seeds/data/figures_sha256.json`（640 段，键 = `<qid>:main` / `<qid>:choice:<key>`）；
+    `app/seed/bank.py` 装载侧改验哈希——不一致或缺哈希 → 丢弃该题 + `stats.dropped["figure_hash_mismatch"]`，
+    绝不静默放行；家长题装载期净化四处（`services/bank.py:265/299`、`bank_import.py:209/407`）一行未动。
+    三条守卫：篡改图配 → 丢弃+计数 RED→还原 GREEN、缺哈希 → 丢弃、家长题路径仍净化回归。
+  - **质量与性能实测**：verified 12828 / unverifiable 1547 / **mismatch 丢弃 0**；干净产物 `dropped == {}`。
+    `load_bank(14375)` 1530–1628 ms ≤ 3000 ms 阈值（四段分相：json ≈150–180 ms / verify 沙箱 ≈1116–1201 ms /
+    svg 验哈希 ≈18–19 ms / 其余 ≈224–246 ms；净化前移后装载侧 SVG 成本从干跑 1937 ms 降到 ≈18 ms）；
+    `load_seed` 冷 493 ms / 热 490 ms（临时库）。
+  - **体积涨幅（家长 clone 成本，双口径如实归因）**：`questions.json` 6,117,045 → 13,433,773 字节
+    （盘上 indent=1 + Windows CRLF 口径；同内容紧凑序列化 4,935,301 → 10,912,402 字节——
+    涨幅主体是内容增长；缩进 vs 紧凑口径差 +2,039,803、CRLF vs LF +481,568 为序列化口径差；
+    净化本身 640 段仅 +57,273 字节）。`topics.json` 1,617,582 → 3,440,064；`dependencies.json`
+    549,045 → 1,012,518；TSV 66,283 → 137,623；新增哈希清单 57,673；
+    `seeds/data/` 总量 8,291,040 → 17,955,087 字节（**+9.66 MB**）。未做任何压缩/去缩进改动。
+  - **转录目录**：`topics_junior.tsv` 665 → **1268 行**（表头 1 + 初中 1267；CRLF 写死、无 BOM、
+    grade∈7–9；删导出过滤变异必红）；模板 version 未升。
+  - **测试**：29 条失效字面逐条改对（右侧一律字面串、不从被测文件反算；不 skip / 不 xfail / 不放宽），
+    全量 pytest **899 passed**（870 基线 + 29 归零）；`test_figure_integrity.py` 只改 267→640、7430→14374
+    两处字面，机制与其余 10 条不动。
+  - **文档口径**：README 中英双侧（历史条目保留原文 + 时间性括注，新增 P5-16 条）、`LICENSE-data.md`、
+    `THIRD-PARTY-NOTICES.md`、`seeds/README.md`、`docs/STATUS.md`、`docs/methodology/evals.md` 同步；
+    `Makefile` 的 `--src` 仍指旧 zip 路径（不在本票白名单，另票更新），`seeds/README.md` 已写明重跑须显式传 `--src`。
+
 - **英文 README（P5-14；形态定案 A = 仓库根 `README-en.md`，纯文档 + 守卫）**（2026-11-18）：
   新建 `README-en.md` 全译中文主页 10 个 section（核心闭环 / 明确不做 / 技术栈 / 快速开始 / 本地开发 /
   当前进度 / 文档地图 / 安全与合规 / 贡献 / License）；首段定位句与 `README.md` 顶部英文句**逐字一致**
