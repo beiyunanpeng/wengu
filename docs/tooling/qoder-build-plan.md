@@ -3142,3 +3142,85 @@ export warn+skip + 指引）不为"统一"而牺牲 dev 工具可用性。
 §8 已补严：无对应条目则留痕时新增 bullet；出卡时必须把"交付区新增本票条目"写进任务；
 头部「快照日期/基线」同属一把尺，不得漂过两票以上。本次留痕按新规则补了 P5-14 / P5-15 两条 bullet
 并把头部基线更新为 `4f7e101`。
+
+## P5-16 —— 全量同步扩科（10 学科，新快照 `8b57f2e`；含重新取证 + SVG 净化前移/装载验哈希；改变数据面；基线 main `08f125d`，pytest 887）
+
+你在 wengu 仓库工作。开工前先完整读：AGENTS.md §3（seed 分发形态；"化学、语文空 seed 起步"那句已加删除线
+推翻）、§5（事实源 + 确定性重放；外部数据分发与净化；判分运行时/入库时分工）、§7（先写消费逻辑再加采集字段）、
+§8（一票一 PR、DoD、合并留痕双写）；设计文档 **§19-G-3**（三条定案）、**§19-F-1**（取证方法与 A 方案）、
+§19-L 纪律①⑥⑦；TICKETS.md 的 **P5-16 卡**（干跑实测/任务/DoD/禁止的权威版）与 P5-15 卡（判据解耦已完成）；
+代码：`wengu-api/scripts/import_seed.py`、`import_questions.py`、`check_upstream.py`、
+`wengu-api/app/seed/bank.py`（`:206` / `:244` 两处 `sanitize_svg`）、`app/seed/svg.py`、
+`app/services/bank.py`（`:265` / `:299`）与 `app/services/bank_import.py`（`:209` / `:407`）——
+后四处是**家长题路径，本票一行都不许动**；
+`seeds/data/_source.json` 与 `questions_source.json` 的策展键与 `commit_evidence`。
+
+【为什么是这张票】§19-G-3 定案一的"后半"：P5-15 已把本地命名空间与判据解耦（`loc_` + `source='local'`），
+现在才允许把上游 10 个学科的数据同步进来。决策人已定：**全要、可以重新取证、性能走路线 B、3 s 阈值不动**。
+
+【审核方干跑实测（你须自跑复核，不一致上报不要硬凑）】
+新快照 `8b57f2e353ac041f81ba705a66503c9a9e2d8ba8`（2026-11-15）：topics **3557**（1481/1267/809）、
+deps **5132**（`dropped_cross_boundary=0`、悬空 0）、questions **14375**（5924/5215/3236、
+`out_of_scope=0`、`topics_without_questions=0`）、verified 12828 / unverifiable 1547 / **mismatch 0**、
+配图 640 段 1.67 MB、转录目录 **1268 行**、`questions.json` 11.54 MB（现 6.12 MB）。
+`load_bank` 分相：json 168 ms / verify 沙箱 877 ms / **svg 净化 1937 ms** / 其余 ≈1.3 s，合计 4404 ms
+——**超 3 s 阈值，瓶颈是 SVG 净化**（复用 `bleach.Cleaner` 反而更慢，已实验排除；故走路线 B）。
+`load_seed` 冷 956.7 ms / 热 620.3 ms。干跑第一步就抛 `SeedConvertError: 未知学科前缀: cnb_j001`。
+
+【任务】
+1. 取快照改为 `git clone`（带 `.git`）：`upstream_commit()` 走探测；blob 四段交叉验证；
+   `_source.json` / `questions_source.json` 全部策展键按新快照重写，`commit_evidence` 如实说明
+   取证方法变更，**不得沿用或掺混 `d58785ce` 的旧证据串**。
+2. `SUBJECT_BY_PREFIX` 扩到 10 科（`import_seed` / `import_questions` / `check_upstream` 三处）：
+   `cnm_`数学 / `cne_`英语 / `cnp_`物理 / `cnc_`语文 / `cnk_`化学 / `cnb_`生物 / `cns_`科学 /
+   `cnd_`道德与法治 / `cnh_`历史 / `cng_`地理。`GRADE_BANDS` 不变；`blind_verified` 仍只给初中数学
+   （新快照初中数学 315 点，必须复算）。连带重审 `check_upstream` 的"未知前缀样例"
+   （`cnc_` 同步后已是已知学科，样例换成 `zzz_` 这类真不存在的形态）。
+3. SVG 净化前移到构建期：`import_questions` 落盘前净化 `figure` 与 `choices[].figure`，
+   并生成逐段 sha256 清单落新文件 `seeds/data/figures_sha256.json`（键 = question_id + 槽位
+   `main` / `choice:<key>`）。`app/seed/bank.py` 装载侧改为**验哈希**：一致才用，
+   **不一致或缺哈希 → 丢弃该题并计入 `stats.dropped["figure_hash_mismatch"]`**，绝不静默放行。
+   家长题四处净化（`services/bank.py:265/299`、`bank_import.py:209/407`）**一行不动**；
+   `svg.py` 只改 docstring 的时机说明。
+4. 重生成 `seeds/data/*` 三件 + 哈希清单 + `docs/templates/topics_junior.tsv`（预计 1268 行，
+   **CRLF 写死、无 BOM 不得回退**，§19-L 纪律⑦）。
+5. 测试改对不放宽：`test_seed_full_coverage`（分桶/TSV/edges 字面）、`test_bank_seed`
+   （figures 640、干扰项 11478、自答扩到 14375、verified/unverifiable 新值）、`test_seed_provenance`、
+   `test_check_upstream`、`test_local_seed`，其余失效字面由 grep 实况列出；
+   新增三条守卫：篡改图配→丢弃+计数、缺哈希→丢弃、**家长题路径仍净化**的回归断言。
+6. 文档口径同步：`README.md`、`README-en.md`、`LICENSE-data.md`、`THIRD-PARTY-NOTICES.md`、
+   `seeds/README.md`、`docs/STATUS.md`、`docs/methodology/evals.md`、`CHANGELOG.md`，
+   并写清数据体积涨幅（家长 clone 成本）。
+
+【DoD——逐项贴输出】
+- 收录完整性字面钉死：3557（1481/1267/809）、5132（`dropped_cross_boundary=0`）、
+  14375（5924/5215/3236、`out_of_scope=0`、`topics_without_questions=0`）。
+- **mismatch 丢弃必须为 0**；不为 0 → 停下上报、本票不合并（定案三不变）。
+- **性能闸门**：`load_bank(14375)` ≤ 3000 ms（预估 ≈2.5 s）、`load_seed` 冷 ≤ 3000 ms（预估 ≈0.96 s）。
+  不得靠少导或提阈值绕过；超了要给四段分相归因（json / verify / svg / 其余）后停下上报。
+- 防线不降级三证：① 篡改图配 → RED（丢弃 + `figure_hash_mismatch` 计数）→ 还原 GREEN；
+  ② `grep -n "sanitize_svg" wengu-api/app/services/bank.py wengu-api/app/services/bank_import.py`
+  四处仍在且未改；③ 干净产物 `stats.dropped == {}`。
+- 转录目录 1268 行、逐行 CRLF、无 BOM、grade 全 ∈ 7–9；删导出过滤必须红。
+- 体积前后字节数与仓库总量涨幅如实上报。
+- 全量 `pytest -q`（基线 887，如实报新数）、`ruff check --no-cache .`、`selfcheck --strict` 18 OK、
+  前端 `npm lint / test / build`；零迁移、零新依赖。
+
+【提交结构】一个 PR、两个 commit：`commit 1` 净化前移 + 装载验哈希 + 三条新守卫（在现数据上即全绿）；
+`commit 2` 新快照同步 + TSV 重生成 + 文档口径。性能改造与数据变更各自可回滚。
+
+【允许改动的文件】`wengu-api/scripts/{import_seed,import_questions,check_upstream}.py`、
+`wengu-api/app/seed/{bank,svg}.py`、`seeds/data/{topics,dependencies,questions,_source,questions_source}.json`、
+新建 `seeds/data/figures_sha256.json`、`docs/templates/topics_junior.tsv`、受影响的测试文件（按 grep 实况）、
+`README.md`、`README-en.md`、`LICENSE-data.md`、`THIRD-PARTY-NOTICES.md`、`seeds/README.md`、
+`docs/STATUS.md`、`docs/methodology/evals.md`、`CHANGELOG.md`。
+
+【禁止】动 `app/services/**`、`app/api/**`、`app/judge/**`、`migrations/**`、`requirements.txt`、前端源码；
+把 3 s 阈值改成 6 s 或删闸门；`--skip`/`xfail`/放宽断言；沿用或掺混 `d58785ce` 的 `commit_evidence`；
+TSV 改 LF 或动模板 `version`；为 `difficulty` 新档 `challenge` 加枚举/UI/字段（无消费方，只透传）；
+重新引入 `cnl_`/`cnc_` 本地前缀；去掉家长题的装载期净化。
+
+【投单纪律】git fetch origin; git switch -c feat/p5-16-subject-expansion origin/main；
+一票一 PR 分支冻结；中文 commit 用 `git commit -F <仓库外 UTF-8 文件>`；
+提交前 `git diff --name-only` 核对并贴清单；交付给"你自己实跑"的数字（含分相耗时与体积涨幅）+
+单列「审核方需复核的点」；代码与本卡不符时以实际代码为准，先读再改，不一致上报不要硬凑。

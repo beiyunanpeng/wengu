@@ -1780,6 +1780,98 @@
     P1-1b 表格行）；施工方按"以实际代码为准"一并更新并上报，处置正确。教训同 §19-L：
     清单类引用必须用 grep 实况生成，不手写条数。
 
+### P5-16 全量同步扩科（10 学科，新快照 `8b57f2e`；含重新取证 + SVG 净化前移/装载验哈希；改变数据面）
+- **前置**：P5-15 判据解耦已合并（main `4f7e101`）——本票是 §19-G-3 定案一的**后半**：消费逻辑已就位，
+  现在才允许加数据。
+- **三条已定案（不要重开）**：① **全要 10 科**、可以重新取证；② 转录目录那把尺**不变**（仍按
+  `grade ∈ 7–9`），行数随数据自然增长（干跑实测 1268 行）；③ 性能走**路线 B**（净化移到构建期 +
+  装载验哈希），**3 s 阈值不动**。
+- **审核方干跑实测（施工方须自跑复核，不一致上报不要硬凑）**：
+
+  | 项 | 新快照 `8b57f2e` | 现仓库 |
+  |---|---|---|
+  | 知识点 | **3557**（primary 1481 / junior 1267 / senior 809） | 1821 |
+  | 先修边 | **5132**，`dropped_cross_boundary = 0`，悬空端点 0 | 2917 |
+  | 题 | **14375**（5924 / 5215 / 3236），`out_of_scope = 0`、`topics_without_questions = 0` | 7431 |
+  | `mismatch` 丢弃 | **0**（`dropped={}`） | 0 |
+  | verified / unverifiable | 12828 / 1547 | 5996 / 1435 |
+  | 配图 | 640 段 / 1.67 MB | 267 |
+  | `load_bank` | **4404 ms**（verify 877 / svg 净化 1937 / json 168） | 1829 ms |
+  | `load_seed` | 冷 956.7 ms / 热 620.3 ms | 361 / 275 |
+  | 转录目录 | 1268 行（CRLF 逐行、无 BOM） | 665 行 |
+  | `questions.json` 体积 | 11.54 MB（净化后预计下降） | 6.12 MB |
+
+  干跑第一步就抛 `SeedConvertError: 未知学科前缀: cnb_j001`——证实前缀表必须扩，不是推测。
+- **任务**：
+  1. **取快照方式改为 `git clone`（带 `.git`）**：`upstream_commit()` 走真实探测，不再靠 zip 内容寻址反查；
+     仍用 blob 逐一比对做**交叉验证**（`data/topics.json` / `dependencies.json` / `questions.json` /
+     `README.md` 四段 blob 与 GitHub contents API 对齐）。`_source.json` / `questions_source.json` 的
+     策展键**整体按新快照重写**（`upstream_commit` / `upstream_commit_date` / `upstream_author` /
+     `upstream_spdx` / `code_spdx` / `filter` / `grade_semantics_note` / `modified` / `disclaimer` /
+     `counts` / `commit_evidence`）；`commit_evidence` 要**如实说明取证方法变了**，不得沿用 `d58785ce`
+     的证据串，也不得把旧快照证据掺进当前值。
+  2. **`SUBJECT_BY_PREFIX` 扩到 10 科**（三处：`import_seed.py`、`import_questions.py`、`check_upstream.py`），
+     映射由上游 `subject` 字段实测得出：`cnm_`数学 / `cne_`英语 / `cnp_`物理 / `cnc_`**语文** / `cnk_`化学 /
+     `cnb_`生物 / `cns_`科学 / `cnd_`道德与法治 / `cnh_`历史 / `cng_`地理。`GRADE_BANDS` 不变；
+     `blind_verified` **仍只给初中数学**（新快照初中数学 315 点，与现值相同，但必须复算不得照抄）。
+     **连带**：`check_upstream.py` 里把 `cnl_`/`cnc_` 当"未知前缀样例"的实现与测试必须重审——同步后
+     `cnc_` 已是已知学科，样例换成上游真不存在的形态（如 `zzz_`）；`test_constants_match_import_scripts`
+     的三模块一致性守卫随之覆盖 10 项。
+  3. **SVG 净化前移到构建期**：`import_questions.py` 写 `questions.json` 前对 `figure` 与
+     `choices[].figure`（现 :176 / :199 原样透传两处）调 `sanitize_svg`，并生成**逐段 sha256 清单**
+     落新文件 `seeds/data/figures_sha256.json`（键 = `question_id` + 槽位 `main` / `choice:<key>`；
+     不放 `questions_source.json`——那是署名文件，不是完整性工件）。
+     `app/seed/bank.py` 装载侧：`:206` / `:244` 的 `sanitize_svg(...)` 改为**哈希校验**——命中且一致 →
+     直接用净化后文本；**不一致或缺哈希 → 丢弃该题并计入 `stats.dropped["figure_hash_mismatch"]`**，
+     绝不静默放行。
+     **家长题路径一行不动**：`services/bank.py:265/299`、`bank_import.py:209/407` 继续装载/入库期净化
+     （用户输入没有构建期哈希可验）。`svg.py` 只更新 docstring 的净化时机说明，`sanitize_svg` 本体不变。
+  4. **产出数据与转录目录**：重生成 `seeds/data/*` 三件 + `figures_sha256.json`；
+     `docs/templates/topics_junior.tsv` 重生成（预计 1268 行），**CRLF 写死与无 BOM 的既有纪律不得回退**
+     （§19-L 纪律⑦）。
+  5. **测试改对而非放宽**：`test_seed_full_coverage.py`（分桶 450/664/707 → 1481/1267/809、
+     题 1800/2803/2828 → 5924/5215/3236、TSV 665/664 → 1268/1267、`edges_total` 2917 → 5132）、
+     `test_bank_seed.py`（figures 267 → 640、干扰项 4730 → 11478、verified/unverifiable 新值、
+     自答全对扩到 14375）、`test_seed_provenance.py`（计数与策展键字面）、`test_check_upstream.py`
+     （样例重审）、`test_local_seed.py`（TSV 行数断言），其余因数据变化而失效的字面**由 grep 实况列出**。
+     新增守卫：① 篡改 `questions.json` 任意图配 → 该题丢弃且 `dropped["figure_hash_mismatch"]` 计数；
+     ② 缺哈希条目同样丢弃；③ **家长题路径仍净化**的回归断言（防止这次改动把它一起"优化"掉）。
+  6. **文档口径同步**：`README.md`、`README-en.md`、`LICENSE-data.md`、`THIRD-PARTY-NOTICES.md`、
+     `seeds/README.md`、`docs/STATUS.md`、`docs/methodology/evals.md`、`CHANGELOG.md`；含把
+     "上游无语文/化学"类残句一并清掉（AGENTS §3 已在上轮推翻），并按实测写清**数据体积涨幅**（家长 clone 成本）。
+- **DoD**：
+  - **收录完整性**：topics **3557**（1481/1267/809）、deps **5132** 且
+    `dependencies_dropped_cross_boundary = 0`、questions **14375**（5924/5215/3236）且
+    `questions_out_of_scope = 0`、`topics_without_questions = 0`——断言写死字面，不从被测文件反算。
+  - **质量闸门（定案三不变）**：`mismatch` 丢弃**必须为 0**；不为 0 → **停下上报、本票不合并**。
+  - **性能闸门**：`load_bank(14375)` 实测 **≤ 3000 ms**（预估 ≈2.5 s）、`load_seed` 冷 **≤ 3000 ms**
+    （预估 ≈0.96 s）。**不得**靠"少导一点"或"把阈值提到 6 s"绕过；超阈值须给出分相归因
+    （json / verify 沙箱 / svg / 其余 四段）后停下上报。
+  - **防线不降级证明**：① 篡改图配 → 丢弃 + 计数（RED→GREEN 贴输出）；
+    ② `grep -n "sanitize_svg" wengu-api/app/services/bank.py wengu-api/app/services/bank_import.py`
+    四处调用**仍在且未被改动**；③ 干净产物上 `stats.dropped == {}`。
+  - **转录目录**：1268 行（表头 1 + 数据 1267）、逐行 CRLF、无 BOM、grade 全 ∈ 7–9；
+    删导出过滤必须红（P5-10 守卫继续有效）。
+  - **体积如实上报**：`seeds/data/*` 与 TSV 的前后字节数、仓库总量涨幅。
+  - 全量 `pytest -q` 绿（基线 **887**，如实报新数）、`ruff check --no-cache .` 全仓绿、
+    `selfcheck --strict` 18 OK / 0 DRIFT / 0 WARN、前端 `npm lint / test / build` 绿；
+    **零迁移、零新依赖**（`bleach` 已在）。
+- **提交结构**：一个 PR、**两个 commit**——`commit 1`＝净化前移 + 装载验哈希 + 三条新守卫
+  （在现数据上就能全绿）；`commit 2`＝新快照同步 + TSV 重生成 + 文档口径。性能改造与数据变更各自可回滚。
+- **白名单**：`wengu-api/scripts/{import_seed,import_questions,check_upstream}.py`、
+  `wengu-api/app/seed/{bank,svg}.py`、`seeds/data/{topics,dependencies,questions,_source,questions_source}.json`
+  + 新建 `seeds/data/figures_sha256.json`、`docs/templates/topics_junior.tsv`、受影响的测试文件
+  （unit：`test_seed_full_coverage` / `test_bank_seed` / `test_seed_provenance` / `test_check_upstream` /
+  `test_import_seed` / `test_import_questions`；integration：`test_local_seed` / `test_quiz_api` /
+  `test_bank_runtime` / `test_bank_lifecycle` / `test_reviews_api` 等按 grep 实况）、
+  `README.md`、`README-en.md`、`LICENSE-data.md`、`THIRD-PARTY-NOTICES.md`、`seeds/README.md`、
+  `docs/STATUS.md`、`docs/methodology/evals.md`、`CHANGELOG.md`。
+- **禁止**：动 `app/services/**`、`app/api/**`、`app/judge/**`、`migrations/**`、`requirements.txt`、前端源码；
+  把 3 s 阈值改成 6 s 或删掉闸门；用 `--skip`/`xfail`/放宽断言让数字"过"；沿用 `d58785ce` 的
+  `commit_evidence` 或在新证据里掺旧串；把 TSV 改成 LF 或动转录模板 `version`；
+  为 `difficulty` 新档 `challenge`（1447 题）加枚举/UI/字段——**全仓无消费方，只如实透传**；
+  重新引入 `cnl_`/`cnc_` 本地前缀（P5-15 已统一 `loc_`）；把家长题的装载期净化"顺手"去掉。
+
 ---
 
 ## 作废清单（v2.5，保留标题供追溯，勿实现）
