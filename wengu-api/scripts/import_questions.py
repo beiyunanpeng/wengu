@@ -1,18 +1,22 @@
 """P1-10 一次性转换脚本：cn-math-taxonomy questions.json → seeds/data/questions.json。
 
 开发者本地运行（不进容器、不进运行时）：
-    python wengu-api/scripts/import_questions.py --src D:/MyProducts/StudyDesk/cn-math-taxonomy-main
+    cd wengu-api && python -m scripts.import_questions --src ../../cn-math-taxonomy
 
 产出（随仓库分发，CC BY-NC 4.0，questions_source.json 内嵌署名）：
     seeds/data/questions.json          按 --grades 学段带收录的题库（topicId ∈ seeds/data/topics.json）
     seeds/data/questions_source.json   上游 URL / License / NC 声明 / 导入日期 / 计数
+    seeds/data/figures_sha256.json     配图逐段 sha256 完整性清单（键=<题 id>:main / <题 id>:choice:<key>）
 
 学段过滤参数驱动（P5-10）：--grades primary,junior,senior 全量；默认 junior（7-9）可复现可回退。
+SVG 净化前移到构建期（P5-16 路线 B）：figure 与 choices[].figure 写盘前过 sanitize_svg，
+装载侧（app/seed/bank.py）只验 sha256、不再重复净化；家长题路径仍在装载/入库期净化。
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import subprocess
 import sys
@@ -20,6 +24,8 @@ from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 from typing import Any
+
+from app.seed.svg import sanitize_svg
 
 UPSTREAM_URL = "https://github.com/xiaoyang111222/cn-math-taxonomy"
 UPSTREAM_LICENSE = "CC BY-NC 4.0"
@@ -45,6 +51,7 @@ class QuestionConvertError(ValueError):
 class ConvertResult:
     questions: list[dict] = field(default_factory=list)
     stats: dict = field(default_factory=dict)
+    figure_hashes: dict[str, str] = field(default_factory=dict)
 
 
 def load_upstream(src: Path) -> list[dict]:
@@ -124,6 +131,15 @@ def convert(
         with_verify += 1 if question["verify"] else 0
 
     out.sort(key=lambda q: q["id"])
+    figure_hashes: dict[str, str] = {}
+    for question in out:
+        if question["figure"]:
+            figure_hashes[f"{question['id']}:main"] = _sha256(question["figure"])
+        for choice in question["choices"]:
+            if choice.get("figure"):
+                figure_hashes[f"{question['id']}:choice:{choice['key']}"] = _sha256(
+                    choice["figure"]
+                )
     topics_without = sorted(set(junior) - {q["topic_id"] for q in out})
     return ConvertResult(
         questions=out,
@@ -137,12 +153,18 @@ def convert(
             "grade_bands": list(bands),
             "questions_with_figure": with_figure,
             "choice_figures": choice_figures,
+            "figure_segments": len(figure_hashes),
             "questions_with_verify": with_verify,
             "questions_out_of_scope": out_of_scope,
             "topics_referenced": len(junior) - len(topics_without),
             "topics_without_questions": len(topics_without),
         },
+        figure_hashes=figure_hashes,
     )
+
+
+def _sha256(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def _convert_question(raw: dict, topic: dict) -> dict:
@@ -173,7 +195,7 @@ def _convert_question(raw: dict, topic: dict) -> dict:
             raise QuestionConvertError(f"题目 {question_id} 的选项缺少 text")
         choice = {"key": item["key"], "text": item["text"]}
         if item.get("figure") is not None:
-            choice["figure"] = item["figure"]
+            choice["figure"] = sanitize_svg(item["figure"])
         choices.append(choice)
     if question_type == "choice" and raw.get("answer") not in {c["key"] for c in choices}:
         raise QuestionConvertError(f"题目 {question_id} 的 answer 不在选项 key 中")
@@ -196,7 +218,7 @@ def _convert_question(raw: dict, topic: dict) -> dict:
         "choices": choices,
         "unordered": raw.get("unordered") is True,
         "hide_choice_text": raw.get("hideChoiceText") is True,
-        "figure": raw.get("figure"),
+        "figure": sanitize_svg(raw.get("figure")),
         "explanation": raw.get("explanation") if isinstance(raw.get("explanation"), str) else "",
         "verify": verify,
         "percent": raw.get("percent") is True,
@@ -245,6 +267,9 @@ def write_out(
         else f"cn-math-taxonomy questions（{label}部分）"
     )
     _write_json(out_dir / "questions.json", result.questions)
+    _write_json(
+        out_dir / "figures_sha256.json", dict(sorted(result.figure_hashes.items()))
+    )
     _write_json(
         out_dir / "questions_source.json",
         {

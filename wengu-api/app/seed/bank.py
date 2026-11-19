@@ -3,17 +3,22 @@
 纪律（AGENTS §2.6 / 设计文档 §14 / §16.D）：
 - 题库以 JSON 文件形态随仓库分发，运行时读入内存索引，**不进 SQLite**
   （SQLite 只存动态数据 + external_id 溯源）。
-- 装载即不可信输入：结构/字段校验、内联 SVG 白名单净化（app.seed.svg）。
+- 装载即不可信输入：结构/字段校验。配图 SVG 净化已前移到构建期
+  （scripts/import_questions.py，P5-16 路线 B）：装载侧只按 figures_sha256.json
+  逐段验 sha256——命中且一致才直接用净化后文本；**不一致或缺哈希 → 丢弃该题**
+  （stats.dropped["figure_hash_mismatch"]），绝不静默放行。家长题路径无构建期
+  哈希可验，仍在装载/入库期净化（services/bank.py、services/bank_import.py）。
 - 每题 `verify` 在装载时过 P1-5 AST 白名单沙箱（app.judge.verify_sandbox）：
   * verified     表达式求出且与答案一致；
   * unverifiable 无 verify / 表达式超出沙箱白名单（上游用了 Fraction、range 等）/
                  选择题选项带单位或文字，无法用数值表达式直接比对；
   * mismatch     纯数值题算出的结果与答案矛盾 → **不装载**（计入 stats.dropped）。
-- 空文件/缺文件容忍（语文/化学无题起步），返回空索引而不是阻塞服务。
+- 空文件/缺文件容忍，返回空索引而不是阻塞服务。
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -21,7 +26,6 @@ from typing import Any, Literal
 
 from app.core.config import get_settings
 from app.judge.verify_sandbox import SandboxError, verify_answer
-from app.seed.svg import sanitize_svg
 
 QUESTION_TYPES = frozenset({"choice", "numeric", "short", "self"})
 SUBJECT_BY_PREFIX = {"cnm_": "数学", "cne_": "英语", "cnp_": "物理"}
@@ -101,6 +105,9 @@ def load_bank(seeds_dir: Path | None = None) -> QuestionBank:
     questions_raw = _read_json(data_dir / "questions.json") or []
     if not isinstance(topics_raw, list) or not isinstance(questions_raw, list):
         raise BankFormatError("topics.json / questions.json 必须是数组")
+    figure_hashes = _read_json(data_dir / "figures_sha256.json") or {}
+    if not isinstance(figure_hashes, dict):
+        raise BankFormatError("figures_sha256.json 必须是对象")
 
     topics = _topic_meta(topics_raw)
     dropped: dict[str, int] = {}
@@ -112,7 +119,7 @@ def load_bank(seeds_dir: Path | None = None) -> QuestionBank:
     verified = unverifiable = figures = 0
 
     for raw in questions_raw:
-        question = _build_question(raw, topics, dropped)
+        question = _build_question(raw, topics, dropped, figure_hashes)
         if question is None:
             continue
         if question.id in by_id:
@@ -150,7 +157,10 @@ def load_bank(seeds_dir: Path | None = None) -> QuestionBank:
 
 
 def _build_question(
-    raw: object, topics: dict[str, dict[str, Any]], dropped: dict[str, int]
+    raw: object,
+    topics: dict[str, dict[str, Any]],
+    dropped: dict[str, int],
+    figure_hashes: dict[str, Any],
 ) -> BankQuestion | None:
     if not isinstance(raw, dict):
         _drop(dropped, "invalid_question")
@@ -203,7 +213,13 @@ def _build_question(
         if not isinstance(key, str) or not isinstance(text, str):
             _drop(dropped, "invalid_choices")
             return None
-        choices.append(BankChoice(key=key, text=text, figure=sanitize_svg(item.get("figure"))))
+        ok, figure = _figure_or_drop(
+            item.get("figure"), figure_hashes.get(f"{question_id}:choice:{key}")
+        )
+        if not ok:
+            _drop(dropped, "figure_hash_mismatch")
+            return None
+        choices.append(BankChoice(key=key, text=text, figure=figure))
     if question_type == "choice" and (
         not choices or answer.strip() not in {choice.key for choice in choices}
     ):
@@ -229,6 +245,13 @@ def _build_question(
         _drop(dropped, "verify_mismatch")
         return None
 
+    ok, figure = _figure_or_drop(
+        raw.get("figure"), figure_hashes.get(f"{question_id}:main")
+    )
+    if not ok:
+        _drop(dropped, "figure_hash_mismatch")
+        return None
+
     return BankQuestion(
         id=question_id,
         topic_id=topic_id,
@@ -241,7 +264,7 @@ def _build_question(
         choices=tuple(choices),
         unordered=raw.get("unordered") is True,
         hide_choice_text=raw.get("hide_choice_text") is True,
-        figure=sanitize_svg(raw.get("figure")),
+        figure=figure,
         explanation=_optional_str(raw.get("explanation")) or "",
         verify=verify,
         verify_status=verify_status,  # type: ignore[arg-type]
@@ -250,6 +273,19 @@ def _build_question(
         unaudited=bool(topic.get("unaudited", True)),
         blind_verified=bool(topic.get("blind_verified", False)),
     )
+
+
+def _figure_or_drop(value: object, expected: object) -> tuple[bool, str | None]:
+    """配图哈希闸门（P5-16）：无配图 → (True, None)；有配图但非字符串 /
+    缺哈希 / sha256 不一致 → (False, None)，调用方丢弃整题，绝不静默放行。"""
+
+    if not value:
+        return True, None
+    if not isinstance(value, str) or not isinstance(expected, str):
+        return False, None
+    if hashlib.sha256(value.encode("utf-8")).hexdigest() != expected:
+        return False, None
+    return True, value
 
 
 def _classify_verify(
