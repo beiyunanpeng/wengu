@@ -1810,6 +1810,12 @@
      `upstream_spdx` / `code_spdx` / `filter` / `grade_semantics_note` / `modified` / `disclaimer` /
      `counts` / `commit_evidence`）；`commit_evidence` 要**如实说明取证方法变了**，不得沿用 `d58785ce`
      的证据串，也不得把旧快照证据掺进当前值。
+     - **必须 `git checkout` 到 `8b57f2e353ac041f81ba705a66503c9a9e2d8ba8`（detached），不是"最新 main"**；
+       clone 前 `git rev-parse` 确认，装载后 `upstream_commit` 必须逐字等于该 sha。
+       **若上游已再次前进（HEAD ≠ `8b57f2e`），停下上报，不得擅自同步到更新的快照**——本卡全部实测数字
+       都是针对 `8b57f2e` 的，换了快照就得重新干跑一遍归因与闸门。
+     - **旧 zip 解包目录 `../cn-math-taxonomy-main` 保持原样不动**（它是 `d58785ce` 的取证现场）；
+       新 clone 另起目录（如 `../cn-math-taxonomy`），交付里写清实际路径。
   2. **`SUBJECT_BY_PREFIX` 扩到 10 科**（三处：`import_seed.py`、`import_questions.py`、`check_upstream.py`），
      映射由上游 `subject` 字段实测得出：`cnm_`数学 / `cne_`英语 / `cnp_`物理 / `cnc_`**语文** / `cnk_`化学 /
      `cnb_`生物 / `cns_`科学 / `cnd_`道德与法治 / `cnh_`历史 / `cng_`地理。`GRADE_BANDS` 不变；
