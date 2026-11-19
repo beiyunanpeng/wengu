@@ -87,6 +87,7 @@
 - **一张 ticket = 一个引擎/一个可跑增量 = 一个 PR/分支**；一次别改全站。
 - **DoD**：服务能起 + 相应单测/集成/E2E/（涉模型则跑 evals 黄金集回归）通过 + 更新 PRD/文档/CHANGELOG；交付附"怎么跑起来 + 看什么结果 + 实际改动 + 实跑的验证 + 残留风险"，**不把计划说成已完成**。
 - **git 护栏**：正常提交、不跳钩子、每 ticket 可单独回滚；保留他人改动不重置无关文件。
+- **行尾与编码（P5-17）**：新生成进仓库的文本产物一律 **LF + UTF-8**，生成侧显式写死（`open(..., encoding="utf-8", newline="\n")`；仓库文本产物禁用 `Path.write_text()`——Windows 平台翻译即 CRLF）；换行由仓库根 `.gitattributes` 决定（`* text=auto eol=lf`，唯一例外 `docs/templates/topics_junior.tsv` 保持 CRLF），**不得依赖本机 `core.autocrlf`**。守卫：`wengu-api/tests/unit/test_repo_eol.py`。
 - **合并留痕双写（P5-13）**：每票合并后的留痕提交必须同步翻转 `docs/STATUS.md` 对应 bullet/表格行的状态词，并附「PR 号 → squash SHA」锚点（锚点必须实查 `git log --oneline` / `gh pr view --json number,mergeCommit`，严禁凭记忆填 SHA）；**只写 TICKETS 不翻 STATUS 视为留痕不完整**。
   - **补严（P5-15 留痕时发现）**：若本票在 `docs/STATUS.md` 交付区**没有对应条目**，留痕时必须**新增一条 bullet**（含 PR→SHA 锚点）；因此**出卡时必须在【任务】里明确要求"STATUS 交付区新增本票条目"**，否则双写无处可写。
     出处：P5-14 / P5-15 两票的卡面只要求"更新现状口径"，交付区因此没有它们的条目，留痕时无状态行可翻——这是卡设计缺口，不由施工方承担。

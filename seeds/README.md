@@ -51,6 +51,11 @@ provenance 键（`upstream_commit_date` / `upstream_author` / `upstream_spdx` / 
 `modified` / `disclaimer` / `snapshot_source` / `commit_evidence`）是**当前快照的取证工件**，
 换快照重跑后必须按 §19-F-1 重新取证、重新策展，不得沿用旧证据。
 
+**产物为 LF，TSV 例外（P5-17）**：两个脚本的 `_write_json` 写死 `open(..., encoding="utf-8",
+newline="\n")`，重跑产物在任何平台都是 LF；唯一例外 `docs/templates/topics_junior.tsv` 保持
+CRLF（导出脚本写死 `newline="\r\n"`，不动）。仓库侧由根 `.gitattributes` 兜底，不依赖本机
+`core.autocrlf`。
+
 转换规则：学段过滤 `--grades` 参数驱动（默认 junior，可复现可回退）→ 12 核心字段直映
 （camelCase→snake_case）→ 按 id 前缀显式化 `subject`（cnm_=数学、cne_=英语、cnp_=物理、cnc_=语文、
 cnk_=化学、cnb_=生物、cns_=科学、cnd_=道德与法治、cnh_=历史、cng_=地理）→

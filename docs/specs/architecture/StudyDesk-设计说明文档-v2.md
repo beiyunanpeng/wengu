@@ -897,14 +897,29 @@ P2-12 的实现一次通过、三条坑都守住了，但审核方在验收时�
    但会把我这条错误口径固化成"已验证"。
    → 出卡自检法：把成对断言写成一句"当 X 时 A 且 B"，先问自己 **X 下 A∧B 是否可满足**；
    不可满足就是算式/口径写错，**改卡而不是改测试**。
-7. **跨平台字节级守卫，必须在被测实现里写死换行/编码；Windows 本机绿 ≠ CI 绿**
-   （P5-10 修复轮换出，2026-11-17，PR#63 → main `6edd2b8`）。审核方给转录目录 TSV 新增
+7. **凡生成进仓库的文本，生成侧必须显式钉死换行与编码；仓库侧以 `.gitattributes` 兜底**
+   （P5-10 修复轮换出，2026-11-17，PR#63 → main `6edd2b8`；P5-17 泛化，2026-11-20。
+   原标题"跨平台字节级守卫，必须在被测实现里写死换行/编码；Windows 本机绿 ≠ CI 绿"）。审核方给转录目录 TSV 新增
    "逐字节等于仓库文件"的守卫，本机全绿、CI api 1 红：`export()` 用 `write_text("\n".join(...))`，
    换行随平台——Windows 翻成 CRLF 恰与仓库 CRLF blob 相等（绿），Linux 产出 LF（红）。
    修复（`08a3007`）是在**被测实现**里写死 `open(..., newline="\r\n")`：产物零 diff、断言未放宽。
    → 出卡自检法：凡 DoD 含"与仓库文件逐字节相等"类断言，先问**产物在 Linux 上会是什么换行/BOM**；
    答案不是"写死的常量"就先补实现再上守卫。另注意：仓库 `core.autocrlf=false`、源码文本 LF，
    但历史产物（`docs/templates/topics_junior.tsv`）是 **CRLF**——别拿"仓库都是 LF"的直觉套产物文件。
+   **P5-17 泛化（2026-11-20）**：原文只覆盖"产物字节 == 仓库文件"的比对场景，本票升级为标题的
+   一般规则。起因 = 两次事故 + 一次普查：① P5-10 TSV 换行事故（上文）；② P5-16 折入轮 CRLF
+   幻影 diff（4121+/3897−：审核方沙箱 git 读不到用户级 `core.autocrlf=false`，`git switch --detach`
+   往返把 5 个文档按 CRLF 写回工作区，审核方认领）；③ 出卡前普查 HEAD blob（327 tracked）发现
+   含 CRLF 的文本文件有 **9 个**而非 1 个：TSV（有意 CRLF）+ `seeds/data` 6 个 JSON +
+   `tests/fixtures` 2 个 truth.json——根因是 import 脚本 `_write_json` 用 `Path.write_text()`，
+   Windows 生成即 CRLF。治理：生成侧 `_write_json` 写死 `open(..., newline="\n")`（仓库文本产物
+   禁用 `Path.write_text()`）；仓库侧新增 `.gitattributes`（`* text=auto eol=lf`；TSV 例外用
+   `-text`——**`text eol=crlf` 只控工作区、add 仍把 blob 归一成 LF**，卡面原规则实测踩中后改）；
+   一次性 `git add --renormalize .` 单独 commit，逐文件"去 CR 后逐字节相等"机械自证。
+   守卫 `wengu-api/tests/unit/test_repo_eol.py`：HEAD blob + 工作区双层 CRLF 普查（例外白名单
+   有且仅有 TSV）+ `.gitattributes` 关键规则行 + 生成侧源码禁 `write_text(`。
+   注意 **.gitattributes 生效后 `git add` 会自动把 CRLF 归一成 LF**（实测 index==HEAD）——
+   只查 HEAD blob 的守卫抓不到"塞 CRLF 并 add"，工作区字节层才抓得到。
 
 - 附带登记本票造成的漂移（只列实读到的定义起始行）：`services/review.py` `due_queue` 915 → **937**、
   逾期判定 951 → **973**，新增共用入口 `task_pick` **915** / `task_kind` **927**；`nav.ts` NAV 11 项 → **12 项**。
