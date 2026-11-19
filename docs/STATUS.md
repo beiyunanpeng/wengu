@@ -310,6 +310,35 @@
   887 passed（882 + 5）；审核方另打两个打标侧变异（删 export 打标 → 核心夹具红；删 loader 打标 → 4 红），
   还原 sha256 一致；CI run `44294872213` 三绿。零迁移、零新依赖、`seeds/data/` 未动。
   下一票 = 全量同步扩科（§19-G-3 定案一的后半：判据已就位，现在才允许加数据）。
+- **P5-16 全量同步扩科已交付（2026-11-19，分支 `feat/p5-16-subject-expansion`，待评审）**：
+  上游快照 `d58785ce` → **`8b57f2e`**（2026-11-15T11:27:27Z），10 学科全量内置——知识点 **3557**
+  （小学 1481 / 初中 1267 / 高中 809）、先修边 **5132**（跨学段边全量保留，初中→小学 93 条回溯可达）、
+  题库 **14375**（5924 / 5215 / 3236；`out_of_scope=0`、`topics_without_questions=0`）。
+  `SUBJECT_BY_PREFIX` 三处（import_seed / import_questions / check_upstream）扩至 10 科；
+  `blind_verified` 仍只给初中数学 315 点（复算）。**钉死的是 8b57f2e 而非上游最新**：2026-11-19
+  上游触及 `data/` 的最新提交已前进到 `df0879d0`（2026-11-19T08:58:33Z），按决策停钉不动；
+  下一轮同步是有意批量动作（人工决定），`check_upstream` 报「有更新」是常态而非故障。
+  取证方法变更：git clone（`--filter=blob:none --no-checkout`，新 clone 在 `../cn-math-taxonomy`）
+  + detached checkout + `git rev-parse HEAD` 真实探测；四 blob 与 GitHub API 交叉验证
+  （topics/questions/README 走 contents API，dependencies 走 git trees API——contents 大响应网络中断，
+  改小响应 tree 两段查询实测），旧 zip 目录 `../cn-math-taxonomy-main` 保持原样（d58785ce 取证现场）。
+  初中面随上游演进**不再逐字不变**：1267 点 / 1638 边 / 5215 题（9 学科）；7427 道共同题中
+  1064 道内容有变、422 道答案有变，cnm_p109 点及其 4 题被上游删除。
+  **SVG 路线 B**：净化前移构建期（import_questions 落盘前），逐段 sha256 落 `figures_sha256.json`
+  （640 段）；装载期验哈希，不一致或缺哈希 → 丢弃 + `stats.dropped["figure_hash_mismatch"]`；
+  家长题装载期净化四处（services/bank.py:265/299、bank_import.py:209/407）一行未动。
+  质量：verified 12828 / unverifiable 1547 / **mismatch 丢弃 0**；干净产物 `dropped == {}`。
+  转录目录 `topics_junior.tsv` **1268 行**（表头 1 + 初中 1267；CRLF 写死、无 BOM、grade∈7–9；
+  删导出过滤变异必红）。**性能闸门**：`load_bank(14375)` 实测 1530–1628 ms ≤ 3000 ms
+  （四段分相：json ≈150–180 ms / verify 沙箱 ≈1116–1201 ms / svg 验哈希 ≈18–19 ms / 其余 ≈224–246 ms）；
+  `load_seed` 冷 493 ms / 热 490 ms（临时库实测）。**体积涨幅（家长 clone 成本）**：
+  `questions.json` 6,117,045 → 13,433,773 字节（盘上缩进+CRLF 口径；同内容紧凑口径
+  4,935,301 → 10,912,402，差主要来自内容增长；缩进 vs 紧凑口径差 +2,039,803、CRLF vs LF +481,568；
+  净化本身 640 段 +57,273 字节）；`topics.json` 1,617,582 → 3,440,064；`dependencies.json`
+  549,045 → 1,012,518；TSV 66,283 → 137,623；新增 `figures_sha256.json` 57,673；
+  `seeds/data/` 总量 8,291,040 → 17,955,087 字节（+9.66 MB）。
+  测试：29 条失效字面逐条改对（不放宽、不 skip），全量 pytest **899 passed**（870 基线 + 29 修复归零）。
+  零迁移、零新依赖。
 - **下一步（v2.6 决策轮定的顺序）**：① ~~P5-6 口径清理~~、~~P0-3 端到端回归~~、
   ~~P3-3a 手填背诵~~、~~P3-3b 词表导入~~、~~P3-3c 从错题抽词~~、~~P5-1a 配置持久化修复~~、
   ~~P5-1b 首次运行向导 UI~~、~~P1-3e 移动端投递~~、~~P1-3f BOM 剥离~~、
@@ -328,7 +357,7 @@
 | Phase 2 | 每日任务 + 家长看板 | 进行中 | P2-5 家长看板、P2-4 两角色 + 本地 PIN、P2-6 极简打卡、P2-1 日队列（本轮仅到期复习/考核）、P2-3 课表/日历约束层、P2-2 番茄钟执行、P2-7 打印导出已完成；背诵铺底已随 P3-3a 以独立到期端点 + 复习页入口交付；P2-8 导航 sidebar、P2-9 搜索/掌握态、P2-10 回收站已完成（v2.7）；作业 deadline 与硬事件抬权重未开始 |
 | Phase 3 | 内容与扩展 | 进行中 | P3-1 家长录题（真题入库审核流水线）+ P3-1b 家长题接入检索池 + P3-1c 题库修订/软作废 + P3-2 主动加练变式 + **P3-3a 家长手填英语背诵** + **P3-3b 词表批量导入** + **P3-3c 从错题抽词**已完成；P3-5 前置（语文/化学家长自建章级 seed）已交付；听力默写、语文客观题、信奥、长期计划未开始 |
 | Phase 4 | 基础设施演进 | 进行中 | **P4-1 Tailscale 可达性 + 默认只绑回环已合并**（PR#39；两项待试用机实测：`tailscale serve` CLI 形式、sidecar 路径 A 运行时验证）；**P4-1b 部署面命令体检已合并**（PR#40 → `6f6c4cf`；死 `make backup`/`.PHONY restore` 删除、`make dev-api` 默认回环、`make lint --no-cache`、`seeds/README.md --src` 层级、`docs/manuals` 空骨架清理）；P4-1c 命令行备份入口已合并（PR#41 → `8bbef94`；CLI 只调 `create_backup`，与 UI 同目录同命名同 10 份轮转、无 PIN、Windows 计划任务示例已实测）；**P4-4 后端健壮性与可观测性小修已合并**（2026-11-13，PR#51 → `cb6ab4c`；seed 显式降级 + 迁移 0023 `occurred_at` 索引 + `save_config` 改 `to_thread` + 0013/0019 回退说明）；**P4-6 公式题判分已合并**（2026-11-13，PR#53 → `6a4346a`；受限 LaTeX 子集 + `sympy` 等值、不可判降级自评标 `formula_fallback`、不引入 antlr、`requirements.txt` 零变化）；P4-2 可移植部署、P4-3 可选本地模型未开始 |
-| Phase 5 | 开源分发与打包 | 部分完成 | LICENSE / README / CHANGELOG / `.env.example` / 第三方署名已就位；**P5-5 开源基线收口已合并**（2026-11-16，PR#61 → `0928104`；LICENSE 恢复纯 MIT + 数据许可另置 `LICENSE-data.md` + 独立隐私声明 `PRIVACY.md` + seed 快照 provenance 钉死 `d58785ce` + `--upstream-commit` 显式探测；英文 README 已合并（PR#67 → `847bc03`），仓库元数据/首个 Release 属审核方侧 GitHub 动作：v0.7.0 已发布（2026-11-17，tag→`9bbcb6b`）、description/topics 已设；homepage 留空、Discussions 未做）；P5-2 备份 v1（导出一致性快照 + 停机恢复脚本）已交付；**P5-1b 首次运行向导已合并（PR#33 → `285fba7`）**；在线恢复、云备份 / 清空级联、鉴权开关、教材包安装器未做 |
+| Phase 5 | 开源分发与打包 | 部分完成 | LICENSE / README / CHANGELOG / `.env.example` / 第三方署名已就位；**P5-5 开源基线收口已合并**（2026-11-16，PR#61 → `0928104`；LICENSE 恢复纯 MIT + 数据许可另置 `LICENSE-data.md` + 独立隐私声明 `PRIVACY.md` + seed 快照 provenance 钉死 `d58785ce`（P5-16 起已换 `8b57f2e`，见 §1 P5-16 条） + `--upstream-commit` 显式探测；英文 README 已合并（PR#67 → `847bc03`），仓库元数据/首个 Release 属审核方侧 GitHub 动作：v0.7.0 已发布（2026-11-17，tag→`9bbcb6b`）、description/topics 已设；homepage 留空、Discussions 未做）；P5-2 备份 v1（导出一致性快照 + 停机恢复脚本）已交付；**P5-1b 首次运行向导已合并（PR#33 → `285fba7`）**；**P5-16 全量同步扩科已交付待评审（2026-11-19，10 学科 / 快照 `8b57f2e`）**；在线恢复、云备份 / 清空级联、鉴权开关、教材包安装器未做 |
 
 ## 3. Phase 1 工单完成情况（v2.5 收口后）
 
@@ -336,7 +365,7 @@
 |---|---|---|
 | P1-0 Repo 骨架 | 已完成 | FastAPI + `/health` + SQLite WAL + Alembic + React + Docker Compose + CI |
 | P1-1 数据模型 + 事件溯源/幂等 | 已完成 | `learning_events` 只追加；确定性重算；幂等写入 |
-| P1-1b 知识点 seed 装载 | 已完成 | 1821 个知识点（全学段，P5-10）+ 2917 条先修边（初中子集 664/1018 不变）；`unaudited` / `blind_verified` 透传；多源装载 `仓库 seed → seeds/local → data/seeds_local`（**家长自建章级点已独立为 P3-8**：语文/化学统一 `loc_` 前缀（P5-15），文件真源、原子写、CRUD API + `/local-seed` 页） |
+| P1-1b 知识点 seed 装载 | 已完成 | 3557 个知识点（全学段 10 学科，P5-16）+ 5132 条先修边（初中子集 1267/1638）；`unaudited` / `blind_verified` 透传；多源装载 `仓库 seed → seeds/local → data/seeds_local`（**家长自建章级点已独立为 P3-8**：语文/化学统一 `loc_` 前缀（P5-15），文件真源、原子写、CRUD API + `/local-seed` 页） |
 | P1-2 / P1-2b / P1-2c Provider 与模型分档 | **已退役（P1-12）** | 依赖注入式 provider、故障转移、成本护栏、`model_runs` 全部删除 |
 | P1-3 / P1-3b / P1-3c 采集与切片 | **已退役（P1-12）** | 上传、OCR 行聚类切题、配图切片几何全部删除；入本改走外部转录 |
 | P1-4 结构化提取 + 质量闸门 | **已退役（P1-12）** | VLM 提取等删除；质量闸门语义由导入契约 + 核对页承接 |
@@ -347,7 +376,7 @@
 | P1-7c 自动排复习 | 阻塞 | 边界表回填前不实现 |
 | P1-8 三段式讲解引擎 | **已退役（P1-12）** | 讲解移出系统；保留"卷面订正回放"只读视图 |
 | P1-9 最小 Web UI | 已完成（v2.5 五页） | 导入 / 核对 / 错题本（+详情）/ 复习考核 / 练习记录；旧三页已删除 |
-| P1-10 题库检索引擎 | 已完成 | 7431 题内存索引（全量，P5-10）、mulberry32 固定种子、`verify` 沙箱、SVG 净化 |
+| P1-10 题库检索引擎 | 已完成 | 14375 题内存索引（全量 10 学科，P5-16）、mulberry32 固定种子、`verify` 沙箱、SVG 构建期净化 + 装载期验哈希（P5-16 路线 B） |
 | P1-11 同类题考核闭环 | 已完成 | 考核 `/quiz` 服务端判分、手动组卷、答案不下发、结果只进 attempts |
 | P1-12 零模型收口（删除票） | 已完成 | 旧链路整链退役；迁移 0013；三绿 + 端到端实跑通过 |
 | P1-3e 移动端投递入口 | 已完成（2026-11-04） | `/import` 原文粘贴 + 本地 `.json` 读取共用 `POST /api/imports`；`importRawText` 原文直发（不二次序列化）；422 逐行 `index/field/reason`；e2e 第 8 条覆盖原文路径 → 部分坏项 → 重投去重 → 确认入本；后端零改动、无迁移、无新依赖 |
@@ -601,7 +630,10 @@
 
 ### 4.15 家长自建章级 seed（P3-8 / P3-5 前置）
 
-- **定位**：语文/化学从**空 seed 起步**，家长按教材目录录章级粗粒度知识点（40–80 点即止，
+- **定位**：~~语文/化学从**空 seed 起步**~~（2026-11-19 P5-16 纠正：该口径只对旧钉死快照
+  `d58785ce` 成立；上游 `8b57f2e` 已有语文 683 点 / 化学 147 点，已全量同步入仓）。
+  本地自建机制**保留**，理由 = **教材版本差异 + 家长自建章级点**（§19-G-3 定案一）：
+  家长按教材目录录章级粗粒度知识点（40–80 点即止，
   不做细粒度树）；有了本地点，语文/化学错题可挂主考点、题库可挂 `topic_id`，
   到期考核不再只能 `redo`。细粒度仍走错题受控生长，**不允许家长覆盖上游 seed 行**。
 - **文件真源**：`<data_dir>/seeds_local/topics_<学科>.json`（Docker 内 `./seeds` 只读，
@@ -610,6 +642,14 @@
   按 id upsert 幂等，重启后本地点仍在；单文件坏 JSON 只告警跳过，不阻塞服务与其余源；
   id 与上游/先前本地冲突 → error 日志并拒绝该条。装载器跳过下划线开头的文件
   （`_id_counters.json` 是运行期簿记，不是 topics 数组）。
+- **幽灵点语义（P5-16 钉死）**：点与边的同步是**有意的不对称**——`knowledge_seed` 只
+  upsert 不删行（上游删掉的点在老库升级后残留为"幽灵行"，保护 `mistakes.primary_topic_id`
+  等 FK 引用与历史事实）；`prerequisite_edges` 全量 delete 重建（边只被本表引用，JSON 即真源）。
+  因此 **seed 计数以 DB 为准**：老库升级后可能比 JSON 多 N 个幽灵点，不得断言"必须等于
+  JSON 条数"。幽灵点无题 → 到期任务退回 `redo`（原题重做自评）、组卷受控
+  `QuizTopicNotFound`，不崩。清理幽灵点走 P1-13 归并/删除机制，**不在装载器里做破坏性删除**。
+  守卫：`tests/integration/test_seed_ghost_topics.py`（变异自证：装载器改成删行 → 必红，
+  RED 实证为 FK constraint failed）。
 - **契约**：与上游 topics.json 同 schema 子集；统一 `loc_` 单前缀（P5-15，学科由 subject
   字段承载，与上游 `cn?_` 家族隔离）；装载/API 统一强制 `source='local'`、`unaudited=true`、
   `blind_verified=false`；**无迁移**（`knowledge_seed.source` 已存在）。
@@ -629,7 +669,7 @@
   历史 attempts/事件/排期不动；仍被 `concepts` 引用 → 409（先归并/移除）。
 - **导出**：`scripts/export_topics_junior.py` 合并仓库 + `seeds/local` +
   `<data_dir>/seeds_local` 后导出 `docs/templates/topics_junior.tsv`（**脚本自带 grade 7–9 过滤，
-  P5-10**，不继承 import_seed 收录范围；664 + local 行，
+  P5-10**，不继承 import_seed 收录范围；1267 + local 行（P5-16 起），
   UTF-8 无 BOM），转录模板的 `suggested_topic_id` 可选到语文/化学点。
 - **前端**：导航「学科 seed」仅家长解锁后出现；按语文/化学列出 id/名称/年级/学期/章/类型/
   引用计数与「家长自建 · 未经教师审核」，新增/编辑弹窗、删除确认显示受影响计数。
@@ -715,7 +755,7 @@
   备份 zip 含全部错题与家长 PIN 哈希，禁止上传网盘/群聊/公网。
 - **实测**：导出 `wengu-backup-20261031T131049098216Z.zip`（122557 字节，
   sha256 `8dc1196f5bb43fed8b59298a24f0af9bd323c53a225ee1a02f6616a8304e27eb`，
-  `knowledge_seed=664` / `learning_events=3`，**P5-10 扩段前快照**；扩段后同库重装为 1821）；包内快照 `PRAGMA integrity_check=ok`，
+  `knowledge_seed=664` / `learning_events=3`，**P5-10 扩段前快照**；扩段后同库重装为 1821，P5-16 起为 3557）；包内快照 `PRAGMA integrity_check=ok`，
   manifest sha256 与实际文件一致；未解锁 export/list/download 全 403，`../` 与绝对路径
   下载被拒；导出前后业务库零变化。恢复演练在临时副本上替换成功、旧数据进入安全副本、
   第二次运行 exit 0（幂等）。并发写事件时快照仍一致（集成测试覆盖）。
@@ -962,10 +1002,11 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
 - `user_role` 由 `0014_parent_pin` 保证存在 `(role='parent', pin_hash=NULL)` 行；PIN 设置后存 scrypt 哈希。
 - `model_runs` / `ai_jobs` 已 DROP（0013，down 可重建空表）。
 - `photo_captures` / `photo_capture_items` 已 DROP（0019，down 可重建空表结构）。
-- seed：仓库全量 1821 知识点（小学 450 / 初中 664 / 高中 707；数学 828 / 英语 724 / 物理 269）
-  + 2917 先修边 + 7431 题（小学 1800 / 初中 2803 / 高中 2828；数学 3459 / 英语 2896 / 物理 1076），
+- seed：仓库全量 3557 知识点（小学 1481 / 初中 1267 / 高中 809；10 学科，P5-16 快照 `8b57f2e`）
+  + 5132 先修边 + 14375 题（小学 5924 / 初中 5215 / 高中 3236），
   P5-10 起按学段作用域 `seed_grade_ceiling` 收窄主动选择面（默认 16，初中家庭建议调 9）；
-  化学、语文从**空仓库 seed** 起步，由家长在
+  ~~化学、语文从**空仓库 seed** 起步~~（2026-11-19 P5-16 推翻：上游语文/化学已全量内置；
+  本地自建机制保留，理由 = 教材版本差异 + 家长自建章级点），家长可在
   `<data_dir>/seeds_local/topics_<学科>.json` 自建章级点（`source='local'`，装载副本进
   `knowledge_seed`；重启用文件恢复）。加载顺序 = 仓库 topics.json → `seeds/local/*.json` →
   `<data_dir>/seeds_local/*.json`；下划线开头的簿记文件（`_id_counters.json`）跳过。
@@ -1223,7 +1264,7 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
 | P5-2 | 部分完成 | 已完成：家长区导出 `VACUUM INTO` 一致性快照 + `uploads`/`seeds_local`/未处理 `inbox` + **`app-config.json`（P5-1a 起）** 打包 + manifest（sha256/表计数/迁移版本），保留最近 10 份；`scripts/restore.ps1` 停机整库替换 + 恢复文档。未做：在线热恢复、可选加密云备份、清空级联清理 |
 | P5-3 | 未开始 | 可选密码 session 鉴权（默认关）；README 醒目警告公网暴露风险 |
 | P5-4 | 未开始 | 教材 seed 包机制：多教材可安装可切换（mappings 机制已有，安装 UI 未做） |
-| P5-5 | 部分完成 | **已在盘上**：LICENSE（P5-5 恢复纯 MIT）/ 中文 README / CHANGELOG / `wengu-api/.env.example` / 第三方署名（`THIRD-PARTY-NOTICES.md`）/ 两法点名（README §安全与合规）。**P5-5 收口票已合并（2026-11-16，PR#61 → `0928104`）**：`LICENSE-data.md`（CC BY-NC 4.0 分层 + 快照 `d58785ce` 取证）、`PRIVACY.md`（数据本土化 + 外部转录上云字段 + 监护人单独同意 + 离线 `/import`）、两 source 文件 provenance 键、`--upstream-commit` 探测参数、README 克隆地址/口径校正。**英文 README 已合并（PR#67 → `847bc03`）**（此前本行写"中英 README 已就位"属过实，2026-11-02 审计修正）、发布打包（仓库 description/topics 已设、首个 Release v0.7.0 已发布（2026-11-17，tag→`9bbcb6b`）；homepage 留空、Discussions 未做，属审核方侧 gh 动作） |
+| P5-5 | 部分完成 | **已在盘上**：LICENSE（P5-5 恢复纯 MIT）/ 中文 README / CHANGELOG / `wengu-api/.env.example` / 第三方署名（`THIRD-PARTY-NOTICES.md`）/ 两法点名（README §安全与合规）。**P5-5 收口票已合并（2026-11-16，PR#61 → `0928104`）**：`LICENSE-data.md`（CC BY-NC 4.0 分层 + 快照 `d58785ce` 取证；P5-16 起换 `8b57f2e` 重取证）、`PRIVACY.md`（数据本土化 + 外部转录上云字段 + 监护人单独同意 + 离线 `/import`）、两 source 文件 provenance 键、`--upstream-commit` 探测参数、README 克隆地址/口径校正。**英文 README 已合并（PR#67 → `847bc03`）**（此前本行写"中英 README 已就位"属过实，2026-11-02 审计修正）、发布打包（仓库 description/topics 已设、首个 Release v0.7.0 已发布（2026-11-17，tag→`9bbcb6b`）；homepage 留空、Discussions 未做，属审核方侧 gh 动作） |
 | P5-6 | 部分完成 | 交付口径与盘上一致性清理（v2.6 审计新增）。**已完成孤儿表切片**：迁移 0019 DROP `problem_extractions`/`photo_capture_items`/`photo_captures`（可逆、含备份说明、不留悬空 FK）、删 ORM 类与备份表计数，业务表 22 → 19，见 §4.18。**剩余**：Phase 5 行与 §7 表格的进一步口径复核；见 `docs/audit/pr1-24-retrospective.md` |
 | P5-7 | 已完成 | **转录可选包 T1（2026-11-12，PR #49 已合）**：`transcribe/` 随仓库分发（SOP README + CONTRACT + 纯标准库 `validate.py` + 契约镜像 + 通用 Skill + 13 条脱敏 fixtures）；不进 requirements/镜像/CI 主链依赖。包内修复：GBK 控制台编码、selfcheck 增 portable Skill 校验、2 处 UP038。三方字段对齐留 P5-8 |
 | P5-8 | 已完成 | **转录契约收口 T2（2026-11-13，PR#50 → `30785d0` 已合并）**：契约 `fields` 补 `correction_notes:500`→10 键与后端一致、`template.version`→2、`status`→active；模板保持 v2（只补施工方口径、未改模型指令/schema_fields，故不升 v3）；`verify` 声明题库专用（`bank_only_fields`），selfcheck 按「契约字段−bank_only==模板 schema_fields」显式判定 + 模板 id 断言 + 回归目录存在检查；模板/旧 Skill 回归目录改指 `transcribe/evals/`、旧 Skill 存档迁移并删本机绝对路径；后端新增行为锚定测试消费同一批 fixtures（可证伪）；CI 增独立 transcribe job（不装额外包）。实跑 selfcheck 18 OK/0 DRIFT/0 WARN、evals 13/13、全量 602 passed、ruff/build 绿 |

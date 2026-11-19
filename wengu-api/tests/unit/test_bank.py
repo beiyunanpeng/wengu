@@ -1,12 +1,19 @@
-"""P1-10/P1-11 内存题库：倒排、verify 分类、SVG 净化、固定种子检索、组卷与 replay。"""
+"""P1-10/P1-11 内存题库：倒排、verify 分类、固定种子检索、组卷与 replay。
+
+P5-16 路线 B：SVG 净化在构建期（import_questions），装载只验 sha256。
+_write_seed 模拟构建管线：先 sanitize_svg 再落 figures_sha256.json，
+夹具即"合格构建产物"；装载侧哈希闸门由 test_figure_integrity.py 守卫。
+"""
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
 import pytest
 from app.seed.bank import BankFormatError, load_bank
+from app.seed.svg import sanitize_svg
 from app.services.bank import (
     BankReplayError,
     find_same_type,
@@ -71,9 +78,32 @@ def _write_seed(root: Path, topics: list[dict] | None = None, questions: list[di
     (root / "data" / "topics.json").write_text(
         json.dumps(TOPICS if topics is None else topics, ensure_ascii=False), encoding="utf-8"
     )
+    built: list[dict] = []
+    hashes: dict[str, str] = {}
+    for raw in QUESTIONS if questions is None else questions:
+        question = {**raw}
+        if question.get("figure"):
+            question["figure"] = sanitize_svg(question["figure"])
+            hashes[f"{question['id']}:main"] = hashlib.sha256(
+                question["figure"].encode("utf-8")
+            ).hexdigest()
+        if question.get("choices"):
+            choices = []
+            for item in question["choices"]:
+                choice = {**item}
+                if choice.get("figure"):
+                    choice["figure"] = sanitize_svg(choice["figure"])
+                    hashes[f"{question['id']}:choice:{choice['key']}"] = hashlib.sha256(
+                        choice["figure"].encode("utf-8")
+                    ).hexdigest()
+                choices.append(choice)
+            question["choices"] = choices
+        built.append(question)
     (root / "data" / "questions.json").write_text(
-        json.dumps(QUESTIONS if questions is None else questions, ensure_ascii=False),
-        encoding="utf-8",
+        json.dumps(built, ensure_ascii=False), encoding="utf-8"
+    )
+    (root / "data" / "figures_sha256.json").write_text(
+        json.dumps(dict(sorted(hashes.items()))), encoding="utf-8"
     )
     return root
 
@@ -115,7 +145,9 @@ def test_verify_gate_classifies_and_drops_numeric_mismatch(bank) -> None:
 
 
 @pytest.mark.unit
-def test_svg_sanitized_for_question_and_choice(bank) -> None:
+def test_build_sanitized_figures_pass_hash_gate(bank) -> None:
+    """构建期净化产物（_write_seed 模拟）过装载哈希闸门后逐字保留、无恶意残留。"""
+
     by_id = {q.id: q for items in bank.by_topic.values() for q in items}
     figure = by_id["cnm_002_q2"].figure
     assert figure is not None and "viewBox" in figure

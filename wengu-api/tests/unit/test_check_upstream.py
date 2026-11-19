@@ -31,13 +31,13 @@ from scripts.check_upstream import (
 
 ROOT = Path(__file__).resolve().parents[3]
 DATA_DIR = ROOT / "seeds" / "data"
-PINNED_SHA = "d58785cef744341bf02d41e5568ebb953595ab18"
+PINNED_SHA = "8b57f2e353ac041f81ba705a66503c9a9e2d8ba8"
 LATEST_PAYLOAD = [
     {
         "sha": PINNED_SHA,
         "commit": {
-            "committer": {"date": "2026-10-23T12:40:17Z"},
-            "author": {"date": "2026-10-23T12:40:17Z"},
+            "committer": {"date": "2026-11-15T11:27:27Z"},
+            "author": {"date": "2026-11-15T11:27:27Z"},
         },
     }
 ]
@@ -71,7 +71,7 @@ def _project_upstream(data: dict) -> dict:
 def test_parse_latest_commit_literal() -> None:
     assert parse_latest_commit(LATEST_PAYLOAD) == (
         PINNED_SHA,
-        "2026-10-23T12:40:17Z",
+        "2026-11-15T11:27:27Z",
     )
 
 
@@ -105,7 +105,7 @@ def test_parse_latest_commit_rejects_malformed(payload: object) -> None:
 
 def test_prefix_of_literal() -> None:
     assert prefix_of("cnm_001") == "cnm_"
-    assert prefix_of("cnl_j001") == "cnl_"
+    assert prefix_of("zzz_j001") == "zzz_"
     assert prefix_of("weird") == "weird"
 
 
@@ -130,25 +130,33 @@ def test_summarize_topics_bands_and_subjects_literal() -> None:
     assert summarize_topics(topics) == {
         "topics_total": 4,
         "topics_by_band": {"primary": 1, "junior": 1, "senior": 1, "unknown": 1},
-        "topics_by_subject": {"数学": 2, "英语": 1, "物理": 1},
+        "topics_by_subject": {
+            "数学": 2, "英语": 1, "物理": 1, "语文": 0, "化学": 0,
+            "生物": 0, "科学": 0, "道德与法治": 0, "历史": 0, "地理": 0,
+        },
         "unknown_prefixes": {},
     }
 
 
-def test_unknown_prefix_cnl_is_named_not_imported() -> None:
-    """cnl_/cnc_ fixture 必须被点名（删检测 → 本测试红）；只报告、不进分科。"""
+def test_unknown_prefix_zzz_is_named_not_imported() -> None:
+    """zzz_/yyy_ fixture 必须被点名（删检测 → 本测试红）；只报告、不进分科。
+    P5-16 起 cnc_ 已是上游语文、cnl_ 是退役本地前缀，样例换上游真不存在的形态。"""
 
     topics = [
         {"id": "cnm_001", "grade": 7},
-        {"id": "cnl_001", "grade": 7},
-        {"id": "cnl_002", "grade": 8},
-        {"id": "cnc_001", "grade": 9},
+        {"id": "zzz_001", "grade": 7},
+        {"id": "zzz_002", "grade": 8},
+        {"id": "yyy_001", "grade": 9},
     ]
     stats = summarize_topics(topics)
-    assert stats["unknown_prefixes"] == {"cnl_": 2, "cnc_": 1}
+    assert stats["unknown_prefixes"] == {"zzz_": 2, "yyy_": 1}
     assert stats["topics_total"] == 4
-    assert stats["topics_by_subject"] == {"数学": 1, "英语": 0, "物理": 0}
-    assert "语文" not in stats["topics_by_subject"]
+    assert stats["topics_by_subject"] == {
+        "数学": 1, "英语": 0, "物理": 0, "语文": 0, "化学": 0,
+        "生物": 0, "科学": 0, "道德与法治": 0, "历史": 0, "地理": 0,
+    }
+    assert "zzz_" not in stats["topics_by_subject"]
+    assert "yyy_" not in stats["topics_by_subject"]
 
 
 def test_summarize_questions_both_key_styles_literal() -> None:
@@ -166,7 +174,10 @@ def test_summarize_questions_both_key_styles_literal() -> None:
     expected = {
         "questions_total": 3,
         "questions_by_band": {"primary": 1, "junior": 1, "senior": 0, "unknown": 1},
-        "questions_by_subject": {"数学": 2, "英语": 1, "物理": 0},
+        "questions_by_subject": {
+            "数学": 2, "英语": 1, "物理": 0, "语文": 0, "化学": 0,
+            "生物": 0, "科学": 0, "道德与法治": 0, "历史": 0, "地理": 0,
+        },
         "questions_out_of_scope": 1,
         "unknown_prefixes": {},
     }
@@ -175,21 +186,24 @@ def test_summarize_questions_both_key_styles_literal() -> None:
 
 
 def test_summarize_questions_unknown_prefix_named() -> None:
-    topics = [{"id": "cnl_001", "grade": 7}]
-    questions = [{"id": "cnl_001_q1", "topicId": "cnl_001"}]
+    topics = [{"id": "zzz_001", "grade": 7}]
+    questions = [{"id": "zzz_001_q1", "topicId": "zzz_001"}]
     stats = summarize_questions(questions, topics)
-    assert stats["unknown_prefixes"] == {"cnl_": 1}
-    assert stats["questions_by_subject"] == {"数学": 0, "英语": 0, "物理": 0}
+    assert stats["unknown_prefixes"] == {"zzz_": 1}
+    assert stats["questions_by_subject"] == {
+        "数学": 0, "英语": 0, "物理": 0, "语文": 0, "化学": 0,
+        "生物": 0, "科学": 0, "道德与法治": 0, "历史": 0, "地理": 0,
+    }
 
 
 def test_local_stats_merges_unknown_prefixes_from_both() -> None:
     data = {
-        "topics": [{"id": "cnl_001", "grade": 7}],
+        "topics": [{"id": "zzz_001", "grade": 7}],
         "dependencies": [],
-        "questions": [{"id": "cnc_001_q1", "topicId": "cnc_001"}],
+        "questions": [{"id": "yyy_001_q1", "topicId": "yyy_001"}],
     }
     stats = local_stats(data)
-    assert stats["unknown_prefixes"] == {"cnl_": 1, "cnc_": 1}
+    assert stats["unknown_prefixes"] == {"zzz_": 1, "yyy_": 1}
 
 
 def test_summarize_dependencies_literal() -> None:
@@ -225,7 +239,7 @@ def test_compute_delta_literal_nonzero() -> None:
         [
             {"id": "cnm_001", "grade": 7},
             {"id": "cne_001", "grade": 3},
-            {"id": "cnl_001", "grade": 7},
+            {"id": "zzz_001", "grade": 7},
         ]
     )
     delta = compute_delta(local, upstream)
@@ -234,24 +248,30 @@ def test_compute_delta_literal_nonzero() -> None:
     assert delta["topics_by_band.primary"] == {"local": 1, "upstream": 1, "delta": 0}
     assert delta["topics_by_subject.数学"] == {"local": 1, "upstream": 1, "delta": 0}
     assert all("unknown_prefixes" not in key for key in delta)
-    assert merge_unknown_prefixes(local, upstream) == {"cnl_": 1}
+    assert merge_unknown_prefixes(local, upstream) == {"zzz_": 1}
 
 
 def test_repo_local_stats_literal_equals_source_counts(repo_data: dict) -> None:
     """纪律①：仓内真数据算出的数字字面 == 两个 source JSON 的 counts。"""
 
     stats = local_stats(repo_data)
-    assert stats["topics_total"] == 1821
-    assert stats["topics_by_band"] == {"primary": 450, "junior": 664, "senior": 707}
-    assert stats["topics_by_subject"] == {"数学": 828, "英语": 724, "物理": 269}
-    assert stats["deps_total"] == 2917
-    assert stats["questions_total"] == 7431
-    assert stats["questions_by_band"] == {
-        "primary": 1800,
-        "junior": 2803,
-        "senior": 2828,
+    assert stats["topics_total"] == 3557
+    assert stats["topics_by_band"] == {"primary": 1481, "junior": 1267, "senior": 809}
+    assert stats["topics_by_subject"] == {
+        "数学": 870, "英语": 791, "语文": 683, "物理": 269, "科学": 269,
+        "道德与法治": 269, "化学": 147, "历史": 134, "生物": 66, "地理": 59,
     }
-    assert stats["questions_by_subject"] == {"数学": 3459, "英语": 2896, "物理": 1076}
+    assert stats["deps_total"] == 5132
+    assert stats["questions_total"] == 14375
+    assert stats["questions_by_band"] == {
+        "primary": 5924,
+        "junior": 5215,
+        "senior": 3236,
+    }
+    assert stats["questions_by_subject"] == {
+        "数学": 3627, "英语": 3164, "语文": 2732, "物理": 1076, "科学": 1076,
+        "道德与法治": 1076, "化学": 588, "历史": 536, "生物": 264, "地理": 236,
+    }
     assert stats["questions_out_of_scope"] == 0
     assert merge_unknown_prefixes(stats) == {}
 
@@ -272,10 +292,10 @@ def test_repo_local_stats_literal_equals_source_counts(repo_data: dict) -> None:
 
 
 def test_pinned_snapshot_projection_delta_all_zero(repo_data: dict) -> None:
-    """纪律①：d58785ce 快照（上游 schema 投影）vs 仓内真数据，delta 必须全 0。
+    """纪律①：8b57f2e 快照（上游 schema 投影）vs 仓内真数据，delta 必须全 0。
 
     离线版自证：投影只保留 summarize 消费的键（id/grade/topicId），验证两种 schema
-    同尺。在线版自证 = 实跑 `--pinned d58785ce…`（DoD，下载 raw 真快照）。
+    同尺。在线版自证 = 实跑 `--pinned 8b57f2e…`（DoD，下载 raw 真快照）。
     """
 
     local = local_stats(repo_data)
@@ -378,7 +398,7 @@ def _fake_fetch_factory(repo_data: dict, latest_sha: str):
             return [
                 {
                     "sha": latest_sha,
-                    "commit": {"committer": {"date": "2026-10-23T12:40:17Z"}},
+                    "commit": {"committer": {"date": "2026-11-15T11:27:27Z"}},
                 }
             ]
         for name in check_upstream.SNAPSHOT_FILES:
@@ -409,7 +429,7 @@ def test_main_update_exit_1_even_when_delta_zero(
     assert check_upstream.main([]) == 1
     out = capsys.readouterr().out
     assert "上游有更新" in out
-    assert "1821" in out and "7431" in out and "2917" in out
+    assert "3557" in out and "14375" in out and "5132" in out
 
 
 def test_main_pinned_recheck_exit_0(
@@ -421,15 +441,15 @@ def test_main_pinned_recheck_exit_0(
     assert check_upstream.main(["--pinned", PINNED_SHA]) == 0
     out = capsys.readouterr().out
     assert "delta 全 0" in out
-    for literal in ("1821", "450", "664", "707", "2917", "7431", "1800", "2803", "2828"):
+    for literal in ("3557", "1481", "1267", "809", "5132", "14375", "5924", "5215", "3236"):
         assert literal in out
 
 
-def test_main_pinned_mismatch_names_cnl_exit_1(
+def test_main_pinned_mismatch_names_zzz_exit_1(
     monkeypatch: pytest.MonkeyPatch, repo_data: dict, capsys: pytest.CaptureFixture
 ) -> None:
     projected = _project_upstream(repo_data)
-    projected["topics"] = projected["topics"] + [{"id": "cnl_001", "grade": 7}]
+    projected["topics"] = projected["topics"] + [{"id": "zzz_001", "grade": 7}]
 
     def fake_fetch(url: str) -> object:
         for name in check_upstream.SNAPSHOT_FILES:
@@ -440,7 +460,7 @@ def test_main_pinned_mismatch_names_cnl_exit_1(
     monkeypatch.setattr(check_upstream, "fetch_json", fake_fetch)
     assert check_upstream.main(["--pinned", PINNED_SHA]) == 1
     out = capsys.readouterr().out
-    assert "cnl_" in out
+    assert "zzz_" in out
     assert "快照不一致" in out
 
 
@@ -475,5 +495,5 @@ def test_main_json_report_synced(
     assert report["mode"] == "synced"
     assert report["pinned"] == pinned
     assert report["latest"]["sha"] == pinned
-    assert report["local"]["topics_total"] == 1821
+    assert report["local"]["topics_total"] == 3557
     assert report["delta"] is None

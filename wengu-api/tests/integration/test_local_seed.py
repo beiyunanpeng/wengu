@@ -630,9 +630,9 @@ def test_export_merges_local_rows_without_touching_upstream(
     by_subject = export(DEFAULT_SRC, out, [local_dir])
 
     lines = out.read_text(encoding="utf-8").splitlines()
-    assert len(lines) == 1 + 664 + 1
-    assert sum(by_subject.values()) == 665
-    assert by_subject["语文"] == 1
+    assert len(lines) == 1 + 1267 + 1
+    assert sum(by_subject.values()) == 1268
+    assert by_subject["语文"] == 190
     assert any(line.startswith("loc_001\t语文\t") for line in lines)
     assert not out.read_bytes().startswith(b"\xef\xbb\xbf")
     stderr = capsys.readouterr().err

@@ -1,4 +1,4 @@
-"""P1-10/P5-10 真实 seed 题库回归：全量 7431 题全覆盖、固定种子稳定、缺口标记、配图净化。"""
+"""P1-10/P5-10/P5-16 真实 seed 题库回归：全量 14375 题全覆盖、固定种子稳定、缺口标记、配图净化。"""
 
 from __future__ import annotations
 
@@ -19,19 +19,22 @@ def bank():
 
 @pytest.mark.unit
 def test_real_seed_counts(bank) -> None:
-    assert bank.stats.total == 7431
-    assert bank.stats.by_subject == {"数学": 3459, "物理": 1076, "英语": 2896}
-    assert bank.stats.by_type == {"choice": 4730, "numeric": 2672, "self": 6, "short": 23}
-    assert bank.stats.topics_total == 1821
-    assert bank.stats.topics_with_questions == 1821
+    assert bank.stats.total == 14375
+    assert bank.stats.by_subject == {
+        "数学": 3627, "英语": 3164, "语文": 2732, "物理": 1076, "科学": 1076,
+        "道德与法治": 1076, "化学": 588, "历史": 536, "生物": 264, "地理": 236,
+    }
+    assert bank.stats.by_type == {"choice": 11478, "numeric": 2868, "self": 6, "short": 23}
+    assert bank.stats.topics_total == 3557
+    assert bank.stats.topics_with_questions == 3557
     assert bank.stats.dropped == {}
-    assert bank.stats.verified == 5996
-    assert bank.stats.unverifiable == 1435
+    assert bank.stats.verified == 12828
+    assert bank.stats.unverifiable == 1547
     assert bank.stats.verify_reasons == {
         "choice_text_mismatch": 70,
-        "no_verify": 532,
-        "sandbox:bad_comprehension_target": 1,
-        "sandbox:forbidden_call": 824,
+        "no_verify": 567,
+        "sandbox:bad_comprehension_target": 2,
+        "sandbox:forbidden_call": 900,
         "sandbox:non_integer_exponent": 4,
         "sandbox:type_error": 2,
         "sandbox:unknown_name": 2,
@@ -89,7 +92,7 @@ def test_every_verify_expression_was_checked_at_ingest(bank) -> None:
 
     assert bank.stats.verified + bank.stats.unverifiable == bank.stats.total
     questions = [q for items in bank.by_topic.values() for q in items]
-    assert len(questions) == 7431
+    assert len(questions) == 14375
     assert all(q.verify_status in ("verified", "unverifiable") for q in questions)
     assert all(
         q.verify_reason
@@ -102,7 +105,7 @@ def test_every_verify_expression_was_checked_at_ingest(bank) -> None:
 
 @pytest.mark.unit
 def test_every_seed_standard_answer_judges_itself_correct(bank) -> None:
-    """P1-5/P5-10 DoD：seed 题库全量 7431 题的标准答案过 judgeAnswer 全部判对。"""
+    """P1-5/P5-10/P5-16 DoD：seed 题库全量 14375 题的标准答案过 judgeAnswer 全部判对。"""
 
     checked = 0
     for items in bank.by_topic.values():
@@ -115,7 +118,7 @@ def test_every_seed_standard_answer_judges_itself_correct(bank) -> None:
             )
             assert outcome.verdict == "correct", (question.id, question.answer, outcome)
             checked += 1
-    assert checked == 7431
+    assert checked == 14375
 
 
 @pytest.mark.unit
@@ -146,7 +149,7 @@ def test_choice_distractors_are_judged_wrong(bank) -> None:
             )
             assert outcome.verdict == "wrong", (question.id, distractor, outcome)
             checked += 1
-    assert checked == 4730
+    assert checked == 11478
 
 
 @pytest.mark.unit
@@ -179,7 +182,7 @@ def test_all_figures_are_sanitized(bank) -> None:
         for figure in [question.figure, *(choice.figure for choice in question.choices)]
         if figure
     ]
-    assert len(figures) == 267
+    assert len(figures) == 640
     for figure in figures:
         assert "<script" not in figure
         assert "onload" not in figure

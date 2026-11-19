@@ -1,8 +1,14 @@
-"""内联 SVG 白名单净化（AGENTS §5；TICKETS P1-10）。
+"""内联 SVG 白名单净化（AGENTS §5；TICKETS P1-10 / P5-16）。
 
 题库配图是上游分发的内联 SVG，按不可信 HTML 处理：只保留画图所需的标签与属性，
 `script` / `on*` 事件 / `javascript:` 链接 / `foreignObject` 一律剥掉。
-使用需求里既有的 bleach（不新增依赖），净化在后端装载时完成，前端只渲染净化后的字符串。
+使用需求里既有的 bleach（不新增依赖）。净化时机（P5-16 路线 B）：
+- **seed 题库**：构建期净化（scripts/import_questions.py 写盘前调本函数），
+  产物附 figures_sha256.json 逐段清单；装载侧（app/seed/bank.py）只验哈希，
+  不一致或缺哈希即丢弃该题，不再重复净化。
+- **家长题**：用户输入没有构建期哈希可验，仍在装载/入库期净化
+  （services/bank.py、services/bank_import.py）。
+前端只渲染净化后的字符串。
 """
 
 from __future__ import annotations

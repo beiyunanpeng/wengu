@@ -331,7 +331,8 @@ async def test_dashboard_bank_gap_closes_when_parent_question_added(
         assert created.status_code == 201, created.text
 
         merged = await _runtime_bank(factory)
-        assert merged.stats.by_subject["化学"] == 1
+        # 化学 seed 588 题（P5-16 扩科基线）+ 家长补录 1 题
+        assert merged.stats.by_subject["化学"] == 589
         assert len(merged.questions_for(CHEMISTRY_TOPIC)) == 1
         assert merged.topics[CHEMISTRY_TOPIC]["domain"] == "物质的组成与结构"
 
@@ -352,10 +353,11 @@ async def test_dashboard_bank_gap_closes_when_parent_question_added(
         (after_item,) = await _due_items(client, date.today())
         assert after_item["task"] == "quiz"
         assert after_item["bank_gap"] is False
-        assert after_item["coverage"] == "thin"
+        # 化学学科总量 589 ≥ 500：coverage 是学科级稀缺标记，不再是 thin
+        assert after_item["coverage"] == "ok"
         assert after_item["quiz"]["question_id"].startswith("manual_")
         assert after_item["quiz"]["pool_size"] == 1
-        assert after_item["coverage_hint"] == "覆盖偏薄"
+        assert after_item["coverage_hint"] is None
 
         schedule = None
         async with factory() as session:
@@ -375,7 +377,7 @@ async def test_dashboard_bank_gap_closes_when_parent_question_added(
         pick = find_same_type(CHEMISTRY_TOPIC, expected_seed, bank=merged)
         assert pick.question_id == after_item["quiz"]["question_id"]
         assert replay(pick, bank=merged) == pick
-        assert pick.coverage == "thin"
+        assert pick.coverage == "ok"
 
         # 物理未被本轮补题波及：1076 题（P5-10 全量基线）、超 thin 阈值判 ok
         physics_total = merged.stats.by_subject["物理"]

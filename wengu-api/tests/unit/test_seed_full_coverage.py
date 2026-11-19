@@ -1,15 +1,15 @@
-"""P5-10 全量收录守卫（v2.8 §19-G-1）：分桶字面 / 初中面零变化 / 转录目录不扩 / 回溯复活。
+"""P5-10/P5-16 全量收录守卫（v2.8 §19-G-1/G-3）：分桶字面 / 初中面钉死 / 转录目录不扩 / 回溯复活。
 
 钉死的口径（§19-L 纪律①：右侧字面串，不从被测文件反算期望值）：
-- 同一快照 d58785ce 全量收录：topics 1821（450/664/707）、deps 2917、questions 7431（1800/2803/2828）；
-- 初中面零变化 = 初中子集字面与扩段前一致（664 点 / 1018 边 / 2803 题、学科分布不变）；
-  ⚠️ ceiling=9 的**总数**必然 +450（ceiling 语义是 grade≤9 = 小学+初中），
-  "初中面零变化"指 grade 7–9 子集的读数逐字相同，不是 ceiling9 总数不变；
-- 转录目录维持初中-scoped：TSV 仍 665 行（表头 1 + 初中 664；含 1 条 local 行即 1+664+1）；
+- 快照 8b57f2e 全量收录 10 学科：topics 3557（1481/1267/809）、deps 5132、questions 14375（5924/5215/3236）；
+- 初中面按新快照实算钉死（1267 点 / 1638 边 / 5215 题、9 学科分布）——上游持续演进，
+  初中面相对 d58785ce 已非逐字不变（内容修订见 questions_source.json disclaimer），
+  ⚠️ ceiling=9 的**总数** = 小学+初中（ceiling 语义是 grade≤9），不是初中子集；
+- 转录目录维持初中-scoped：TSV 1268 行（表头 1 + 初中 1267；含 1 条 local 行即 1+1267+1）；
   删导出脚本过滤必须变红（变异守卫）；
 - 回溯复活：真实初中→小学边（cne_j001→cne_p001）在 loader 索引可走、
-  edges_total=2917 不受 ceiling 影响、该小学点有题在 ceiling9 下仍可主动组卷；
-- blind_verified 只给初中数学（315 点）——扩段不得伪造质量标签；
+  edges_total=5132 不受 ceiling 影响、该小学点有题在 ceiling9 下仍可主动组卷；
+- blind_verified 只给初中数学（315 点）——扩科不得伪造质量标签；
 - 策展 counts.load_quality 与 load_bank 实测一致，verify_mismatch 丢弃数必须为 0。
 """
 
@@ -64,22 +64,23 @@ def test_full_snapshot_band_buckets() -> None:
     questions = _read_json("questions.json")
     grade = {t["id"]: t["grade"] for t in topics}
 
-    assert len(topics) == 1821
+    assert len(topics) == 3557
     assert Counter(_band(t["grade"]) for t in topics) == {
-        "primary": 450, "junior": 664, "senior": 707,
+        "primary": 1481, "junior": 1267, "senior": 809,
     }
-    assert len(deps) == 2917
-    assert len(questions) == 7431
+    assert len(deps) == 5132
+    assert len(questions) == 14375
     assert Counter(_band(grade[q["topic_id"]]) for q in questions) == {
-        "primary": 1800, "junior": 2803, "senior": 2828,
+        "primary": 5924, "junior": 5215, "senior": 3236,
     }
     # 全量后所有点都有题（回溯到学校根因点也能主动组卷的前提）
     assert {q["topic_id"] for q in questions} == set(grade)
 
 
 @pytest.mark.unit
-def test_junior_face_literals_unchanged() -> None:
-    """初中子集字面 == 扩段前快照（构建期已另证 byte-identical，见交付报告）。"""
+def test_junior_face_literals() -> None:
+    """初中子集字面按新快照 8b57f2e 实算钉死（P5-16 扩科后 9 学科；
+    上游演进使初中面相对 d58785ce 已非逐字不变，不再声称"零变化"）。"""
 
     topics = _read_json("topics.json")
     deps = _read_json("dependencies.json")
@@ -87,15 +88,21 @@ def test_junior_face_literals_unchanged() -> None:
     grade = {t["id"]: t["grade"] for t in topics}
     junior = [t for t in topics if _band(t["grade"]) == "junior"]
 
-    assert len(junior) == 664
-    assert Counter(t["subject"] for t in junior) == {"数学": 315, "英语": 257, "物理": 92}
+    assert len(junior) == 1267
+    assert Counter(t["subject"] for t in junior) == {
+        "数学": 315, "英语": 257, "语文": 189, "历史": 134, "道德与法治": 110,
+        "物理": 92, "生物": 66, "地理": 59, "化学": 45,
+    }
     assert sum(
         1 for d in deps
         if _band(grade[d["topic_id"]]) == _band(grade[d["prerequisite_id"]]) == "junior"
-    ) == 1018
+    ) == 1638
     junior_q = [q for q in questions if _band(grade[q["topic_id"]]) == "junior"]
-    assert len(junior_q) == 2803
-    assert Counter(q["subject"] for q in junior_q) == {"数学": 1407, "物理": 368, "英语": 1028}
+    assert len(junior_q) == 5215
+    assert Counter(q["subject"] for q in junior_q) == {
+        "数学": 1407, "英语": 1028, "语文": 756, "历史": 536, "道德与法治": 440,
+        "物理": 368, "生物": 264, "地理": 236, "化学": 180,
+    }
 
 
 @pytest.mark.unit
@@ -117,23 +124,23 @@ def test_curated_quality_counts_match_load_bank() -> None:
 
     assert stats.dropped == {}
     assert quality["full"]["verify_mismatch_dropped"] == 0
-    assert quality["newly_added"]["verify_mismatch_dropped"] == 0
-    assert quality["full"]["verified"] == stats.verified == 5996
-    assert quality["full"]["unverifiable"] == stats.unverifiable == 1435
-    assert quality["full"]["figures"] == stats.figures == 267
+    assert quality["full"]["verified"] == stats.verified == 12828
+    assert quality["full"]["unverifiable"] == stats.unverifiable == 1547
+    assert quality["full"]["figures"] == stats.figures == 640
     assert quality["full"]["unverifiable_reasons"] == stats.verify_reasons
-    assert quality["junior_baseline"] == {
-        "verified": 1738, "unverifiable": 1065, "verify_mismatch_dropped": 0, "figures": 76,
+    # 初中子集策展字面（独立装载复核：5215 题 / verified 4150 / unverifiable 1065 / 配图 303）
+    assert quality["junior_subset"] == {
+        "questions": 5215, "verified": 4150, "unverifiable": 1065, "figures": 303,
     }
-    added = quality["newly_added"]
-    assert added["questions"] == 4628
-    assert added["verified"] == 5996 - 1738
-    assert added["unverifiable"] == 1435 - 1065
-    assert added["figures"] == 267 - 76
+    # 初中旧三科面（点集与 d58785ce 逐字相同；配图与内容修订来自上游演进）
+    assert quality["junior_old3_subset"] == {
+        "questions": 2803, "verified": 1738, "unverifiable": 1065, "figures": 120,
+        "note": "初中数学/英语/物理旧面（点集与 d58785ce 逐字相同）；配图 76→120 与 150 题内容修订来自上游演进，非本地改动",
+    }
 
     seed_source = json.loads((DATA / "_source.json").read_text(encoding="utf-8"))
-    assert seed_source["counts"]["topics_imported"] == 1821
-    assert seed_source["counts"]["dependencies_imported"] == 2917
+    assert seed_source["counts"]["topics_imported"] == 3557
+    assert seed_source["counts"]["dependencies_imported"] == 5132
     assert seed_source["counts"]["dependencies_dropped_cross_boundary"] == 0
 
 
@@ -147,10 +154,13 @@ def test_tsv_stays_junior_scoped(tmp_path: Path) -> None:
     out = tmp_path / "topics_junior.tsv"
     by_subject = export_topics_junior.export(export_topics_junior.DEFAULT_SRC, out)
 
-    assert by_subject == {"数学": 315, "物理": 92, "英语": 257}
+    assert by_subject == {
+        "数学": 315, "英语": 257, "语文": 189, "历史": 134, "道德与法治": 110,
+        "物理": 92, "生物": 66, "地理": 59, "化学": 45,
+    }
     lines = out.read_text(encoding="utf-8").splitlines()
-    # 无 local 自建点时 = 表头 1 + 初中 664 行（test_local_seed 的 1+664+1 含 1 条 local 行）
-    assert len(lines) == 1 + 664
+    # 无 local 自建点时 = 表头 1 + 初中 1267 行（test_local_seed 的 1+1267+1 含 1 条 local 行）
+    assert len(lines) == 1 + 1267
     assert lines[0].split("\t") == [
         "topic_id", "subject", "grade", "semester", "name", "domain", "chapter",
     ]
@@ -164,14 +174,14 @@ def test_tsv_stays_junior_scoped(tmp_path: Path) -> None:
 @pytest.mark.unit
 def test_removing_export_filter_turns_tsv_guard_red(tmp_path: Path, monkeypatch) -> None:
     """变异守卫：把 _in_junior_catalog 换成恒真（= 删掉过滤），
-    上一个测试钉死的 665 行 / grade∈7-9 立刻不成立——证明守卫对过滤敏感。"""
+    上一个测试钉死的 1268 行 / grade∈7-9 立刻不成立——证明守卫对过滤敏感。"""
 
     monkeypatch.setattr(export_topics_junior, "_in_junior_catalog", lambda topic: True)
     out = tmp_path / "topics_junior.tsv"
     export_topics_junior.export(export_topics_junior.DEFAULT_SRC, out)
 
     lines = out.read_text(encoding="utf-8").splitlines()
-    assert len(lines) == 1 + 1821
+    assert len(lines) == 1 + 3557
     assert any(line.split("\t")[2] == "3" for line in lines[1:])
 
 
@@ -271,21 +281,22 @@ async def test_real_backtrace_revives_primary_under_ceiling9(tmp_path, monkeypat
 
     grade_of = {t["id"]: t["grade"] for t in _read_json("topics.json")}
 
-    # 真实初中→小学边（快照内 74 条之一）：回溯链完整，ceiling 不进 loader。
+    # 真实初中→小学边（快照内 93 条之一）：回溯链完整，ceiling 不进 loader。
     assert "cne_p001" in index.prerequisites_of("cne_j001")
 
     _use_ceiling(tmp_path, monkeypatch, 9)
     async with _client(factory, settings, monkeypatch) as client:
         summary = (await client.get("/api/seed/summary")).json()
-        assert summary["edges_total"] == 2917
-        assert summary["topics_total"] == 1114
+        assert summary["edges_total"] == 5132
+        assert summary["topics_total"] == 2748
         assert {s: v["topics"] for s, v in summary["subjects"].items()} == {
-            "数学": 557, "英语": 465, "物理": 92,
+            "数学": 599, "英语": 532, "语文": 683, "科学": 269, "道德与法治": 269,
+            "历史": 134, "物理": 92, "生物": 66, "地理": 59, "化学": 45,
         }
 
         seed_total, seed_items = await _all_items(client, "/api/seed/topics")
         quiz_total, quiz_items = await _all_items(client, "/api/quizzes/topics")
-        assert seed_total == quiz_total == 1114
+        assert seed_total == quiz_total == 2748
         # 小学根因点有题 → ceiling9 下仍可主动组卷（上限式不是学段硬隔离）
         assert "cne_p001" in {item["topic_id"] for item in quiz_items}
         assert "cne_p001" in {item["id"] for item in seed_items}
@@ -298,17 +309,18 @@ async def test_real_backtrace_revives_primary_under_ceiling9(tmp_path, monkeypat
     _use_ceiling(tmp_path, monkeypatch, 16)
     async with _client(factory, settings, monkeypatch) as client:
         summary16 = (await client.get("/api/seed/summary")).json()
-        assert summary16["edges_total"] == 2917
-        assert summary16["topics_total"] == 1821
+        assert summary16["edges_total"] == 5132
+        assert summary16["topics_total"] == 3557
         seed_total16, seed_items16 = await _all_items(client, "/api/seed/topics")
         quiz_total16, quiz_items16 = await _all_items(client, "/api/quizzes/topics")
-        assert seed_total16 == quiz_total16 == 1821
+        assert seed_total16 == quiz_total16 == 3557
 
-    # 初中面零变化：ceiling9 与默认 16 的 grade7–9 子集读数逐字相同，
-    # 且子集规模 == 扩段前字面（664 点；学科分布 315/257/92）。
+    # 初中面一致性：ceiling9 与默认 16 的 grade7–9 子集读数逐字相同，
+    # 且子集规模 == 新快照实算字面（1267 点；9 学科分布）。
     assert _junior_rows(seed_items16) == nine_seed_junior
     assert _junior_quiz_rows(quiz_items16, grade_of) == nine_quiz_junior
-    assert len(nine_seed_junior) == len(nine_quiz_junior) == 664
+    assert len(nine_seed_junior) == len(nine_quiz_junior) == 1267
     assert Counter(item["subject"] for item in nine_seed_junior) == {
-        "数学": 315, "英语": 257, "物理": 92,
+        "数学": 315, "英语": 257, "语文": 189, "历史": 134, "道德与法治": 110,
+        "物理": 92, "生物": 66, "地理": 59, "化学": 45,
     }

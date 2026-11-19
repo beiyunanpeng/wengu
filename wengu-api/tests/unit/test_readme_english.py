@@ -60,7 +60,7 @@ def test_positioning_sentence_identical_in_both() -> None:
 @pytest.mark.unit
 def test_seed_counts_literals() -> None:
     text = _read("README-en.md")
-    for literal in ["1821", "2917", "7431"]:
+    for literal in ["3557", "5132", "14375"]:
         assert literal in text
 
 

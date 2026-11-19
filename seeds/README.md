@@ -8,10 +8,11 @@
 
 ```
 seeds/
-├─ data/                    # 随仓库分发：转换后的 cn-math-taxonomy 全量包（小学+初中+高中）（CC BY-NC 4.0）
-│  ├─ topics.json           #   1821 个知识点（小学 450 + 初中 664 + 高中 707；数学 828 + 英语 724 + 物理 269）
-│  ├─ dependencies.json     #   2917 条先修边（跨学段边全量保留；hard/soft）
-│  ├─ questions.json        #   7431 题（小学 1800 + 初中 2803 + 高中 2828；数学 3459 + 英语 2896 + 物理 1076；P1-10）
+├─ data/                    # 随仓库分发：转换后的 cn-math-taxonomy 全量包（小学+初中+高中，10 学科）（CC BY-NC 4.0）
+│  ├─ topics.json           #   3557 个知识点（小学 1481 + 初中 1267 + 高中 809；数学 870 + 英语 791 + 语文 683 + 物理 269 + 科学 269 + 道德与法治 269 + 化学 147 + 历史 134 + 生物 66 + 地理 59）
+│  ├─ dependencies.json     #   5132 条先修边（跨学段边全量保留；hard/soft）
+│  ├─ questions.json        #   14375 题（小学 5924 + 初中 5215 + 高中 3236；数学 3627 + 英语 3164 + 语文 2732 + 物理 1076 + 科学 1076 + 道德与法治 1076 + 化学 588 + 历史 536 + 生物 264 + 地理 236；P1-10）
+│  ├─ figures_sha256.json   #   640 段配图 sha256 清单（P5-16 路线 B：构建期净化、装载期验哈希）
 │  ├─ _source.json          #   知识点/先修边署名：上游 URL / License / NC 声明 / 计数 / 快照 commit 与取证
 │  └─ questions_source.json #   题库署名：同上 + 题目计数 / 配图 / verify 统计
 ├─ local/                   # 家长自建，不进 Git：语文/化学同契约 seed 文件（统一 loc_ 前缀，P5-15）
@@ -23,7 +24,7 @@ seeds/
 
 - **上游**：<https://github.com/xiaoyang111222/cn-math-taxonomy>
 - **许可**：**CC BY-NC 4.0**（署名 + 非商用）；分发时必须保留 `_source.json` 与仓库根 `THIRD-PARTY-NOTICES.md`、`LICENSE-data.md`（数据许可分层全文见后者）
-- **诚实标注**：上游自述"AI 生成的初稿、未经一线教师审核"（`unaudited: true`）；**仅初中数学做过二遍盲解**（`blind_verified: true`，mismatch=0），英语/物理的 `verify` 与答案**同源**、无二遍盲解（`blind_verified: false`）→ 英语/物理**仅作参考冷启动、家长复核后再用**，UI 必须透传这两枚标签。
+- **诚实标注**：上游自述"AI 生成的初稿、未经一线教师审核"（`unaudited: true`）；**仅初中数学做过二遍盲解**（`blind_verified: true`，mismatch=0），其余 9 学科的 `verify` 与答案**同源**、无二遍盲解（`blind_verified: false`）→ 其余学科**仅作参考冷启动、家长复核后再用**，UI 必须透传这两枚标签。
 
 ## 重新生成 data/（开发者）
 
@@ -31,8 +32,13 @@ seeds/
 
 ```bash
 # 在仓库根目录执行：把上游 clone 到仓库的父目录（与仓库同级）
-git clone https://github.com/xiaoyang111222/cn-math-taxonomy.git ../cn-math-taxonomy-main  # 一次性
-make seed-load   # 等价于 cd wengu-api && python -m scripts.import_seed --src ../../cn-math-taxonomy-main
+# P5-16 起实际取证 clone 在 ../cn-math-taxonomy（带 .git，detached 到钉死快照）；
+# 旧 zip 解包目录 ../cn-math-taxonomy-main 保留为 d58785ce 取证现场，不再用作转换源。
+git clone https://github.com/xiaoyang111222/cn-math-taxonomy.git ../cn-math-taxonomy  # 一次性
+cd ../cn-math-taxonomy && git checkout <钉死快照 sha> && cd -   # 必须 detached 到钉死快照，不是最新 main
+# make seed-load / seed-questions 的 --src 仍指向旧 zip 路径（Makefile 不在本票白名单，另票更新）；
+# 重跑请显式传 --src：
+cd wengu-api && python -m scripts.import_seed --src ../../cn-math-taxonomy --grades primary,junior,senior
 ```
 
 **zip 来源必须显式传 `--upstream-commit <sha>`**：若上游来自 GitHub zip 解包（无 `.git`），
@@ -46,14 +52,17 @@ provenance 键（`upstream_commit_date` / `upstream_author` / `upstream_spdx` / 
 换快照重跑后必须按 §19-F-1 重新取证、重新策展，不得沿用旧证据。
 
 转换规则：学段过滤 `--grades` 参数驱动（默认 junior，可复现可回退）→ 12 核心字段直映
-（camelCase→snake_case）→ 按 id 前缀显式化 `subject`（cnm_=数学、cne_=英语、cnp_=物理）→
+（camelCase→snake_case）→ 按 id 前缀显式化 `subject`（cnm_=数学、cne_=英语、cnp_=物理、cnc_=语文、
+cnk_=化学、cnb_=生物、cns_=科学、cnd_=道德与法治、cnh_=历史、cng_=地理）→
 打质量标签 → 先修边跨学段全量保留（收录范围与丢弃数记入 `_source.json`）。
 全量收录 grade 1-16（grade 10-16 语义为"册"）。
 
 ## 上游更新检查（开发者，手动跑）
 
-上游 `cn-math-taxonomy` 持续演进（钉死快照 `d58785ce` 之后已新增学科与大量题目）。**发现**靠本脚本 +
+上游 `cn-math-taxonomy` 持续演进（钉死快照 `8b57f2e` 之后仍在修订）。**发现**靠本脚本 +
 维护者 GitHub Watch 上游仓库兜底；**同步永远是另一票**，人工触发。
+**本仓库钉死的是 `8b57f2e`，不是上游最新**（2026-11-19 上游触及 `data/` 的最新提交已前进到
+`df0879d0…`）；本脚本报「上游有更新」是常态而非故障。
 
 ```bash
 # 在仓库根目录执行（唯一跑法；不进 CI cron、不进 make 目标、不进应用）
@@ -70,7 +79,7 @@ python wengu-api/scripts/check_upstream.py --pinned <sha>   # 快照一致性复
   exit **2** = 检查失败（缺文件/缺键、网络失败、403 限流）——**绝不静默当"已同步"**，稍后重试或人工排查。
   只读 GET、无鉴权、无 token；对 `seeds/data/` 零写入。
 - **`--pinned <sha>` 复检模式**：对比指定上游快照与仓内数据，delta 全 0 → exit 0。
-  自证例：`--pinned d58785cef744341bf02d41e5568ebb953595ab18` 应 delta 全 0，且数字与两个
+  自证例：`--pinned 8b57f2e353ac041f81ba705a66503c9a9e2d8ba8` 应 delta 全 0，且数字与两个
   source JSON 的 `counts` 逐字一致。
 - **发现更新后的流程**：同步 = 重导入（`import_seed.py` / `import_questions.py`）+
   **按设计文档 §19-F-1 重新取证、重新策展**（provenance 键是旧快照的取证工件，不得沿用）+
@@ -84,14 +93,17 @@ python wengu-api/scripts/check_upstream.py --pinned <sha>   # 快照一致性复
 - 每题在装载时过 P1-5 AST 白名单沙箱核验 `verify`：能算且与答案一致 → `verified`；
   无 `verify` / 表达式用了沙箱白名单外的 `Fraction`、`range`、数学函数 / 选择题选项带单位
   → `unverifiable`（保留，供考核使用）；**纯数值题算出矛盾 → 不装载**。
-  当前 7431 题：verified 5996、unverifiable 1435、mismatch 0；
+  当前 14375 题：verified 12828、unverifiable 1547、mismatch 0；
   reasons 分布见 `questions_source.json` 的 `counts.load_quality`（不在此手抄）。
 - 同类题检索：`services/bank.py` 的 `find_same_type(primary_topic_id, seed)` 用
   mulberry32（与上游 JS 逐位一致）按固定种子取 1 题，`replay(pick)` 可重放；
   无题知识点返回空 + `bank_gap=true`（P1-7a 退回原题重做）。全量收录后各学科均不低于
-  thin 阈值（学科级 500）；语文/化学无题 → 缺口。
-- 配图安全：题干与选项的内联 SVG 在后端装载时过白名单净化（`app/seed/svg.py`，
-  使用既有 `bleach` 依赖），前端只能渲染净化后的字符串。
+  thin 阈值（学科级 500）；P5-16 起 3557 点全有题，缺口只出现在未知/自建无题点。
+- 配图安全（P5-16 路线 B）：题干与选项的内联 SVG 在**构建期**过白名单净化
+  （`import_questions` 调 `app/seed/svg.py`，使用既有 `bleach` 依赖），逐段 sha256 落
+  `figures_sha256.json`；装载期**验哈希**——一致才用，不一致或缺哈希 → 丢弃该题并计入
+  `stats.dropped["figure_hash_mismatch"]`，绝不静默放行。家长补录题仍走装载期净化
+  （`services/bank.py` / `bank_import.py` 四处不变）。前端只能渲染净化后的字符串。
 
 重新生成题库（开发者，需上游 clone）：
 
@@ -99,17 +111,18 @@ python wengu-api/scripts/check_upstream.py --pinned <sha>   # 快照一致性复
 make seed-questions
 ```
 
-## 化学、语文：local/ 自建（统一 loc_ 前缀）
+## 家长自建：local/（统一 loc_ 前缀）
 
-> **（2026-11-17 标注）**：本节描述的是钉死快照 `d58785ce`（2026-10-23）的事实——该快照里上游确无
+> **（2026-11-17 标注）**：本节原描述的是钉死快照 `d58785ce`（2026-10-23）的事实——该快照里上游确无
 > 化学/语文。上游此后已大规模扩科（2026-11-15 `8b57f2e` 实测出现 cnb_/cnc_/cnd_/cng_/cnh_/cnk_/cns_
-> 等 7 个新前缀，跑 `python wengu-api/scripts/check_upstream.py` 可见）；是否引入属"同步另票"的人工决策。
+> 等 7 个新前缀）。
+> **（2026-11-19 更新，P5-16）**：扩科决策已落地——10 学科全量同步进 `data/`（语文 683 点 / 化学 147 点），
+> "化学/语文空 seed 起步"作废。本地自建机制**保留**，理由 = **教材版本差异 + 家长自建章级点**。
 
-钉死快照 `cn-math-taxonomy` 不含化学、语文（见上方标注）。家长复用同款 topics 契约在 `local/`
+家长复用同款 topics 契约在 `local/`
 放同结构 JSON（如 `local/topics.chemistry.json`），按课本目录录**章级粗粒度 40–80 点**
 （`mastery_criteria` 可精简、无诊断题、`unaudited: true`），细粒度交给"错题驱动受控生长"。
-装载器容忍缺文件/空数组。本地自建保留的理由是**教材版本差异 + 家长自建章级点**
-（上游 HEAD 已有语文/化学，是否引入属"同步另票"的人工决策）。
+装载器容忍缺文件/空数组。
 
 **本地 id 约定（P5-15，§19-G-3 定案一）**：统一 **`loc_` 单前缀**（`loc_001`、`loc_002`…），
 学科由 `subject` 字段承载（白名单现语文/化学）；装载器/API 强制 `source='local'`，

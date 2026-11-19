@@ -12,7 +12,7 @@ import pytest
 from scripts import import_questions, import_seed
 
 ROOT = Path(__file__).resolve().parents[3]
-UPSTREAM_SHA = "d58785cef744341bf02d41e5568ebb953595ab18"
+UPSTREAM_SHA = "8b57f2e353ac041f81ba705a66503c9a9e2d8ba8"
 SOURCE_PATHS = ["seeds/data/_source.json", "seeds/data/questions_source.json"]
 PROVENANCE_KEYS = {
     "upstream_commit",
@@ -50,12 +50,12 @@ def test_license_is_pure_mit() -> None:
 def test_source_provenance_literals(rel: str) -> None:
     source = _source(rel)
     assert source["upstream_commit"] == UPSTREAM_SHA
-    assert source["upstream_commit_date"] == "2026-10-23T12:40:17Z"
+    assert source["upstream_commit_date"] == "2026-11-15T11:27:27Z"
     assert source["upstream_spdx"] == "CC-BY-NC-4.0"
-    assert source["code_spdx"] == "MIT"
+    assert source["code_spdx"] == "ISC"
     assert "Aifeng" in source["upstream_author"]
     assert "xiaoyang111222" in source["upstream_author"]
-    assert source["snapshot_source"] == "GitHub zip of main（无 .git），upstream_commit 由内容寻址反查钉死"
+    assert source["snapshot_source"] == "git clone（--filter=blob:none --no-checkout，完整历史带 .git）+ detached checkout 到 8b57f2e；upstream_commit 由 git rev-parse HEAD 真实探测，四 blob 与 GitHub API（contents/trees）交叉验证"
     assert source["modified"]
     assert "全量收录" in source["modified"]
     assert source["disclaimer"]
@@ -75,19 +75,28 @@ def test_provenance_keys_identical_in_both_sources() -> None:
 
 @pytest.mark.unit
 @pytest.mark.parametrize("rel", SOURCE_PATHS)
-def test_commit_evidence_pins_blobs_and_parent(rel: str) -> None:
+def test_commit_evidence_pins_blobs_and_method(rel: str) -> None:
+    """P5-16：四 blob sha + 取证方法钉死；旧快照（d58785ce）证据串不得掺混。"""
+
     evidence = "\n".join(_source(rel)["commit_evidence"])
     for literal in [
-        "79cd0a87c89e3575fcbac17c738882489305d676",
-        "76058ca51f98bfaf6ec52aad998143d5dc40ada5",
-        "28cee1a857b2a05cbb798c738212704addec4a8a",
-        "cc60a25e66c45ddfa5b45118ea39162daf9fa426",
-        "7dc3d6adf5ea6ad96be5c27761143fbc8060625d",
-        "76db74d1394e8e2084ae21753d03a73fc937e79c",
+        "4a5d7eb084bc85a90556f637381d768ec859a4f7",
+        "600cae28825fbd48f82264b5f3269613699dde2a",
+        "92bf760673f20b4b2e8b831c077711611819b296",
+        "7aab6f220b0bc19f25c9bf436852b721a6a485c2",
         UPSTREAM_SHA,
-        "cnl_",
+        "git clone",
+        "detached",
+        "rev-parse",
+        "contents API",
+        "trees API",
+        "不沿用旧证据串",
     ]:
         assert literal in evidence
+    # 负断言：旧快照 parent/本地前缀证据不得残留
+    assert "7dc3d6adf5ea6ad96be5c27761143fbc8060625d" not in evidence
+    assert "76db74d1394e8e2084ae21753d03a73fc937e79c" not in evidence
+    assert "cnl_" not in evidence
 
 
 @pytest.mark.unit
@@ -184,11 +193,11 @@ def test_readme_positioning_in_first_lines() -> None:
 
 @pytest.mark.unit
 def test_seed_data_counts_match_snapshot() -> None:
-    """P5-10 全量收录：计数钉死同一快照 d58785ce 的全量字面（非初中子集）。"""
+    """P5-16 全量收录：计数钉死同一快照 8b57f2e 的全量字面（10 学科）。"""
 
-    assert len(json.loads(_read("seeds/data/topics.json"))) == 1821
-    assert len(json.loads(_read("seeds/data/dependencies.json"))) == 2917
-    assert len(json.loads(_read("seeds/data/questions.json"))) == 7431
+    assert len(json.loads(_read("seeds/data/topics.json"))) == 3557
+    assert len(json.loads(_read("seeds/data/dependencies.json"))) == 5132
+    assert len(json.loads(_read("seeds/data/questions.json"))) == 14375
 
 
 @pytest.mark.unit
@@ -198,7 +207,8 @@ def test_license_data_and_doc_links() -> None:
     assert "CC BY-NC 4.0" in data_license
     assert "Aifeng" in data_license
     assert "已修改" in data_license
-    assert "1821" in data_license and "2917" in data_license and "7431" in data_license
+    assert "1821" not in data_license  # 旧快照计数不得残留
+    assert "3557" in data_license and "5132" in data_license and "14375" in data_license
 
     notices = _read("THIRD-PARTY-NOTICES.md")
     assert UPSTREAM_SHA in notices
