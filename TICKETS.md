@@ -1781,6 +1781,31 @@
     清单类引用必须用 grep 实况生成，不手写条数。
 
 ### P5-16 全量同步扩科（10 学科，新快照 `8b57f2e`；含重新取证 + SVG 净化前移/装载验哈希；改变数据面）
+- **状态：已合并（2026-11-20，PR#69 squash → main `7ca7014`；原分支已删）**。
+  验收：起点 **29 failed / 870 passed** → 归零，main 上审核方实跑 **901 passed**（461.64s）；
+  `load_bank(14375)` 实测 **1873 / 1960 ms**（两轮，均 ≤ 3000 闸门）；`mismatch = 0`、`figures 640`、
+  verified 12828 / unverifiable 1547；TSV **1268 行 / CRLF 1268 / 裸 LF 0 / 无 BOM**，9 学科初中分布吻合；
+  ruff 全仓绿、selfcheck 18 OK、前端 57/57 + tsc + build ✓；CI 两轮三绿（run `44556121325`、`44621201299`）。
+  **四段 blob 审核方用 GitHub tree API 独立复核全部一致**（含改走 trees 的 `dependencies.json`）；
+  `commit_evidence` 如实区分 contents/trees 两条路径、记录上游两次前进（`aa2c2205` → `df0879d0`）
+  与"按卡停下上报、决策人裁定继续钉 `8b57f2e`"，并记录**上游自身 `package.json` 声明 ISC 而 README
+  声明 CC BY-NC 4.0 的不一致**（`code_spdx` 随之改为 ISC，wengu 只取数据）。
+  自主变异：施工方三靶点（判据退回按前缀 / `LOCAL_PREFIX="cnl_"` / 删 `except LegacyLocalIdError`）+
+  **审核方四靶点**（篡改 `figures_sha256.json` 一条哈希 → 丢 1 题并计数；`check_upstream` 删 `cnc_` → 8 红；
+  TSV `newline` 改回平台默认 → 字节守卫红；注释掉边的全量重建 → 幽灵点测试红），全部还原 sha256 一致。
+  commit 拆分诚实性经 detach 实测（`962f8fa` 单跑 8 个受影响文件 = 107 passed）。
+- **CRLF 事故认领（审核方责任，非施工方）**：折入轮 Qoder CN 撞到 4121+/3897− 幻影 diff，根因是
+  **审核方沙箱内 git 读不到用户级 `core.autocrlf=false`（只剩系统级 `true`），为验 commit 独立全绿
+  做 `git switch --detach` 往返，把两个 commit 之间有差异的 5 个文档按 CRLF 写回工作区**。
+  施工方正确怀疑"外部转换来源"并自行修复（CRLF→LF 还原 + 对未推送的 `21cb913` 做 amend → `57f863c`）；
+  审核方复核 8 个文件盘上字节 == HEAD blob、CR 字节为 0。
+  **整改已生效**：审核方所有 git 命令一律显式带 `-c core.autocrlf=false`；**根治方案 = P5-17**
+  （普查发现 HEAD blob 含 CRLF 的文本文件有 9 个而非 1 个，根因是 import 脚本 `_write_json` 用
+  `Path.write_text()`，Windows 生成即 CRLF）。
+  **amend 处置认可**：`21cb913` 从未推送，amend 不违反"不改写已推送历史"；事故经过保留在本留痕与
+  PR body，不因 amend 而消失。
+- **登记第 23 次卡面缺陷（措辞过实）**：卡面写"两个 commit 各自可回滚"，而本仓一律 **squash 合并**，
+  回滚粒度是整票——多 commit 只利审查可读性。措辞已在 P5-16 / P5-17 卡校准。
 - **前置**：P5-15 判据解耦已合并（main `4f7e101`）——本票是 §19-G-3 定案一的**后半**：消费逻辑已就位，
   现在才允许加数据。
 - **三条已定案（不要重开）**：① **全要 10 科**、可以重新取证；② 转录目录那把尺**不变**（仍按

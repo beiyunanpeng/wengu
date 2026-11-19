@@ -3230,7 +3230,22 @@ TSV 改 LF 或动模板 `version`；为 `difficulty` 新档 `challenge` 加枚�
 提交前 `git diff --name-only` 核对并贴清单；交付给"你自己实跑"的数字（含分相耗时与体积涨幅）+
 单列「审核方需复核的点」；代码与本卡不符时以实际代码为准，先读再改，不一致上报不要硬凑。
 
-## P5-17 —— 行尾根治（生成侧显式钉死 LF + `.gitattributes` + 一次性 renormalize；零功能改动；基线 main `615d470`，pytest 901）
+**交付后补记（2026-11-20，审核方）**：PR#69 squash → main `7ca7014`，分支已删。
+起点 29 failed / 870 passed → 归零，main 复验 **901 passed**；`load_bank(14375)` 实测 1873 / 1960 ms
+（≤ 3000 闸门）；`mismatch = 0`、TSV 1268 行纯 CRLF 无 BOM；四段 blob 审核方用 tree API 独立复核全一致；
+施工方三靶点 + 审核方四靶点变异全红后还原（含"篡改哈希清单本身"与"注释掉边的全量重建"两个新面）。
+折入两项审核方裁定：STATUS §4.15 现状口径纠正、幽灵点语义钉死（`test_seed_ghost_topics.py`，
+走真实入本链而非合成行）。
+
+**CRLF 事故与整改（审核方责任，写在这里防止被 amend 掩盖）**：折入轮出现 4121+/3897− 幻影 diff，
+成因是审核方沙箱 git 读不到用户级 `core.autocrlf=false`、只剩系统级 `true`，
+`git switch --detach` 往返把两 commit 间有差异的 5 个文档按 CRLF 写回工作区。施工方怀疑"外部来源"正确、
+自行修复并对未推送的 `21cb913` 做 amend（认可，因未推送）。整改：审核方所有 git 命令一律
+`-c core.autocrlf=false`；根治 = **P5-17**（普查发现 CRLF blob 有 9 个文件，根因在 `_write_json` 用
+`Path.write_text()`）。**登记第 23 次卡面缺陷**：卡写"两个 commit 各自可回滚"，本仓一律 squash，
+回滚粒度是整票——多 commit 只利审查，措辞已校准。
+
+## P5-17 —— 行尾根治（生成侧显式钉死 LF + `.gitattributes` + 一次性 renormalize；零功能改动；基线 = 开工时 `origin/main` 实况，pytest 基线以 `--collect-only` 实取）
 
 你在 wengu 仓库工作。开工前先完整读：AGENTS.md §5（外部数据分发与净化）、§8（一票一 PR、DoD、合并留痕双写）；
 设计文档 **§19-L 纪律⑦**（本票要把它泛化）与 §19-F-1（取证方法）；TICKETS.md 的 **P5-17 卡**
