@@ -2135,6 +2135,25 @@
   给出可读错误，不得回退成"假装无差异"。
 - **取证副次产物**：审核方干跑脚本 `D:\MyProducts\StudyDesk\_kg_probe.py` / `_kg_probe_global.py` /
   `_kg_probe_ss.py` / `_kg_probe_final.py`（仓库外，可复跑复核）。
+- **状态：已合并（2026-11-20，PR#71 squash → main `2b8b033`；原分支已删，`ls-remote` 复核为空）**。
+  两个 commit：`e555cfa` 脚本+单测（1052+360 行，23 条）/ `5aa6775` 文档三处
+  （交付报告笔误写作 `5aa8775`，盘上实为 `5aa6775`，nit 已记入 PR body）。
+  审核方独立复验：两种布局各实跑 exit 0，卡面锚点全部复现——瘦图 10685/23278/0 evidence；
+  四科 2711/5273=27.9%、2025/4092=34.9%、3491/8141=45.9%、2458/4965=38.7%，prereq 带 evidence
+  95.8/99.4/99.3/100.0%；数学缺 verifies；化学富图 2 个 2-节点环且四边 evidence 原文在报告；
+  瘦图交叉 consistent；我们侧 cycles=0；555/44/287；gap ①6 ②17 ③5150 ④13、排除 922、反向 4；
+  demo 157/285/90、精确 9 / 串含 61（全学段）/46（grade7 口径）。全量 **929 passed**
+  （施工方 514.64s + 审核方 main 复跑 473.90s 同数）、ruff 全仓绿；零写入（git status 前后空、
+  seeds 7 件 sha256 不变）；合并后 main 复跑守卫 28 passed、CRLF 普查仍仅 TSV。
+  读盘纠正三笔经审核方实测确认属实：瘦图 tests_* 扁平形态；子串口径 = 同学科全学段（287，
+  同学段限 223），精确档 44 不变；evidence 有字符串与 `{text,page}` 字典双形态
+  （math 1396+77=1473、demo 77+13=90，卡面总数口径成立）。自主变异两靶（施工方未演示）：
+  ① `map_subject` 退化包含式匹配 → `test_subject_map_literal_equality_only` 红；
+  ② `edge_type_counts` 预种 9 类 → `test_label_and_edge_type_counts_iterate_measured_set` 红
+  （红在 `"verifies" not in counts`）；还原 sha256 一致、23 passed、工作区干净。
+  无 evidence 原文进仓库：diff 命中 3 处均为节点名与"××段"定位描述。
+- **后续（另票）**：化学 2 环提上游 issue（定案三 B，人工决定时机）；册名→int 年级逐册映射
+  如将来需要，必须先实测取证再写卡（本票无依据）。
 
 ---
 
