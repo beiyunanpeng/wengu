@@ -3548,3 +3548,32 @@ CC BY-NC-SA 数据被误提交或误打包。审核方已把两种布局都取�
 提交前 `git diff --name-only` 核对并贴清单；交付贴迁移对照、answer 零泄漏断言、
 批量与单条一致性对照表、状态机 409 与缺失条目实测、全量 pytest/ruff/前端三件套尾部统计；
 单列「审核方需复核的点」；卡面与盘上不符时以盘上为准并上报，不要硬凑。
+
+## P3-4 卡面补强（折入轮，2026-11-20；登记第 28 / 29 次卡面缺陷，均归审核方）
+
+**第 28 次 = 白名单反推漏项（第 5 次漏）**：DoD 写"迁移 0024 up/down/up 绿"，没反推出该断言落在
+`wengu-api/tests/integration/test_migrations.py`（`EXPECTED_TABLES` 与 `== 22` 表数断言）——任何新表必炸它。
+施工方做了最小越界改动（+`dictation_sheets`、22→23，共 2 行）并主动上报，**认可保留，不另开票**。
+
+**第 29 次 = 要求了本仓不存在的设施**：定案⑤写"单测 + 组件测试双断言"，而 `wengu-web/package.json:11`
+是 `node --test tests/*.test.ts`，无 jsdom / testing-library / vitest。**接受替代取证三层**
+（打印页源码 `answer` 出现 0 次 + `SheetItemView` 无该字段 + 浏览器实测）。今后卡面对前端只写可执行层级，
+不再写"组件测试"。
+
+**审核方五靶变异结论**：M2 放开"一卷一学科"→ 红；M3 `ensure_open` 空函数化 → 红；
+M4 模型+迁移同时预留 `audio_path` 列 → 红（`test_0024_dictation_sheets_up_down_up` 抓到，
+"接口预留禁止"确有守卫）；M5 响应模型加 `answer` 字段 → 红
+（`test_sheet_projection_and_schemas_have_no_answer_field`）；
+**M1 `MAX_SHEET_ITEMS` 200 → 200000 → 全绿 = 守卫缺口**。另核实 `backup.py:42` 的 `COUNT_TABLES`
+（14 项，含 recitation_items/reviews、pomodoro_sessions）未含 `dictation_sheets` → manifest 少一项计数；
+施工方因不在白名单未动，处置正确。
+
+**折入两项与白名单扩充**：`wengu-api/app/services/backup.py`、
+`wengu-api/tests/integration/test_backup_api.py`（原白名单之外，仅此折入用途）。折入 = 分支上一个
+普通追加 commit（不 amend `98ba64c`），`git diff --name-only` 恰好五文件：
+`wengu-api/tests/unit/test_dictation.py`、`wengu-api/tests/integration/test_dictation_api.py`、
+`wengu-api/app/services/backup.py`、`wengu-api/tests/integration/test_backup_api.py`、`CHANGELOG.md`。
+断言要求：上限必须**测边界两侧**（恰好 200 通过 / 201 抛 `RecitationInvalid`，API 侧 422），
+备份侧必须断言**真计数**（建 1 张卷 → `manifest["counts"]["dictation_sheets"] == 1`），
+不得只断言"键存在"。三处变异自证：改大上限、把 `>` 写成 `>=`、从 `COUNT_TABLES` 删掉新表。
+

@@ -2243,6 +2243,28 @@
 - **后续票（2026-11-20 决策轮登记）**：**P3-4b 听写音频线**（前置 = P3-4 合并；触发条件已满足，
   紧随其后即可投）；**P3-4c 听力理解题**（触发 = 课程题目确实需要录入，届时先读盘取证
   `doubao_bank_transcribe_v1` 与组卷链路能否零改动承载"音频+题"）。
+- **卡面补强（折入轮 2026-11-20；登记第 28 / 29 次卡面缺陷，均归审核方）**：
+  **第 28 次 = 白名单反推漏项（我的第 5 次漏）**：DoD 写了"迁移 0024 up/down/up 绿"，却没反推出该断言
+  落在 `wengu-api/tests/integration/test_migrations.py`（`EXPECTED_TABLES` 与 `== 22` 表数断言）——
+  任何新表必炸它。施工方按盘上实况做了最小越界改动（+`dictation_sheets`、22→23，共 2 行）并主动上报，
+  **审核方认可保留，不另开票**。
+  **第 29 次 = 要求了本仓不存在的设施**：定案⑤写"单测 + 组件测试双断言"，而
+  `wengu-web/package.json:11` 的测试命令是 `node --test tests/*.test.ts`，无 jsdom / testing-library /
+  vitest。**接受其替代取证三层**（打印页源码 `answer` 出现 0 次 + `SheetItemView` 无该字段 +
+  浏览器实测），今后卡面对前端只写可执行层级（tsc + node --test + 源码级守卫 + 浏览器实测），
+  不再写"组件测试"。
+  **审核方五靶变异结论**：M2 放开"一卷一学科"（`len(subjects) != 1` → `> 2`）→ 红；
+  M3 `ensure_open` 改空函数 → 红；M4 模型+迁移同时预留 `audio_path` 列 → 红
+  （`test_0024_dictation_sheets_up_down_up` 抓到，**"接口预留禁止"确有守卫**）；
+  M5 响应模型加 `answer: str = ""` 字段 → 红（`test_sheet_projection_and_schemas_have_no_answer_field`）；
+  **M1 把 `MAX_SHEET_ITEMS` 从 200 改成 200000 → 全绿 = 守卫缺口**（该上限是施工方自报的边界决策，
+  无测试兜着）。另核实 `backup.py:42` 的 `COUNT_TABLES`（14 项，含 `recitation_items` /
+  `recitation_reviews` / `pomodoro_sessions`）未含 `dictation_sheets` → manifest 少一项计数；
+  施工方因该文件不在白名单而未动，处置正确。
+- **折入两项与白名单扩充（本票追加授权）**：`wengu-api/app/services/backup.py`、
+  `wengu-api/tests/integration/test_backup_api.py`（原白名单之外的两个文件，仅此折入用途）；
+  其余仍限原白名单。折入以分支上一个普通追加 commit 交付（不 amend `98ba64c`），
+  新 commit 的 `git diff --name-only` 恰好五个文件（两处测试 + `backup.py` + 备份测试 + `CHANGELOG.md`）。
 
 ---
 
