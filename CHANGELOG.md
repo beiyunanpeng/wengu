@@ -9,6 +9,56 @@
 
 ### Added
 
+- **P5-18 K12-KGraph 只读对照审计脚本（§19-G-3 定案二/三落地；零迁移、零新依赖、零联网、对仓库零写入）**（2026-11-20）：
+  - **新增 `wengu-api/scripts/audit_kg.py`**（check_upstream 三层式：纯解析/计算 → 只读输入 → 输出）：
+    CLI `--kg-dir`（默认 `../K12-KGraph-hf`，文件探测同时支持 GitHub demo 布局 `../K12-KGraph`）、
+    `--out-dir`（默认仓外 `../kg-audit`）、`--books-yaml`、`--json`、`--subject`（默认四科全跑）。
+    布局靠文件探测 + sha256 锚点校验（HF 六件 / demo 两件 + manifest + books.yaml），
+    缺件/锚点不符/未知布局 → 可读报错 exit 2，绝不静默出半份报告；
+    `--kg-dir` / `--out-dir` / `--books-yaml` 任一落在仓库内即拒绝运行（纯函数判定，单测覆盖）。
+    报告 JSON+MD 成对只写仓外 `kg-audit/`（UTF-8 + `newline="\n"`）；
+    他们的 definition/examples/stem/answer/evidence 原文**一律不进仓库任何位置**（抄文本即 Adaptation，触发 CC BY-NC-SA）。
+  - **三层 schema 解析（读盘钉死）**：瘦图 `global_KG/` 扁平数组（节点仅 id/label/name、边仅
+    source/target/type，**tests_* 在瘦图也是扁平形态**）；四科富图 `subject_specific_KG/`
+    （节点 properties、边 properties.evidence，**evidence 有字符串与 {text,page} 两形态**）；
+    demo 书级（富图同构 + tests_* 用 source_stem + target_name_to_ids[]）。
+    边类型按实测集合遍历——数学富图缺 verifies，不写死 9 类。
+  - **实测复现卡面锚点（全部对上）**：瘦图 10685 节点 / 23278 边 / 0 evidence；
+    富图 math 2711/5273（evidence 27.9%、prereq 95.8%）、physics 2025/4092（34.9%、99.4%）、
+    chemistry 3491/8141（45.9%、99.3%）、biology 2458/4965（38.7%、100.0%）；
+    **上游化学 2 个先修环**（cpt100 极性分子 ↔ cpt108 相似相溶规律；skl2 根据键能估算反应热 ↔
+    cpt10 化学键能量变化与反应热），四条边全带 evidence（原文只留仓外报告），瘦图全局 2 环交叉一致，
+    与其 README「Automatic DAG validation」声称不符 → 处置走定案三 B 提上游 issue（另票人工决定）；
+    **我们侧 5132 边 Kahn + 迭代 Tarjan 双算法 cycles=0**（自环 0、悬空 0）；
+    数学初中候选 555 名 / 精确 44 / 子串 287；demo 书级 157/285、evidence 90、精确同名 9。
+  - **读盘纠正三笔（卡面与盘上不符，以盘上为准）**：① 卡面⑨「tests_* 用 source_stem」仅指 demo 书级，
+    瘦图 tests_* 实为扁平 source/target；② 卡面⑰子串口径有歧义——实测 287 = 同学科**全学段**比对
+    （限同学段只有 223），候选表定为「精确=同学段档、子串=同学科全学段」；
+    ③ evidence 除字符串外还有 {text,page} 字典形态（数学富图 77 条、demo 13 条），
+    只数字符串会漏计（1396→1473、77→90），两形态都提取 text。
+  - **gap 分类（定案三，只出候选表 + 结构体检，不出覆盖率结论）**：① 6 科无对照
+    （英语/语文/道德与法治/科学/历史/地理）；② 17 条（2 环 + 15 缺失/方向相反边，全部带 evidence）；
+    ③ 5150 条（全部带 evidence；**922 条无 evidence 被排除不进清单**）；④ 粒度差异单列不计缺失
+    （化学 2302 vs 147、生物 1648 vs 66、数学 1470 vs 870、物理 1154 vs 269）；
+    反向 gap 标注「不算问题、不得据此删点」。demo 布局：②1 条、③43 条、子串 61（全学段口径）。
+    学科映射写死逐字四科（**他们「生物学」≠ 我们「生物」**，禁止包含式匹配）；学段仅 stage 三档，
+    不做逐册年级映射（无实测依据）。books.yaml 在 HF 目录不存在 → 解析顺序：显式 `--books-yaml` →
+    kg-dir 内 → HF 布局兄弟目录 `K12-KGraph/books.yaml`（新增旗标，卡面未列，审核复核点）。
+  - **测试与守卫**：新增 `wengu-api/tests/unit/test_audit_kg.py` **23 条**（三种解析形态、坏形状拒绝、
+    实测集合遍历、evidence 两形态、瘦图无 evidence 不进 gap 清单、两档匹配口径、布局探测失败、
+    仓库内路径拒绝含兄弟目录不误伤、学科映射逐字相等、books.yaml 解析、NFKC、Kahn/Tarjan
+    含三节点环/两节点互环/自环悬空/3000 节点深链）；断言一律手写字面（§19-L 纪律①）。
+    全量 pytest **929 passed**（906 基线 + 23 新增，514.64s 实跑）；`ruff check --no-cache .` 全仓绿；
+    `test_repo_eol.py` 5 条行尾守卫绿。
+  - **零写入与不进备份证明（实跑）**：两布局各跑一遍前后 `git status --porcelain` 均空；
+    `seeds/data/*` 六件 + TSV 共 7 件 sha256 逐件不变；`requirements.txt` 零 diff；
+    脚本源码 grep 无 requests/urllib/httpx/socket/sqlite3/datasets/huggingface/networkx；
+    真实跑一次备份导出（zip 21 条目 = DB 快照 + uploads + manifest），无任何 kg-audit / K12 路径，
+    验证后测试 zip 已删除恢复原状。
+  - **文档**：设计文档 §19-G-3 定案三后追加「P5-18 实测追加」段（三层 schema + 四科规模 +
+    2 个上游化学环（evidence 定位描述，原文不进仓库）+ 6 科无对照 + 学科名逐字不等 + 候选表口径）；
+    `docs/STATUS.md` 交付区新增本票条目。
+
 - **P5-16 全量同步扩科（10 学科，新快照 `8b57f2e`；§19-G-3 定案一后半；改变数据面；零迁移、零新依赖）**（2026-11-19）：
   - **数据面**：上游快照 `d58785ce` → **`8b57f2e353ac041f81ba705a66503c9a9e2d8ba8`**（2026-11-15T11:27:27Z）——
     知识点 **3557**（小学 1481 / 初中 1267 / 高中 809）、先修边 **5132**（`dropped_cross_boundary=0`，
