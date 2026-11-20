@@ -38,6 +38,10 @@
   - 卡面缺陷两笔（以盘上为准并上报）：① `test_migrations.py` 不在白名单，但其
     `EXPECTED_TABLES` / 22 张字面随新表必须更新（最小改动两处）；② 前端测试是 node --test
     纯逻辑、无 DOM 设施，定案⑤"组件测试双断言"以打印页源码守卫 + API 响应断言代替。
+  - 折入轮（2026-11-20，审核方变异发现两处"有承诺无守卫"）：200 词上限补手写字面值
+    边界两侧断言（常量调大 / `>` 写成 `>=` 均 RED→GREEN 变异自证）+ API 201 词 422 断言；
+    `backup.py` `COUNT_TABLES` 补 `dictation_sheets` 并加真计数断言（建 1 卷 → manifest
+    counts == 1，删表即红）；全量 **954 passed**（953 + 集成 1）。
 - **P5-18 K12-KGraph 只读对照审计脚本（§19-G-3 定案二/三落地；零迁移、零新依赖、零联网、对仓库零写入）**（2026-11-20）：
   - **新增 `wengu-api/scripts/audit_kg.py`**（check_upstream 三层式：纯解析/计算 → 只读输入 → 输出）：
     CLI `--kg-dir`（默认 `../K12-KGraph-hf`，文件探测同时支持 GitHub demo 布局 `../K12-KGraph`）、

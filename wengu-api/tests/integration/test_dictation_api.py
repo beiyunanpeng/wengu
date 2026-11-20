@@ -245,6 +245,19 @@ async def test_sheet_create_validation(tmp_path) -> None:
         assert listed.json()["total"] == 0
 
 
+async def test_sheet_create_rejects_over_cap(tmp_path) -> None:
+    """201 个 item_ids 必须 422（手写字面值，不随 MAX_SHEET_ITEMS 漂移）。"""
+
+    factory = _migrated(tmp_path)
+    async with _client(factory) as client:
+        response = await client.post(
+            "/api/recitations/sheets", json={"item_ids": list(range(1, 202))}
+        )
+        assert response.status_code == 422, response.text
+        listed = await client.get("/api/recitations/sheets")
+        assert listed.json()["total"] == 0
+
+
 async def test_full_chain_record_due_and_graduate(tmp_path) -> None:
     factory = _migrated(tmp_path)
     async with _client(factory) as client:

@@ -54,6 +54,7 @@ COUNT_TABLES = (
     "recitation_items",
     "recitation_reviews",
     "pomodoro_sessions",
+    "dictation_sheets",
 )
 
 logger = logging.getLogger(__name__)

@@ -71,9 +71,12 @@ def test_normalize_item_ids_rejects_empty_duplicate_and_non_positive() -> None:
 
 
 def test_normalize_item_ids_caps_sheet_size() -> None:
-    normalize_item_ids(list(range(1, MAX_SHEET_ITEMS + 1)))
+    """边界两侧钉手写字面值（§19-L）：常量调大或 > 写成 >= 都必须红。"""
+
+    assert MAX_SHEET_ITEMS == 200
+    assert normalize_item_ids(list(range(1, 201))) == tuple(range(1, 201))
     with pytest.raises(RecitationInvalid):
-        normalize_item_ids(list(range(1, MAX_SHEET_ITEMS + 2)))
+        normalize_item_ids(list(range(1, 202)))
 
 
 def test_validate_results_reorders_into_sheet_order() -> None:
