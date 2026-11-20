@@ -1975,6 +1975,15 @@
   ——两个 import 脚本必须出现 `newline="\n"` 且不得出现 `newline="\r\n"`；对称钉死
   `export_topics_junior.py` 保留 `newline="\r\n"`（P5-10 定案，现状只有 Linux CI 才抓得到）。
   折入以分支上一个**普通追加 commit** 交付（不 amend `fed4dd0`），白名单不变（守卫测试文件 + `CHANGELOG.md`）。
+- **卡面补强四（2026-11-20；施工方上报、审核方定性为第 27 次卡面缺陷）**：
+  原任务 1 写"重跑两个 import 脚本（同一快照 `8b57f2e`），产物**仅换行差异、内容零变化**"。照字面执行会毁掉两份
+  source JSON 的人工策展键——脚本只发射 10 个基础键，`_source.json` / `questions_source.json` 里的 `commit_evidence`
+  等 9 键、`counts.load_quality`、`name` 的「10 学科」后缀都不在发射集内，重跑即覆盖（`imported_at` 另带今天日期戳）。
+  施工方**没有照做**：改在仓库外 scratch 目录重跑取证（四个纯产物与 HEAD blob 去 CR 逐字节相等、新产物 CRLF 全 0），
+  仓内两份 source JSON 只由 renormalize 做换行处理，并如实上报——判定正确，`seeds/README.md` 本就警告过覆盖风险。
+  **性质**：卡把"四个纯产物（可覆盖）"与"两份含策展键的 source JSON（只能换行级）"混成一句指令，属**会诱导施工方
+  破坏数据**的卡面错误，比措辞不准更重。已泛化为 `AGENTS.md §8`「重跑生成脚本的覆盖边界」。
+  **本条不改变 P5-17 折入轮的白名单与要求**（施工方已按盘实况处理，无追加动作）。
 
 ---
 
