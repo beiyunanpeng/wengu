@@ -9,6 +9,33 @@
 
 ### Added
 
+- **P3-4b 听写音频线（卷级挂接 + 目录扫描 + index 化播放端点 + 听写卷面隐藏提示；零新依赖、零联网）**（2026-11-21）：
+  - **迁移 `0025_dictation_sheet_audio_ref`（可逆，原生 ADD/DROP COLUMN）**：`dictation_sheets` 加
+    `audio_ref` 可空 TEXT（只存纯文件名），**一卷一音频、默写卷留空、不预留其他列**；
+    up/down/up + 9 列手写字面列集断言 + 回退再升级 sqlite_master 逐字一致测试随票新增。
+  - **新增 `app/services/dictation_audio.py`**：mp3/m4a/wav **魔数嗅探**（ID3/帧同步、ftyp、RIFF…WAVE），
+    扩展名与内容不一致即拒（伪装 `.mp3` 实为 PNG 头 → 422）；纯文件名校验 + `is_relative_to` 越界拦截；
+    `MAX_AUDIO_BYTES=64MB` / `MAX_AUDIO_LIST=500` 硬常量（不做 UI 配置），列表按名排序、截断报
+    `truncated`；**目录缺失 = 空列表而非错误**（家长还没放文件是常态）。
+  - **三端点**：`GET /api/recitations/audio`（孩子可读，index+name+size+truncated）；
+    `POST /api/recitations/sheets` 可选 `audio_ref`（服务层校验，失败 422 `{message, code}`）；
+    `GET /api/dictation/sheets/{id}/audio`（**孩子可读**，字节 + 嗅探 media_type +
+    `Cache-Control: no-store`；卷不存在 / 未挂接 / 文件被移走 → 404 稳定码，**绝不 500**）。
+  - **前端**：生成卷区加「听写音频（可选）」下拉（来自列表端点）；`PrintDictationSheetPage` 按
+    `audio_ref` 切换——**挂音频的卷面只印序号 + 空行、不印 prompt**（否则听写退化成抄写，本票最重要
+    产品约束；`build_print_rows` 纯函数两侧手写字面断言）；家长回录面板与孩子打印页加
+    `<audio controls>` 原生控件（不解析音频元数据）；open 卷列表加「听写」Badge。
+  - **音频绝不进 git、绝不进备份包**（§19-G-3 定案二同一条理由）：备份守卫测试实导出 zip 无任何
+    `audio/` 条目；`git check-ignore -v` 两种形式命中既有 `.gitignore:35/:38`，零新增忽略规则、
+    零音频样本进仓库（测试样本全部手写字节头）。
+  - 不做：上传端点/multipart、StaticFiles 挂载、改挂/多音频/逐词时间点、ffprobe/mutagen；
+    `decide()`/`VERDICTS`/错题写入路径原样不动。
+  - 新增单测 16 + 集成 6 + 前端纯函数 4，全量 **976 passed**；`ruff check --no-cache .` 全仓绿、
+    行尾守卫 5 条绿、前端 lint / 61 tests / build 绿；浏览器实走 golden path（选音频生成 →
+    听写卷面无提示 → 原生控件可播放 → 回录逐词入档）零控制台错误。
+  - 卡面偏差两笔（以盘上为准并上报）：① `build_print_rows` 纯函数测试需新增前端模块与测试文件
+    （白名单外 2 件，循 `mergeSelection.ts` 既有惯例）；② 0024 两条迁移测试钉到 `0024_dictation_sheets`
+    修订号（head 列集随 0025 已变），原 ORM 逐字对照由 0025 的 head 列集字面断言承接。
 - **P3-4 英语默写闭环（卷面生成 + 页内勾选回录 + 既有二档调度复用；听力线拆 P3-4b/P3-4c 两票）**（2026-11-20）：
   - **迁移 `0024_dictation_sheets`（可逆）**：`dictation_sheets`（id / created_on / created_by / subject / unit? /
     item_ids JSON 有序数组 / status open→recorded / recorded_on?），双 CHECK（status 二态 +
