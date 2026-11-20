@@ -3577,3 +3577,85 @@ M4 模型+迁移同时预留 `audio_path` 列 → 红（`test_0024_dictation_she
 备份侧必须断言**真计数**（建 1 张卷 → `manifest["counts"]["dictation_sheets"] == 1`），
 不得只断言"键存在"。三处变异自证：改大上限、把 `>` 写成 `>=`、从 `COUNT_TABLES` 删掉新表。
 
+## P3-4b —— 听写音频线（卷级挂接 + 目录扫描 + index 化播放端点 + 听写卷面隐藏提示；零新依赖、零联网；基线 = 开工时 `origin/main` 实况，pytest 基线以 `--collect-only` 实取）
+
+你在 wengu 仓库工作。开工前先完整读：AGENTS.md §5（外部数据分发与净化、配置热加载）、§8（一票一 PR、
+DoD、合并留痕双写、「边界常量必须字面钉死」）；设计文档 **§19-G-3 定案二**（外部对照数据不进分发面）
+与 **§5.9 英语/语文表**（听写=①客观；听力依赖音频来源；口语 ASR 不做）；TICKETS.md 的 **P3-4b 卡**
+（①–⑪ 实测背景、六条定案、任务、DoD、白名单、禁止的权威版）与 **P3-4 详卡 + 其折入轮补强**；
+样板代码：`wengu-api/app/api/mistakes.py:561-587`（index 化媒体端点，**本票照此形状**）、
+`wengu-api/app/services/mistake_images.py:30-70`（`MAX_IMAGE_BYTES` / `ALLOWED_MIME` / `_sniff()` 魔数 /
+`_resolve_within_uploads()` 的 `is_relative_to` 越界拦截）、`wengu-api/app/core/config.py:53-60`
+（`inbox_path` / `uploads_dir` 两个 `@property`）、`wengu-api/app/services/inbox.py:294-306`（扫目录列文件）、
+`wengu-api/app/services/dictation.py`（`create_sheet`、`MAX_SHEET_ITEMS`）、
+`wengu-api/app/services/backup.py:227-232`（备份打包根）；迁移下一号 = **0025**。
+
+【为什么有这张票】P3-4 交付的是"看中文提示写英文"的默写闭环，而**听写**（老师念/放音频，孩子写）
+是孩子真实作业里更大的一块。决策人 2026-11-20 确认所购课程的听力部分**可导出为普通本地音频文件**
+（非 DRM 流媒体），§19-G-3 定案二里"听力依赖音频来源"的触发条件就此满足。
+本票只做一件事：把音频**卷级挂**到默写卷上，孩子听音频写、家长批、页内勾选回录——回录与调度链路
+P3-4 已经建好，一律复用，不重建。
+
+【六条定案，不要重开】① 家长手动把文件放进 `data/audio/`，**本票不做上传端点**（触发条件 = 手动放
+文件确实成为负担，届时另票）；② 播放端点**孩子区可读**（与"孩子区读取原题图"同构，听写必须让孩子听）；
+③ 格式白名单 `mp3 / m4a / wav`，**魔数嗅探**，扩展名与嗅探不一致即拒；
+④ 挂接 = `dictation_sheets.audio_ref`（可空 TEXT 存文件名），一卷一音频、默写卷留空；
+**不提供改挂、不做多音频、不逐词对时间戳**；⑤ `MAX_AUDIO_BYTES = 64MB`、`MAX_AUDIO_LIST = 500`
+（列表截断并报 `truncated`），硬常量不进 UI；⑥ **有 `audio_ref` 的卷面只印序号 + 空行、不印 prompt**
+——否则听写退化成抄写，这是本票最重要的产品约束。
+
+【任务】
+1. `core/config.py` 加 `audio_dir` property（`data_dir / "audio"`），docstring 写明"第三方课程音频，
+   绝不进 git、绝不进备份包（§19-G-3 定案二同一条理由）"。
+2. 新 `services/dictation_audio.py`：纯函数层（文件名合法性、`_sniff_audio()` 魔数判定、列表排序与
+   截断、`resolve_within_audio_dir()` 用 `is_relative_to`）+ 输入层（扫描 `audio_dir`）。
+   **目录不存在 → 返回空列表，不是错误**（家长还没放文件是常态）。
+3. 迁移 `0025_dictation_sheet_audio_ref`（可逆）：`dictation_sheets` 加 `audio_ref TEXT NULL`；
+   含 up/down/up 测试；列集合断言**手写字面列出 9 列全名**，不许写"原列 + 1"这类反算形式。
+4. 端点：`GET /api/recitations/audio`（index + name + size + `truncated`）；
+   `GET /api/dictation/sheets/{id}/audio`（孩子区可读，bytes + 嗅探 media_type +
+   `Cache-Control: no-store`；卷无 `audio_ref` → 404 稳定码；文件被移走 → 404 稳定码，**不得 500**）；
+   `POST /api/recitations/sheets` 增可选 `audio_ref`，服务层校验文件在 `audio_dir` 内且嗅探通过，
+   否则 422 `{message, code}`。
+5. 前端：生成卷弹窗加"听写音频（可选）"下拉；`PrintDictationSheetPage` 按 `audio_ref` 切换卷面；
+   卷详情（家长区与孩子区）加 `<audio controls>` 指向播放端点——浏览器原生控件自带时长/进度，
+   **不解析元数据、不引入 ffprobe/mutagen**。
+6. 打印数据准备抽纯函数（如 `build_print_rows(detail)`）：有 `audio_ref` 的行集合**不含 prompt 字段**、
+   无 `audio_ref` 的含，两侧手写字面断言。
+7. 备份面守卫：`tests/integration/test_backup_api.py` 加断言——`data_dir/audio/` 放一个假音频后导出备份，
+   zip 清单不得含 `audio/` 任何条目。
+8. 文档：`CHANGELOG.md` 一条；设计文档 §5.9 注记（听写线落地口径）；`docs/STATUS.md` 交付区新增本票条目。
+
+【DoD——逐项贴输出】
+- 迁移 0025 up/down/up 绿；列集合手写字面断言（9 列）绿；
+- 嗅探三格式各造真字节头样本通过；**伪装样本必拒**（`.mp3` 实为 PNG 头 → 422）；
+- 听写卷面两侧断言（有 audio 无 prompt / 无 audio 有 prompt）；
+- 播放端点：无 `audio_ref` → 404 稳定码；文件缺失 → 404 稳定码（不得 500）；正常 → 200 + media_type +
+  `Cache-Control: no-store`；孩子区可读实测；
+- 备份清单不含 `audio/`（实跑导出贴清单）；`git check-ignore -v` 两形态实测贴出；
+- 全量 `pytest -q` 绿（基线 `--collect-only` 实取，当前 954，如实报新数）；`ruff check --no-cache .` 绿；
+  行尾守卫 5 条仍绿；前端 `tsc` + `node --test` + `build` 绿；
+- 零新依赖、零联网、不动 `app/judge/**`、不改 `decide()`/`VERDICTS`、不碰 `seeds/**` 与错题写入路径。
+
+【允许改动的文件】`wengu-api/app/core/config.py`、`wengu-api/app/services/dictation_audio.py`（新）、
+`wengu-api/app/services/dictation.py`、`wengu-api/app/models/recitation.py`、
+`wengu-api/migrations/versions/0025_dictation_sheet_audio_ref.py`（新）、`wengu-api/app/api/recitations.py`、
+`wengu-api/tests/unit/test_dictation_audio.py`（新）、`wengu-api/tests/unit/test_dictation.py`、
+`wengu-api/tests/integration/test_dictation_api.py`、`wengu-api/tests/integration/test_backup_api.py`、
+`wengu-web/src/api/endpoints.ts`、`wengu-web/src/api/types.ts`、
+`wengu-web/src/pages/RecitationsPage.tsx`、`wengu-web/src/pages/PrintDictationSheetPage.tsx`、
+`CHANGELOG.md`、`docs/specs/architecture/StudyDesk-设计说明文档-v2.md`、`docs/STATUS.md`。
+已核：本票加列不加表，`test_migrations.py` 的 `EXPECTED_TABLES` 与表数断言不受影响，故不在白名单。
+**音频文件本身绝不进仓库**（`data/` 已被 `.gitignore:35` 与 `:38` 覆盖，不要新增忽略规则、不要提交任何样本）。
+
+【禁止】上传端点 / multipart；引入 StaticFiles 挂载；改挂、多音频、逐词时间点；把音频放进 `uploads`
+（会被备份打包）或写进仓库任何位置；解析音频元数据或引入 ffprobe/mutagen；把 `MAX_AUDIO_*` 做成
+UI 配置；预留其他列；引入 jsdom/testing-library；`--skip`/`xfail`；动 `decide()`/`VERDICTS`/错题写入路径。
+
+【投单纪律】git fetch origin; git switch -c feat/p3-4b-dictation-audio origin/main；
+一票一 PR 分支冻结；中文 commit 用 `git commit -F <仓库外 UTF-8 文件>`；
+提交前 `git diff --name-only` 核对并贴清单；交付贴迁移对照、嗅探真样本与伪装样本两侧结果、
+听写卷面两侧断言、播放端点三态（200/404/404 不 500）、备份清单、`git check-ignore` 输出、
+全量 pytest/ruff/前端三件套尾部统计；单列「审核方需复核的点」；卡面与盘上不符时以盘上为准并上报，不要硬凑。
+
+

@@ -2282,6 +2282,95 @@
   常量一动测试跟着漂 → 变异全绿。§19-L 纪律①"断言右侧字面钉死、不从被测文件反算"此前只在
   **数据字面**场景执行过，本次在**边界常量**上复发；折入已改为手写字面值（`== 200` + 200/201 两侧）。
 
+### P3-4b 听写音频线（卷级挂接 + 目录扫描 + index 化播放端点 + 听写卷面隐藏提示；零新依赖、零联网）
+- **背景（审核方 2026-11-21 读盘实测，①–⑪ 均可复现）**：
+  ① `data/` 现有 `ai-raw/ backups/ backups_tmp/ inbox/ uploads/`，**无 audio 目录**；
+     原生形态 `wengu-api/data/` 另有 `ai-cache/`。
+  ② `git check-ignore -v` 实测：`data/audio/*` 命中 `.gitignore:35 data/`，
+     `wengu-api/data/audio/*` 命中 `.gitignore:38` → 两种运行形态天然不进 git，无需新增忽略规则。
+  ③ `backup.py:227-232` 只打包 `data_dir/uploads`、`data_dir/seeds_local`、`inbox`、
+     `app-config.json` + DB 快照 → `data_dir/audio/` **由构造不进备份**（但需守卫防漂移）。
+  ④ 媒体服务唯一先例 = `GET /api/mistakes/{mistake_id}/images/{index}`（`api/mistakes.py:561-587`）：
+     index 化 URL（不含文件名）、只解析 `uploads_dir` 内文件、bytes + 正确 Content-Type +
+     `Cache-Control: no-store`；404（`MistakeNotFound`/`ImageNotFound`）与 422 `{message, code}`
+     （`ImageError`）分层。
+  ⑤ `main.py` **无 StaticFiles 挂载**、`vite.config.ts:13-18` 只代理 `/api` → 音频必须走 `/api`
+     端点返回 bytes；引入 StaticFiles 会同时改变图片与上传面的暴露方式，属越界改动。
+  ⑥ 校验先例 `services/mistake_images.py:30-70`：`MAX_IMAGE_BYTES`、`ALLOWED_MIME`、
+     `_sniff()` 只看魔数不看扩展名/声明类型、`_resolve_within_uploads()` 用 `is_relative_to` 拦越界。
+  ⑦ 配置先例 `core/config.py:53-60`：`inbox_path` / `uploads_dir` 均为 `data_dir / "<子目录>"` 的
+     `@property` → 新增 `audio_dir` 同构，不引入新环境变量（`WENGU_DATA_DIR` 已能整体搬迁）。
+  ⑧ `services/dictation.create_sheet(item_ids, unit, created_by, today)`；`dictation_sheets` 现有
+     **8 列、无音频列**（审核方 M4 变异验过加列会红，确认 P3-4 未预留）；`unit` 缺省取条目公共单元、可空。
+  ⑨ 上限常量先例：`runtime_config.py:31-41` `DEFAULT_*`/`MAX_*` 成对 + `SEED_GRADE_CEILINGS`；
+     `dictation.py:34-35` `MAX_SHEET_ITEMS = 200` / `MAX_LIST_LIMIT = 200`。
+  ⑩ 扫目录先例：`inbox.py:294-306` `sorted(inbox_dir.glob("*.json"))` + `_unique_target()` 防重名。
+  ⑪ **产品要点（审核方自查发现）**：听写卷面若照旧印 prompt，练习退化成抄写——挂音频的卷必须隐藏提示，
+     且该切换要能在**纯函数层**断言（本仓前端无 DOM 设施，见 P3-4 第 29 次卡面缺陷）。
+- **六条定案（2026-11-21 决策人全按 A 拍板，不要重开）**：
+  ① 音频由家长手动放入 `data/audio/`（Docker 形态即宿主机 `./data/audio/`），**本票不做上传端点**；
+     触发条件 = 手动放文件确实成为负担，届时另票做上传（等于把 `mistake_images` 再写一遍）；
+  ② 播放端点**孩子区可读**（与"孩子区读取原题图"同构；听写必须让孩子听）；
+  ③ 格式白名单 `mp3 / m4a / wav`，**魔数嗅探**（`ID3`/帧同步、`ftyp`、`RIFF…WAVE`），
+     扩展名与嗅探不一致即拒；
+  ④ 挂接 = `dictation_sheets.audio_ref`（可空 TEXT，存文件名），一卷一音频，默写卷留空；
+     不提供改挂端点、不做多音频、不逐词对时间戳；
+  ⑤ `MAX_AUDIO_BYTES = 64MB`、`MAX_AUDIO_LIST = 500`（列表截断并报 `truncated`），
+     硬常量，**不进 UI 配置**（无消费方）；
+  ⑥ 有 `audio_ref` 的卷面**只印序号 + 空行、不印 prompt**。
+- **任务**：
+  1. `core/config.py` 加 `audio_dir` property（`data_dir / "audio"`），docstring 写明
+     "第三方课程音频，绝不进 git、不进备份包（设计文档 §19-G-3 定案二同一条理由）"。
+  2. 新 `services/dictation_audio.py`：纯函数层（文件名合法性、`_sniff_audio()` 魔数判定、
+     列表排序与截断、`resolve_within_audio_dir()` 用 `is_relative_to`）+ 输入层（扫描 `audio_dir`）。
+     **目录不存在 → 返回空列表，不是错误**（家长还没放文件是常态）。
+  3. 迁移 `0025_dictation_sheet_audio_ref`（可逆）：`dictation_sheets` 加 `audio_ref TEXT NULL`；
+     含 up/down/up 测试；**列集合断言写手写字面值**（9 列全名逐个列出，不许用"原列 + 1"推导——
+     AGENTS §8「边界常量必须字面钉死」同源纪律）。
+  4. 端点：`GET /api/recitations/audio`（列出合法音频：index + name + size + `truncated` 标志）；
+     `GET /api/dictation/sheets/{id}/audio`（**孩子区可读**，bytes + 嗅探出的 media_type +
+     `Cache-Control: no-store`；卷无 `audio_ref` → 404 稳定码；文件被移走 → 404 稳定码，
+     **不得 500**）；`POST /api/recitations/sheets` 增可选 `audio_ref`，服务层校验文件在
+     `audio_dir` 内且嗅探通过，否则 422 `{message, code}`。**不提供改挂端点**。
+  5. 前端：生成卷弹窗加"听写音频（可选）"下拉（来自列表端点）；`PrintDictationSheetPage` 按
+     `audio_ref` 切换卷面；卷详情（家长区与孩子区）加 `<audio controls>` 指向播放端点
+     ——浏览器原生控件自带时长/进度，**不解析元数据、不引入 ffprobe/mutagen**。
+  6. 打印数据准备抽纯函数（如 `build_print_rows(detail)`）：有 `audio_ref` 时行内**不含 prompt 字段**、
+     无 `audio_ref` 时含——两侧都用手写字面断言。
+  7. 备份面守卫：`tests/integration/test_backup_api.py` 加断言——在 `data_dir/audio/` 放一个假音频后
+     导出备份，zip 清单**不得含 `audio/` 任何条目**（防将来把音频塞进 uploads 或改打包根）。
+  8. 文档：`CHANGELOG.md` 一条；设计文档 §5.9 注记（听写线落地 = 卷级挂接 + 目录扫描 + index 化播放；
+     不逐词时间戳、不做上传、不解析元数据；课程音频不进 git/备份）；
+     `docs/STATUS.md` 交付区新增本票条目（AGENTS §8 补严）。
+- **DoD（逐项贴输出，全部可同时成立）**：
+  - 迁移 0025 up/down/up 绿；列集合手写字面断言（9 列）绿；
+  - 嗅探三格式各造一个真字节头样本通过；**伪装样本必拒**（`.mp3` 实为 PNG 头 → 422）；
+  - 听写卷面两侧断言：有 `audio_ref` 的行集合无 prompt、无 `audio_ref` 的行集合含 prompt；
+  - 播放端点：无 `audio_ref` → 404 稳定码；文件缺失 → 404 稳定码（不得 500）；
+    正常 → 200 + media_type + `Cache-Control: no-store`；孩子区可读（无 parent 门槛）实测；
+  - 备份清单不含 `audio/`（实跑导出贴清单）；
+  - `git check-ignore -v` 两形态实测贴出（确认无需新增忽略规则）；
+  - 全量 `pytest -q` 绿（基线以 `--collect-only` 实取，当前 **954**，如实报新数）；
+    `ruff check --no-cache .` 全仓绿；行尾守卫 5 条仍绿；前端 `tsc` + `node --test` + `build` 绿；
+  - 零新依赖、零联网、不动 `app/judge/**`、不改 `decide()`/`VERDICTS`、不碰 `seeds/**` 与错题写入路径。
+- **白名单**：`wengu-api/app/core/config.py`、`wengu-api/app/services/dictation_audio.py`（新）、
+  `wengu-api/app/services/dictation.py`、`wengu-api/app/models/recitation.py`、
+  `wengu-api/migrations/versions/0025_dictation_sheet_audio_ref.py`（新）、
+  `wengu-api/app/api/recitations.py`、`wengu-api/tests/unit/test_dictation_audio.py`（新）、
+  `wengu-api/tests/unit/test_dictation.py`、`wengu-api/tests/integration/test_dictation_api.py`、
+  `wengu-api/tests/integration/test_backup_api.py`、`wengu-web/src/api/endpoints.ts`、
+  `wengu-web/src/api/types.ts`、`wengu-web/src/pages/RecitationsPage.tsx`、
+  `wengu-web/src/pages/PrintDictationSheetPage.tsx`、`CHANGELOG.md`、
+  `docs/specs/architecture/StudyDesk-设计说明文档-v2.md`、`docs/STATUS.md`。
+  （已核：本票加**列**不加**表**，`test_migrations.py` 的 `EXPECTED_TABLES` 与表数断言不受影响，
+  故不在白名单——这是 P3-4 第 28 次缺陷的反向检查，不是遗漏。）
+- **禁止**：上传端点 / multipart；引入 StaticFiles 挂载；改挂、多音频、逐词时间点；
+  把音频放进 `uploads`（会被备份打包）或写进仓库任何位置；解析音频元数据或引入 ffprobe/mutagen；
+  把 `MAX_AUDIO_*` 做成 UI 配置；预留其他列；引入 jsdom/testing-library；`--skip`/`xfail`；
+  动 `decide()`/`VERDICTS`/错题写入路径。
+- **审核方侧动作（不进施工方白名单）**：`PRIVATE-DO-NOT-SYNC.md`（仓库外）扩一条——第三方课程音频
+  `<data_dir>/audio/` 不进备份、不外发，性质同 K12-KGraph（**是许可问题不是隐私问题**）。
+
 ---
 
 ## 作废清单（v2.5，保留标题供追溯，勿实现）
