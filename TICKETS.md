@@ -2265,6 +2265,22 @@
   `wengu-api/tests/integration/test_backup_api.py`（原白名单之外的两个文件，仅此折入用途）；
   其余仍限原白名单。折入以分支上一个普通追加 commit 交付（不 amend `98ba64c`），
   新 commit 的 `git diff --name-only` 恰好五个文件（两处测试 + `backup.py` + 备份测试 + `CHANGELOG.md`）。
+- **状态：已合并（2026-11-21，PR#72 squash → main `8da6ddf`；原分支已删，`ls-remote` 复核为空）**。
+  三个 commit：`19ff8f4` 代码 / `98ba64c` 文档 / `1f72f8d` 折入轮（普通追加、未 amend）。
+  审核方独立复验：临时库迁移 up/down/up（24→23→24 张表、DDL 恰好 8 列无预留列、两条 CHECK
+  各插非法行均被拒、DDL 列集合 == ORM 列集合）；合并后 main 上 head = `0024_dictation_sheets`、
+  业务表 23 张、守卫+默写+备份 36 passed；全量 pytest **954 passed**（施工方 410.16s + 审核方
+  595.74s 同数）；ruff 全仓绿；行尾守卫 5 passed；CRLF 普查仍仅 TSV；生产库 mtime 早于交付时间
+  （"浏览器金路径走 scratch 数据目录、真实库零触碰"属实）。一处观察记一笔不算缺陷：
+  `item_ids` 存非法 JSON 文本时 DB 层不拦，约束完全在服务层。
+  审核方自主变异**八靶**（施工方自证之外的目标）：折入前——放开"一卷一学科"红、`ensure_open`
+  空函数化红、模型+迁移同时预留 `audio_path` 列红（**"接口预留禁止"确有守卫**）、响应模型加
+  `answer` 字段红、`MAX_SHEET_ITEMS` 调大**全绿（= 守卫缺口，触发折入）**；折入后——上限常量调大红、
+  `>` 写成 `>=` 红、`COUNT_TABLES` 删新表红、`_table_counts` 保留键但值恒 0 红
+  （证明 manifest 断言测的是计数值而非"键存在"）。全部还原 sha256 一致、工作区干净。
+- **教训一条（非卡面编号，已泛化进 `AGENTS.md §8`）**：原上限测试用 `MAX_SHEET_ITEMS ± 1` 推导边界，
+  常量一动测试跟着漂 → 变异全绿。§19-L 纪律①"断言右侧字面钉死、不从被测文件反算"此前只在
+  **数据字面**场景执行过，本次在**边界常量**上复发；折入已改为手写字面值（`== 200` + 200/201 两侧）。
 
 ---
 
