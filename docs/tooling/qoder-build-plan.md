@@ -3320,3 +3320,25 @@ P5-10 只治了被断言撞见的 TSV，其余八个没人比对就一直脏着�
 一票一 PR 分支冻结；中文 commit 用 `git commit -F <仓库外 UTF-8 文件>`；
 提交前 `git diff --name-only` 核对并贴清单；交付贴三处 RED→GREEN、内容零变化比对、
 跨平台重跑逐字节一致证据；单列「审核方需复核的点」；卡面与盘上不符时以盘上为准并上报，不要硬凑。
+
+## P5-17 卡面补强三（折入轮，2026-11-20；审核方变异发现，登记第 26 次卡面缺陷）
+
+原卡任务 4 的源码守卫只写了"断言两个 import 脚本源码不再出现 `write_text(`"。审核方验收时做变异：
+把 `import_seed.py:233` 的 `newline="\n"` 改成 `newline="\r\n"`，**四条守卫全部仍绿**。原因是
+`write_text` 只是 CRLF 的一条来路，"保留 `open()` 但换行取值回退"同样致命而守卫看不见；
+git 层在 `add` 时归一，产物守卫查不到（工作区守卫比的是 HEAD blob 的 CRLF 白名单，
+取值写错不等于文件里出现 CRLF）。防线是真的，但"生成侧显式钉死换行"这条承诺没有守卫兜着。
+
+**补强要求**：新增 1 条源码级守卫，钉死换行**取值**——`import_seed.py` / `import_questions.py`
+必须出现 `newline="\n"` 且不得出现 `newline="\r\n"`；对称钉死 `export_topics_junior.py`
+保留 `newline="\r\n"`（P5-10 定案，现状只有 Linux CI 才抓得到本地回退）。
+折入以分支上一个**普通追加 commit** 交付（**不 amend `fed4dd0`**）；白名单不变
+（`wengu-api/tests/unit/test_repo_eol.py` + `CHANGELOG.md`）；变异自证两个新靶子
+（改取值 / 删 kwarg）必须 RED→GREEN，还原用仓库外备份覆写并比 sha256，禁 `git checkout --`。
+
+**卡面缺陷累计（本票三笔）**：第 24 次 = `.gitattributes` TSV 例外行写成 `text eol=crlf`
+（实测会把 blob 归一成 LF，与"TSV blob 字节不变"DoD 冲突，正解 `-text`）；第 25 次 =
+守卫规范自相矛盾（要求"只查 HEAD blob"同时要求"塞 CRLF 并 add 必红"，归一生效后不可能）——
+这两笔由**施工方实测**发现并按盘上实况纠正；第 26 次 = 源码守卫只禁 `write_text` 未钉取值，
+由**审核方变异**发现。三笔合并写进 P5-17 合并留痕。
+

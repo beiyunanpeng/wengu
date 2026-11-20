@@ -1966,6 +1966,15 @@
   把 `.gitattributes` 写成只有 `* text=auto` 的敷衍版；renormalize 混进功能 commit；
   用 `git checkout --` 还原或改写已推送历史；为"顺手"引入 `.editorconfig` / prettier / lint-staged
   （无消费方）；动 `app/**` 运行时逻辑（本票只碰生成脚本）。
+- **卡面补强三（折入轮 2026-11-20；审核方变异发现，登记第 26 次卡面缺陷）**：
+  原任务 4 只要求"断言两个 import 脚本源码**不再出现** `write_text(`"。审核方把
+  `import_seed.py:233` 的 `newline="\n"` 改成 `newline="\r\n"` 后**四条守卫全绿**——只禁 `write_text`
+  挡不住"保留 `open()` 但换行取值回退"这条更现实的回头路（git 层在 `add` 时归一，产物守卫抓不到；
+  工作区守卫只比 HEAD blob 白名单里的 CRLF，`open()` 换行写错不等于文件里有 CRLF）。
+  防线本身是真的，但卡面承诺的"生成侧**显式钉死**换行"没有守卫兜着。补一条守卫：源码级钉死**取值**
+  ——两个 import 脚本必须出现 `newline="\n"` 且不得出现 `newline="\r\n"`；对称钉死
+  `export_topics_junior.py` 保留 `newline="\r\n"`（P5-10 定案，现状只有 Linux CI 才抓得到）。
+  折入以分支上一个**普通追加 commit** 交付（不 amend `fed4dd0`），白名单不变（守卫测试文件 + `CHANGELOG.md`）。
 
 ---
 
