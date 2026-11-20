@@ -660,10 +660,13 @@
   blob 归一成 LF（eol 只控工作区），与「TSV blob 字节不变」DoD 冲突，改 `-text`；
   ② `.gitattributes` 生效后 `git add` 自动归一 CRLF（实测 index==HEAD），只查 HEAD blob
   的守卫抓不到「塞 CRLF 并 add」，守卫加查工作区字节层。新守卫
-  `wengu-api/tests/unit/test_repo_eol.py` 4 条（HEAD blob / 工作区 / .gitattributes 规则 /
-  源码禁 `write_text(`），三处变异 RED→GREEN 自证（还原 sha256 一致）。
+  `wengu-api/tests/unit/test_repo_eol.py` 5 条（HEAD blob / 工作区 / .gitattributes 规则 /
+  源码禁 `write_text(` / `test_text_writers_pin_explicit_newline` 钉死 `newline="\n"` 取值
+  ——只禁 `write_text` 挡不住「保留 `open()` 但换行取值回退」，由审核方变异发现，
+  第 26 次卡面缺陷，折入轮补），三处变异 RED→GREEN 自证（还原 sha256 一致）；
+  折入轮另做两靶变异（取值改 `\r\n` / 删 `newline` kwarg）均新守卫红、既有四条仍绿。
   文档：AGENTS.md §8 新增行尾与编码条、设计文档 §19-L 纪律⑦泛化（生成侧钉死 + 仓库侧兜底）、
-  seeds/README.md 补「产物为 LF，TSV 例外」。全量 pytest **905 passed**（基线 901 + 新 4）、
+  seeds/README.md 补「产物为 LF，TSV 例外」。全量 pytest **906 passed**（基线 901 + 新 5）、
   ruff / selfcheck --strict（18 OK）/ 前端 lint + 57 tests + build 全绿。
 - **本地自建命名空间解耦（P5-15；§19-G-3 定案一；先于扩科同步票；零迁移、零新依赖）**（2026-11-18）：
   本地自建知识点 id 从「语文 `cnl_` / 化学 `cnc_`」改为**统一 `loc_` 单前缀**（`loc_001`…），

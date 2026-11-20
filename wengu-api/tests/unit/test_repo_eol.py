@@ -95,3 +95,16 @@ def test_import_scripts_avoid_write_text() -> None:
         "wengu-api/scripts/import_questions.py",
     ):
         assert "write_text(" not in (REPO_ROOT / rel).read_text(encoding="utf-8")
+
+
+def test_text_writers_pin_explicit_newline() -> None:
+    """P5-17 折入：只禁 write_text 挡不住 newline 取值回退——把取值本身钉死。"""
+    for rel in (
+        "wengu-api/scripts/import_seed.py",
+        "wengu-api/scripts/import_questions.py",
+    ):
+        text = (REPO_ROOT / rel).read_text(encoding="utf-8")
+        assert 'newline="\\n"' in text, rel
+        assert 'newline="\\r\\n"' not in text, rel
+    export = (REPO_ROOT / "wengu-api/scripts/export_topics_junior.py").read_text(encoding="utf-8")
+    assert 'newline="\\r\\n"' in export  # P5-10 定案：TSV 生成侧钉死 CRLF
