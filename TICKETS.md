@@ -942,7 +942,14 @@
       同题重复只算一次、停用词不进候选 → 勾选 2 词入库 → `/due` 出现且 answer 为空 →
       自评 remembered 进第 2 档 / forgot 保持第 1 档；四表快照零变化。撤销 = 前端逐条
       `PATCH retired`，retired 后退出 `/due` 且**不再出现在候选**（再提交同名词报 duplicate）。
-- **P3-4 听力+默写**：默写=卷面批改后走转录导入；听力"教材音频+TTS"+组卷。禁：口语 ASR。
+- ~~**P3-4 听力+默写**：默写=卷面批改后走转录导入；听力"教材音频+TTS"+组卷。禁：口语 ASR。~~
+  （2026-11-20 决策轮修订，详见下方 **P3-4 详卡**：① 默写结果回录由"走转录导入"改为
+  **页内勾选**——卷面词单系统已知，建第三条转录通道（新模板+新契约+草稿表）属重炮打蚊子，
+  拍照转录留作后续可选票，触发条件 = 家长回录负担成为真实证据；② 听力拆为 **P3-4b 听写**
+  （音频→手写→勾选，触发条件已满足：课程音频可导出普通本地文件）与 **P3-4c 听力理解题**
+  （音频+题面，触发 = 课程题目确实需要录入）两票递进，均不进 P3-4；③ TTS 出局（内核零云推理）、
+  口语 ASR 仍禁做；④ 新增分发面纪律：第三方课程音频落 `data_dir/audio/`，**绝不进 uploads 树**
+  （实测 `backup.py:226` 会把 uploads 整树打进备份 zip），不进仓库、不外发。）
 - **P3-5 语文客观并入**：字音/病句/默写并入转录；作文/阅读理解只走外部讲解不进本。
   **前置已交付（P3-8，2026-10-31）**：家长可自建语文章级 seed（`cnl_`）、语文题可挂
   `topic_id`、语文错题可挂主考点，到期考核 `quiz` 闭环已实跑；本票只剩题库内容接入。
@@ -2154,6 +2161,88 @@
   无 evidence 原文进仓库：diff 命中 3 处均为节点名与"××段"定位描述。
 - **后续（另票）**：化学 2 环提上游 issue（定案三 B，人工决定时机）；册名→int 年级逐册映射
   如将来需要，必须先实测取证再写卡（本票无依据）。
+
+### P3-4 英语默写闭环（卷面生成 + 页内回录 + 既有二档调度复用；听力线拆两票）
+- **背景（审核方 2026-11-20 读盘实测）**：
+  ① 权威口径：设计文档 §5.9 表——默写·听写 = ①客观 + 拍照批改 + 进（客观驱动）；
+     听力 = 需音频+题 + 教材音频+TTS + 进（**依赖音频来源**）；口语 ASR **不做**。
+     旧一句话卡（本文件「P3-4 听力+默写」行）写于 v2.5 前，本票修订其"走转录导入"为
+     "页内勾选"（决策 D2=A），原句已加删除线注记保留追溯。
+  ② 可复用链路实测在位：`recitation_items`（subject/prompt/answer/unit/status）+
+     `recitation_reviews`（item_id/verdict/rung/reviewed_on，迁移 0020）；
+     `services/recitation.py` 的 `decide(rung, verdict)` 二档调度（`VERDICTS=(remembered, forgot)`，
+     remembered 进档/毕业、forgot 保持不倒退）；`POST /api/recitations/{item_id}/review`
+     单条回录端点已存在（require_parent）；词表 1–3 列（prompt 必填 / answer、unit 可选）；
+     `RecitationsPage` 与 `ReviewPage` 已挂背诵到期入口；打印先例 `PrintPaperPage`（`window.print()`）；
+     **迁移下一号 = 0024**；schemas 内联在 `api/recitations.py`（ItemView/ReviewRequest/ReviewResponse）。
+  ③ 架构口实测：`transcribe/` 契约只绑定 `doubao_transcribe_v1`，`transcribe/CONTRACT.md:76` 明说
+     bank 通道"后续按同一模式补第二份契约，**不要混写**"——默写卷若走拍照转录 = 第三条通道
+     （新模板 + 新契约 + `validate.py` 扩展 + 新草稿表），而卷面词单在生成时系统已知，
+     家长批完只需标记错词（每卷约 30 秒）→ **本票不建转录通道**。
+  ④ 红线实测：v2.5 后 wengu 内核零云推理 → 云 TTS 出局；`services/mistake_images.py:38` 的
+     `ALLOWED_MIME` 只允许 JPEG/PNG/WEBP → 音频不是顺路可传；`app/services/backup.py:226` 把
+     `data_dir/uploads` **整树**打进备份 zip → 第三方版权音频绝不进 uploads；
+     设计文档既有定案"背诵自评保持二档不动" → 默写对错必须直映二档；
+     P3-3a 边界"背诵条目不是错题" → 错词不进错题本。
+- **五条定案（不要重开）**：
+  ① 听力线**不进本票**，拆为两票递进：**P3-4b 听写**（音频→手写→勾选回录）、
+     **P3-4c 听力理解题**（音频+题面，走现有题库录入/组卷/judgeAnswer 链路）。
+     **触发条件已满足**：决策人 2026-11-20 确认所购课程听力部分可导出为普通本地音频文件（非 DRM）。
+     P3-4b 前置取证要点已记录：音频落 `data_dir/audio/`（绝不进 uploads 树，理由见背景④）、
+     挂接粒度只到"一张卷/一个单元"、不逐词对时间戳、不规避技术措施、目录内留来源记录、
+     `PRIVATE-DO-NOT-SYNC.md` 须加"第三方课程音频不进备份/不外发"条目。口语 ASR 仍不做；TTS 仍出局。
+  ② 结果回录 = **页内勾选**（卷由 `dictation_sheets` 表持久化，打印与回录可跨天/跨设备）；
+     拍照转录通道留作后续可选票（触发 = 家长回录负担成为真实证据）；页内键入默写禁止；
+  ③ 判分主体 = 家长卷面红笔（v2.5 外部批改口径），**系统零判分代码**，只做一致性检查与调度；
+  ④ 错词只走 `recitation_reviews` 重默循环，不进错题本；对错直映二档，`decide()` 原样复用；
+  ⑤ 卷面只做"看提示写"，**打印视图与孩子可达 API 一律不出现 answer**（单测 + 组件测试双断言）。
+- **任务**：
+  1. 迁移 `0024_dictation_sheets`（可逆）：`id PK / created_on Date / created_by Text / subject Text /
+     unit Text? / item_ids Text(JSON 有序数组) / status Text('open'→'recorded') / recorded_on Date?`；
+     FK/CHECK/UNIQUE 按迁移 0020 风格；含迁移测试（up/down/up）。
+  2. `models/recitation.py` 加 `DictationSheet`；`api/recitations.py` 内联新增 schemas；新端点：
+     `POST /api/recitations/sheets`（item_ids 非空、全部 active、词序按提交顺序固化，require_parent）、
+     `GET /api/recitations/sheets` + `GET /api/recitations/sheets/{id}`（详情**响应不含 answer**）、
+     `POST /api/recitations/sheets/{id}/results`（`results=[{item_id, verdict}]`，校验归属 + 二档，
+     事务内逐条写 `recitation_reviews` 并调 `decide()`，返回每条新 rung 与下次到期；
+     `open→recorded` 状态机，重复提交 409；缺失/停用条目跳过并在响应中报告）。
+  3. 新 `services/dictation.py`（纯函数层 + 输入层）：生成快照、回录校验、与 `decide()` 的集成——
+     **同一 fixture 同一输入下，批量回录每条的 rung/下次到期必须与现有单条 review 端点逐项相等**
+     （复用性自证，测试断言）。
+  4. 前端：`RecitationsPage` 加「生成默写卷」（勾选 active 条目 → POST → 跳打印）与 open 卷列表 +
+     「回录」视图（按卷词序逐词 对/错 → 批量提交 → 显示每词新档位与下次到期）；
+     新 `PrintDictationSheetPage`（卷号/日期/词序表/提示/空行，**不渲染 answer**，`window.print()`）；
+     `App.tsx` 路由；`api/endpoints.ts`/`types.ts` 新端点。
+  5. 测试：`tests/unit/test_dictation.py`（纯函数：生成快照/校验/状态机/缺失条目跳过/与 decide() 一致性）
+     + `tests/integration/test_dictation_api.py`（全链：生成→回录→due 变化→毕业；重复提交 409；
+     权限口径随现有 API 测试）。
+  6. 文档：`CHANGELOG.md` 一条；设计文档 §5.9 表下加注（默写回录 = 页内勾选，2026-11-20 修订，
+     原"走转录导入"保留删除线；拍照转录为后续可选票及触发条件；听力拆 P3-4b/P3-4c 及各自触发条件）；
+     `docs/STATUS.md` 交付区新增本票条目（AGENTS §8 补严）。
+- **DoD（逐项贴输出，全部可同时成立）**：
+  - 迁移 0024 up/down/up 绿；`alembic head` 前后贴对照；
+  - **answer 零泄漏**：打印视图 DOM 与 `GET /sheets/{id}` 响应均断言无 answer 字段/值；
+  - 复用性自证：批量回录与单条 review 端点在同一输入下 rung/下次到期逐项相等；
+  - 状态机：重复提交 409；缺失条目跳过并在响应中列明；
+  - 全量 `pytest -q` 绿（基线以 `--collect-only` 实取，当前 **929**，如实报新数）；
+    `ruff check --no-cache .` 绿；前端 `npm run lint / test / build` 绿；行尾守卫 5 条仍绿；
+  - 零新依赖、零联网、不动 `app/judge/**`、不改 `decide()`/`VERDICTS`、不碰 `seeds/**` 与错题写入路径。
+- **白名单**：`wengu-api/migrations/versions/0024_dictation_sheets.py`（新）、
+  `wengu-api/app/models/recitation.py`、`wengu-api/app/services/dictation.py`（新）、
+  `wengu-api/app/api/recitations.py`、`wengu-api/tests/unit/test_dictation.py`（新）、
+  `wengu-api/tests/integration/test_dictation_api.py`（新）、`wengu-web/src/api/endpoints.ts`、
+  `wengu-web/src/api/types.ts`、`wengu-web/src/pages/RecitationsPage.tsx`、
+  `wengu-web/src/pages/PrintDictationSheetPage.tsx`（新）、`wengu-web/src/App.tsx`、
+  `CHANGELOG.md`、`docs/specs/architecture/StudyDesk-设计说明文档-v2.md`、`docs/STATUS.md`。
+- **禁止**：听力/音频/TTS/ASR 任何形式（P3-4b/c 的事）；拍照转录通道/新模板/契约扩展；
+  页内键入默写；别名字段（`acceptable`）；第三档或改 `decide()` 调度语义；把错词写进错题本；
+  打印视图或孩子可达 API 出现 answer；导出统计图表/电子表格（无消费方）；
+  **为"将来好挂音频"给 `dictation_sheets` 或任何表预留 nullable 的 audio/时间戳字段**
+  （P3-4b 需要时由它自己的迁移加列——无消费方就不加）；
+  动 `app/judge/**`、`seeds/**`、错题写入路径；`--skip`/`xfail`。
+- **后续票（2026-11-20 决策轮登记）**：**P3-4b 听写音频线**（前置 = P3-4 合并；触发条件已满足，
+  紧随其后即可投）；**P3-4c 听力理解题**（触发 = 课程题目确实需要录入，届时先读盘取证
+  `doubao_bank_transcribe_v1` 与组卷链路能否零改动承载"音频+题"）。
 
 ---
 

@@ -3336,7 +3336,7 @@ git 层在 `add` 时归一，产物守卫查不到（工作区守卫比的是 HE
 （`wengu-api/tests/unit/test_repo_eol.py` + `CHANGELOG.md`）；变异自证两个新靶子
 （改取值 / 删 kwarg）必须 RED→GREEN，还原用仓库外备份覆写并比 sha256，禁 `git checkout --`。
 
-**卡面缺陷累计（本票三笔）**：第 24 次 = `.gitattributes` TSV 例外行写成 `text eol=crlf`
+**P5-18 合并留痕需登记四笔卡面缺陷**：第 24 次 = `.gitattributes` TSV 例外行写成 `text eol=crlf`
 （实测会把 blob 归一成 LF，与"TSV blob 字节不变"DoD 冲突，正解 `-text`）；第 25 次 =
 守卫规范自相矛盾（要求"只查 HEAD blob"同时要求"塞 CRLF 并 add 必红"，归一生效后不可能）——
 这两笔由**施工方实测**发现并按盘上实况纠正；第 26 次 = 源码守卫只禁 `write_text` 未钉取值，
@@ -3470,6 +3470,81 @@ CC BY-NC-SA 数据被误提交或误打包。审核方已把两种布局都取�
 ② 册名→int 年级映射未取证，禁止在无证据时实现；
 ③ 数据集更新后 sha256 锚点拒绝运行是有意设计——换数据必须重新取证另票。
 
+## P3-4 —— 英语默写闭环（卷面生成 + 页内勾选回录 + 既有二档调度复用；听力线拆两票；基线 = 开工时 `origin/main` 实况，pytest 基线以 `--collect-only` 实取）
 
+你在 wengu 仓库工作。开工前先完整读：AGENTS.md §5（`practice_records` 两档、配置热加载）、§6（英语背诵=自评间隔重复、
+默写/听力复用批改）、§8（一票一 PR、DoD、合并留痕双写、STATUS 交付区必须新增条目）；
+设计文档 **§5.9 英语/语文表**（默写·听写=①客观+拍照批改；听力=依赖音频来源；口语 ASR 不做）与
+§18 D3/D4（三档自评只用于复习原题、**背诵自评保持二档不动**）；TICKETS.md 的 **P3-4 详卡**
+（①–④ 实测背景、五条定案、任务、DoD、白名单、禁止的权威版）与 P3-3a/P3-3b/P3-3c 三张已合并卡；
+代码：`wengu-api/app/models/recitation.py`（RecitationItem/RecitationReview）、
+`wengu-api/app/services/recitation.py`（`decide(rung, verdict)` 与 `VERDICTS=(remembered, forgot)`）、
+`wengu-api/app/api/recitations.py`（8 个端点 + 内联 schemas，含 `POST /api/recitations/{item_id}/review`）、
+`wengu-api/app/services/recitation_import.py`（词表 1–3 列）、
+`wengu-web/src/pages/RecitationsPage.tsx`、`wengu-web/src/pages/PrintPaperPage.tsx`（`window.print()` 先例）、
+`wengu-web/src/pages/ReviewPage.tsx`（背诵到期入口）；迁移目录当前 head = `0023_learning_events_occurred_at`，
+**本票新迁移号 = 0024**。
 
+【为什么有这张票】P3-3a/b/c 把"词表从哪来"和"背了没背"解决了，但**默写这个动作本身还不在系统里**：
+孩子手写、家长红笔批、批完无处可记——只能靠家长口头回忆。旧一句话卡写的是"默写走转录导入"，
+但那是 v2.5 之前的口径：转录通道有严格契约（`transcribe/CONTRACT.md:76` 明说 bank 通道要"按同一模式
+补第二份契约，不要混写"），为默写卷再建第三条通道 = 新模板 + 新契约 + `validate.py` 扩展 + 新草稿表，
+而默写卷的词单在生成时**系统本来就知道**，家长批完只需在卷详情页标记哪些词错了（每卷约 30 秒）。
+所以本票走"页内勾选"，把转录留给真正需要它的场景。
 
+【五条定案，不要重开】① 听力线不进本票，拆 P3-4b 听写（音频→手写→勾选；触发条件已满足：
+决策人确认课程音频可导出普通本地文件）与 P3-4c 听力理解题（音频+题面走现有题库/组卷/judgeAnswer；
+触发 = 课程题目确实要录入）；TTS 出局（内核零云推理）、口语 ASR 仍禁做；
+② 回录 = 页内勾选，卷由 `dictation_sheets` 表持久化（打印与回录可跨天/跨设备）；
+③ 判分主体是家长卷面红笔，**系统零判分代码**，只做一致性检查与调度；
+④ 错词只走 `recitation_reviews` 重默循环，**不进错题本**；对错直映既有二档，`decide()` 原样复用；
+⑤ 卷面只做"看提示写"，**打印视图与孩子可达 API 一律不得出现 answer**。
+
+【任务】
+1. 迁移 `0024_dictation_sheets`（可逆）：`id PK / created_on Date / created_by Text / subject Text /
+   unit Text? / item_ids Text(JSON 有序数组) / status Text('open'→'recorded') / recorded_on Date?`；
+   FK/CHECK/UNIQUE 按迁移 0020 风格；含 up/down/up 迁移测试。
+2. `models/recitation.py` 加 `DictationSheet`；`api/recitations.py` 内联新增 schemas；新端点：
+   `POST /api/recitations/sheets`（item_ids 非空、全部 active、词序按提交顺序固化，require_parent）、
+   `GET /api/recitations/sheets` + `GET /api/recitations/sheets/{id}`（详情响应**不含 answer**）、
+   `POST /api/recitations/sheets/{id}/results`（`results=[{item_id, verdict}]`，校验归属+二档，
+   事务内逐条写 `recitation_reviews` 并调 `decide()`，返回每条新 rung 与下次到期；
+   `open→recorded` 状态机，重复提交 409；缺失/停用条目跳过并在响应中报告）。
+3. 新 `services/dictation.py`：生成快照、回录校验、与 `decide()` 集成。**必须自证复用性**：
+   同一 fixture 同一输入下，批量回录每条的 rung/下次到期与现有单条 review 端点逐项相等。
+4. 前端：`RecitationsPage` 加「生成默写卷」与 open 卷列表 +「回录」视图（逐词 对/错 → 批量提交 →
+   显示每词新档位与下次到期）；新 `PrintDictationSheetPage`（卷号/日期/词序表/提示/空行，
+   **不渲染 answer**，`window.print()`）；`App.tsx` 路由；`api/endpoints.ts`/`types.ts` 新端点。
+5. 测试：`tests/unit/test_dictation.py` + `tests/integration/test_dictation_api.py`（全链：
+   生成→回录→due 变化→毕业；重复提交 409；缺失条目跳过；权限口径随现有 API 测试）。
+6. 文档：`CHANGELOG.md` 一条；设计文档 §5.9 表下加注（默写回录改页内勾选、原口径保留删除线、
+   拍照转录与听力 P3-4b/P3-4c 各自触发条件）；`docs/STATUS.md` 交付区新增本票条目。
+
+【DoD——逐项贴输出】
+- 迁移 0024 up/down/up 绿，`alembic head` 前后对照；
+- **answer 零泄漏**：打印视图 DOM 与 `GET /sheets/{id}` 响应均断言无 answer 字段/值；
+- 复用性自证：批量回录与单条 review 端点同输入下 rung/下次到期逐项相等（贴对照表）；
+- 状态机：重复提交 409；缺失/停用条目跳过并在响应中列明；
+- 全量 `pytest -q` 绿（基线 `--collect-only` 实取，当前 929，如实报新数）；`ruff check --no-cache .` 绿；
+  前端 `npm run lint / test / build` 绿；行尾守卫 5 条仍绿；
+- 零新依赖、零联网、不动 `app/judge/**`、不改 `decide()`/`VERDICTS`、不碰 `seeds/**` 与错题写入路径。
+
+【允许改动的文件】`wengu-api/migrations/versions/0024_dictation_sheets.py`（新）、
+`wengu-api/app/models/recitation.py`、`wengu-api/app/services/dictation.py`（新）、
+`wengu-api/app/api/recitations.py`、`wengu-api/tests/unit/test_dictation.py`（新）、
+`wengu-api/tests/integration/test_dictation_api.py`（新）、`wengu-web/src/api/endpoints.ts`、
+`wengu-web/src/api/types.ts`、`wengu-web/src/pages/RecitationsPage.tsx`、
+`wengu-web/src/pages/PrintDictationSheetPage.tsx`（新）、`wengu-web/src/App.tsx`、
+`CHANGELOG.md`、`docs/specs/architecture/StudyDesk-设计说明文档-v2.md`、`docs/STATUS.md`。
+
+【禁止】听力/音频/TTS/ASR 任何形式（那是 P3-4b/P3-4c 的事）；建转录通道/新模板/契约扩展；
+页内键入默写；加 `acceptable` 别名字段；引入第三档或改 `decide()` 调度语义；把错词写进错题本；
+打印视图或孩子可达 API 出现 answer；统计图表/电子表格导出（无消费方）；
+**为"将来好挂音频"预留 nullable 的 audio/时间戳字段**（P3-4b 需要时由它自己的迁移加列）；
+动 `app/judge/**`、`seeds/**`、错题写入路径；用 `--skip`/`xfail` 让测试过。
+
+【投单纪律】git fetch origin; git switch -c feat/p3-4-dictation origin/main；
+一票一 PR 分支冻结；中文 commit 用 `git commit -F <仓库外 UTF-8 文件>`；
+提交前 `git diff --name-only` 核对并贴清单；交付贴迁移对照、answer 零泄漏断言、
+批量与单条一致性对照表、状态机 409 与缺失条目实测、全量 pytest/ruff/前端三件套尾部统计；
+单列「审核方需复核的点」；卡面与盘上不符时以盘上为准并上报，不要硬凑。
