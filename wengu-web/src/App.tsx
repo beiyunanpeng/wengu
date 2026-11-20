@@ -9,6 +9,7 @@ import IntakePage from "./pages/IntakePage";
 import LocalSeedPage from "./pages/LocalSeedPage";
 import MistakeDetailPage from "./pages/MistakeDetailPage";
 import MistakesPage from "./pages/MistakesPage";
+import PrintDictationSheetPage from "./pages/PrintDictationSheetPage";
 import PrintMistakesPage from "./pages/PrintMistakesPage";
 import PrintPaperPage from "./pages/PrintPaperPage";
 import PracticePage from "./pages/PracticePage";
@@ -28,6 +29,7 @@ export default function App() {
         <Routes>
           <Route path="print/mistakes" element={<PrintMistakesPage />} />
           <Route path="print/paper" element={<PrintPaperPage />} />
+          <Route path="print/dictation" element={<PrintDictationSheetPage />} />
           <Route element={<AppLayout />}>
             <Route index element={<Navigate to="/import" replace />} />
             <Route path="dashboard" element={<DashboardPage />} />

@@ -19,20 +19,28 @@ import {
   Title,
 } from "@mantine/core";
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import { errorMessage } from "../api/client";
 import {
   addRecitationCandidates,
+  createDictationSheet,
   createRecitation,
   getDashboard,
+  getDictationSheet,
   getDueRecitations,
   importRecitations,
+  listDictationSheets,
   listRecitationCandidates,
   listRecitations,
+  recordDictationResults,
   reviewRecitation,
   updateRecitation,
 } from "../api/endpoints";
 import type {
+  DictationResultsResponse,
+  DictationSheet,
+  DictationSheetDetail,
   RecitationCandidate,
   RecitationCandidateBatchResponse,
   RecitationDueItem,
@@ -57,6 +65,7 @@ const IMPORT_SUBJECTS = [
 
 export default function RecitationsPage() {
   const { unlocked } = useParentSession();
+  const navigate = useNavigate();
   const [due, setDue] = useState<RecitationDueResponse | null>(null);
   const [items, setItems] = useState<RecitationListResponse | null>(null);
   const [progress, setProgress] = useState<{ today: number; limit: number } | null>(
@@ -92,6 +101,15 @@ export default function RecitationsPage() {
   const [batchIds, setBatchIds] = useState<number[]>([]);
   const [undoingBatch, setUndoingBatch] = useState(false);
 
+  const [sheetSelection, setSheetSelection] = useState<number[]>([]);
+  const [creatingSheet, setCreatingSheet] = useState(false);
+  const [sheets, setSheets] = useState<DictationSheet[]>([]);
+  const [recording, setRecording] = useState<DictationSheetDetail | null>(null);
+  const [verdicts, setVerdicts] = useState<Record<number, RecitationVerdict>>({});
+  const [recordingBusy, setRecordingBusy] = useState(false);
+  const [recordReport, setRecordReport] =
+    useState<DictationResultsResponse | null>(null);
+
   async function load(showSpinner = true) {
     if (showSpinner) {
       setLoading(true);
@@ -124,11 +142,17 @@ export default function RecitationsPage() {
   useEffect(() => {
     if (unlocked) {
       void loadCandidates();
+      void loadSheets();
     } else {
       setCandidates([]);
       setSelectedWords([]);
       setCandidateReport(null);
       setBatchIds([]);
+      setSheets([]);
+      setSheetSelection([]);
+      setRecording(null);
+      setVerdicts({});
+      setRecordReport(null);
     }
   }, [unlocked]);
 
@@ -301,6 +325,87 @@ export default function RecitationsPage() {
       setBusyId(null);
     }
   }
+
+  async function loadSheets() {
+    try {
+      const response = await listDictationSheets("open");
+      setSheets(response.items);
+    } catch (cause) {
+      setActionError(errorMessage(cause));
+    }
+  }
+
+  async function generateSheet() {
+    if (creatingSheet || sheetSelection.length === 0) {
+      return;
+    }
+    setCreatingSheet(true);
+    setActionError(null);
+    try {
+      const ordered = (items?.items ?? [])
+        .filter(
+          (item) =>
+            item.status === "active" && sheetSelection.includes(item.id),
+        )
+        .map((item) => item.id);
+      const detail = await createDictationSheet({ item_ids: ordered });
+      setSheetSelection([]);
+      await loadSheets();
+      navigate(`/print/dictation?sheet_id=${detail.sheet.id}`);
+    } catch (cause) {
+      setActionError(errorMessage(cause));
+    } finally {
+      setCreatingSheet(false);
+    }
+  }
+
+  async function openRecording(sheetId: number) {
+    setActionError(null);
+    setRecordReport(null);
+    try {
+      const detail = await getDictationSheet(sheetId);
+      setRecording(detail);
+      setVerdicts({});
+    } catch (cause) {
+      setActionError(errorMessage(cause));
+    }
+  }
+
+  async function submitRecording() {
+    if (!recording || recordingBusy) {
+      return;
+    }
+    const entries = recording.items
+      .filter((item) => verdicts[item.item_id] !== undefined)
+      .map((item) => ({
+        item_id: item.item_id,
+        verdict: verdicts[item.item_id],
+      }));
+    if (entries.length === 0) {
+      setActionError("请先按卷面词序逐词勾选 对/错，再批量回录。");
+      return;
+    }
+    setRecordingBusy(true);
+    setActionError(null);
+    try {
+      const report = await recordDictationResults(recording.sheet.id, {
+        results: entries,
+      });
+      setRecordReport(report);
+      setRecording(null);
+      setVerdicts({});
+      await load(false);
+      await loadSheets();
+    } catch (cause) {
+      setActionError(errorMessage(cause));
+    } finally {
+      setRecordingBusy(false);
+    }
+  }
+
+  const activeItems = (items?.items ?? []).filter(
+    (item) => item.status === "active",
+  );
 
   const goal = progress?.limit ?? 0;
   const todayDone = progress?.today ?? 0;
@@ -770,6 +875,283 @@ export default function RecitationsPage() {
                       </Table.Tbody>
                     </Table>
                   </Table.ScrollContainer>
+                )}
+              </Stack>
+            </Card>
+          )}
+
+          {unlocked && (
+            <Card withBorder>
+              <Stack gap="sm">
+                <Group justify="space-between" align="center" wrap="wrap">
+                  <Text fw={600}>默写卷</Text>
+                  <Text size="xs" c="dimmed">
+                    生成卷面 → 打印 → 孩子默写 → 家长红笔批改 → 在这里勾选回录
+                  </Text>
+                </Group>
+                <Text size="sm" c="dimmed">
+                  勾选 active 条目生成默写卷（词序按下方条目表顺序固化）；
+                  卷面只有提示，不含答案。回录的对/错直接进既有记忆阶梯，
+                  错词不进错题本。
+                </Text>
+                {activeItems.length === 0 ? (
+                  <Text size="sm" c="dimmed">
+                    暂无 active 条目，请先在上方添加或导入词表。
+                  </Text>
+                ) : (
+                  <>
+                    <Table.ScrollContainer minWidth={360}>
+                      <Table striped highlightOnHover>
+                        <Table.Thead>
+                          <Table.Tr>
+                            <Table.Th w={48}>选</Table.Th>
+                            <Table.Th>条目</Table.Th>
+                            <Table.Th>学科</Table.Th>
+                            <Table.Th>单元</Table.Th>
+                          </Table.Tr>
+                        </Table.Thead>
+                        <Table.Tbody>
+                          {activeItems.map((item) => (
+                            <Table.Tr key={item.id}>
+                              <Table.Td>
+                                <Checkbox
+                                  aria-label={`选择 ${item.prompt}`}
+                                  checked={sheetSelection.includes(item.id)}
+                                  onChange={() =>
+                                    setSheetSelection((current) =>
+                                      current.includes(item.id)
+                                        ? current.filter((id) => id !== item.id)
+                                        : [...current, item.id],
+                                    )
+                                  }
+                                />
+                              </Table.Td>
+                              <Table.Td>
+                                <Text
+                                  size="sm"
+                                  style={{ whiteSpace: "pre-wrap" }}
+                                >
+                                  {item.prompt}
+                                </Text>
+                              </Table.Td>
+                              <Table.Td>{item.subject}</Table.Td>
+                              <Table.Td>{item.unit ?? "—"}</Table.Td>
+                            </Table.Tr>
+                          ))}
+                        </Table.Tbody>
+                      </Table>
+                    </Table.ScrollContainer>
+                    <Group gap="sm" wrap="wrap">
+                      <Button
+                        size="compact-sm"
+                        variant="subtle"
+                        onClick={() =>
+                          setSheetSelection(activeItems.map((item) => item.id))
+                        }
+                      >
+                        全选
+                      </Button>
+                      <Button
+                        size="compact-sm"
+                        variant="subtle"
+                        onClick={() => setSheetSelection([])}
+                      >
+                        清空勾选
+                      </Button>
+                      <Button
+                        onClick={() => void generateSheet()}
+                        loading={creatingSheet}
+                        disabled={sheetSelection.length === 0}
+                      >
+                        生成默写卷（{sheetSelection.length} 词）
+                      </Button>
+                    </Group>
+                    <Text size="xs" c="dimmed">
+                      一张卷只能含同一学科的条目；生成后自动跳转打印页。
+                    </Text>
+                  </>
+                )}
+
+                <Divider my="xs" label="待回录的卷" labelPosition="left" />
+                {sheets.length === 0 ? (
+                  <Text size="sm" c="dimmed">
+                    没有待回录的默写卷。
+                  </Text>
+                ) : (
+                  <Table.ScrollContainer minWidth={480}>
+                    <Table striped highlightOnHover>
+                      <Table.Thead>
+                        <Table.Tr>
+                          <Table.Th>卷号</Table.Th>
+                          <Table.Th>生成日期</Table.Th>
+                          <Table.Th>学科</Table.Th>
+                          <Table.Th>单元</Table.Th>
+                          <Table.Th>词数</Table.Th>
+                          <Table.Th />
+                        </Table.Tr>
+                      </Table.Thead>
+                      <Table.Tbody>
+                        {sheets.map((sheet) => (
+                          <Table.Tr key={sheet.id}>
+                            <Table.Td>#{sheet.id}</Table.Td>
+                            <Table.Td>{sheet.created_on}</Table.Td>
+                            <Table.Td>{sheet.subject}</Table.Td>
+                            <Table.Td>{sheet.unit ?? "—"}</Table.Td>
+                            <Table.Td>{sheet.item_ids.length}</Table.Td>
+                            <Table.Td>
+                              <Group gap={4}>
+                                <Button
+                                  size="compact-xs"
+                                  variant="light"
+                                  onClick={() =>
+                                    navigate(
+                                      `/print/dictation?sheet_id=${sheet.id}`,
+                                    )
+                                  }
+                                >
+                                  打印
+                                </Button>
+                                <Button
+                                  size="compact-xs"
+                                  onClick={() => void openRecording(sheet.id)}
+                                >
+                                  回录
+                                </Button>
+                              </Group>
+                            </Table.Td>
+                          </Table.Tr>
+                        ))}
+                      </Table.Tbody>
+                    </Table>
+                  </Table.ScrollContainer>
+                )}
+
+                {recording && (
+                  <Card withBorder bg="gray.0">
+                    <Stack gap="sm">
+                      <Group justify="space-between" align="center" wrap="wrap">
+                        <Text fw={600}>
+                          回录卷 #{recording.sheet.id}（
+                          {recording.sheet.created_on}）
+                        </Text>
+                        <Button
+                          size="compact-xs"
+                          variant="subtle"
+                          onClick={() => {
+                            setRecording(null);
+                            setVerdicts({});
+                          }}
+                        >
+                          取消回录
+                        </Button>
+                      </Group>
+                      <Text size="xs" c="dimmed">
+                        对照红笔批改结果逐词勾选；已停用条目会自动跳过。
+                        同一天已有自评的词沿用既有结果，不重复计数。
+                      </Text>
+                      {recording.items.map((item, index) => (
+                        <Group
+                          key={item.item_id}
+                          justify="space-between"
+                          align="center"
+                          wrap="wrap"
+                        >
+                          <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
+                            {index + 1}. {item.prompt}
+                            {item.status === "retired" ? "（已停用）" : ""}
+                          </Text>
+                          {item.status === "active" && (
+                            <Group gap={4}>
+                              <Button
+                                size="compact-xs"
+                                color="teal"
+                                variant={
+                                  verdicts[item.item_id] === "remembered"
+                                    ? "filled"
+                                    : "light"
+                                }
+                                onClick={() =>
+                                  setVerdicts((current) => ({
+                                    ...current,
+                                    [item.item_id]: "remembered",
+                                  }))
+                                }
+                              >
+                                对
+                              </Button>
+                              <Button
+                                size="compact-xs"
+                                color="orange"
+                                variant={
+                                  verdicts[item.item_id] === "forgot"
+                                    ? "filled"
+                                    : "light"
+                                }
+                                onClick={() =>
+                                  setVerdicts((current) => ({
+                                    ...current,
+                                    [item.item_id]: "forgot",
+                                  }))
+                                }
+                              >
+                                错
+                              </Button>
+                            </Group>
+                          )}
+                        </Group>
+                      ))}
+                      {recording.missing_item_ids.length > 0 && (
+                        <Text size="xs" c="dimmed">
+                          {recording.missing_item_ids.length}{" "}
+                          个条目已被删除，回录时自动跳过。
+                        </Text>
+                      )}
+                      <Group>
+                        <Button
+                          onClick={() => void submitRecording()}
+                          loading={recordingBusy}
+                          disabled={
+                            Object.keys(verdicts).length === 0
+                          }
+                        >
+                          批量回录（
+                          {Object.keys(verdicts).length} 词）
+                        </Button>
+                      </Group>
+                    </Stack>
+                  </Card>
+                )}
+
+                {recordReport && (
+                  <Alert
+                    color="teal"
+                    variant="light"
+                    title={`卷 #${recordReport.sheet.id} 已回录：${recordReport.results.length} 词入档`}
+                    withCloseButton
+                    onClose={() => setRecordReport(null)}
+                  >
+                    <Stack gap={4}>
+                      {recordReport.results.map((entry) => (
+                        <Text key={entry.item_id} size="sm">
+                          「{entry.prompt}」
+                          {entry.verdict === "remembered" ? "对" : "错"} →{" "}
+                          {entry.graduated
+                            ? "已背熟毕业，不再排期"
+                            : `第 ${entry.rung + 1} 档 · 下次 ${entry.scheduled_next ?? "—"}`}
+                          {entry.created ? "" : "（今日已有自评，沿用既有结果）"}
+                        </Text>
+                      ))}
+                      {recordReport.skipped.map((entry) => (
+                        <Text key={entry.item_id} size="sm" c="dimmed">
+                          条目 #{entry.item_id}{" "}
+                          {entry.reason === "retired"
+                            ? "已停用"
+                            : "已删除"}
+                          ，本次跳过。
+                        </Text>
+                      ))}
+                    </Stack>
+                  </Alert>
                 )}
               </Stack>
             </Card>

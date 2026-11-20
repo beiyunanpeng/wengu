@@ -89,3 +89,35 @@ class RecitationReview(Base):
             name="uq_recitation_reviews_item_reviewed_on",
         ),
     )
+
+
+class DictationSheet(Base):
+    """P3-4 默写卷：item_ids 为 JSON 有序快照（无逐词外键），status 只有 open→recorded。"""
+
+    __tablename__ = "dictation_sheets"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    created_on: Mapped[date_cls] = mapped_column(Date, nullable=False)
+    created_by: Mapped[str] = mapped_column(Text, nullable=False)
+    subject: Mapped[str] = mapped_column(Text, nullable=False)
+    unit: Mapped[str | None] = mapped_column(Text, nullable=True)
+    item_ids: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="open",
+        server_default=text("'open'"),
+    )
+    recorded_on: Mapped[date_cls | None] = mapped_column(Date, nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('open', 'recorded')",
+            name="ck_dictation_sheets_status",
+        ),
+        CheckConstraint(
+            "(status = 'open' AND recorded_on IS NULL)"
+            " OR (status = 'recorded' AND recorded_on IS NOT NULL)",
+            name="ck_dictation_sheets_recorded_on",
+        ),
+    )

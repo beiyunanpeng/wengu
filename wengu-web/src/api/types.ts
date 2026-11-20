@@ -802,6 +802,67 @@ export interface RecitationCandidateBatchResponse {
   errors: RecitationImportError[];
 }
 
+export type DictationSheetStatus = "open" | "recorded";
+
+export interface DictationSheet {
+  id: number;
+  created_on: string;
+  created_by: string;
+  subject: string;
+  unit: string | null;
+  item_ids: number[];
+  status: DictationSheetStatus;
+  recorded_on: string | null;
+}
+
+export interface DictationSheetItem {
+  item_id: number;
+  prompt: string;
+  unit: string | null;
+  status: RecitationStatus;
+}
+
+export interface DictationSheetDetail {
+  sheet: DictationSheet;
+  items: DictationSheetItem[];
+  missing_item_ids: number[];
+}
+
+export interface DictationSheetListResponse {
+  items: DictationSheet[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface DictationResultEntry {
+  item_id: number;
+  verdict: RecitationVerdict;
+}
+
+export interface DictationResultView {
+  item_id: number;
+  prompt: string;
+  verdict: RecitationVerdict;
+  review_id: number;
+  rung: number;
+  reviewed_on: string;
+  scheduled_next: string | null;
+  graduated: boolean;
+  created: boolean;
+}
+
+export interface DictationSkippedEntry {
+  item_id: number;
+  reason: "missing" | "retired";
+}
+
+export interface DictationResultsResponse {
+  sheet: DictationSheet;
+  results: DictationResultView[];
+  skipped: DictationSkippedEntry[];
+}
+
 export interface SessionStatus {
   pin_set: boolean;
   parent_unlocked: boolean;

@@ -3,6 +3,10 @@
 读接口（列表 / 到期）对孩子开放；条目新增与编辑挂 `require_parent`。
 自评只写 `learning_events` 与 `recitation_reviews`，不写错题本/attempts/排期，
 因此掌握度与复习队列不受影响；同日重复提交幂等返回既有结果。
+
+P3-4 默写卷：生成与回录挂 `require_parent`（判分主体是家长红笔）；卷面读接口
+对孩子开放但只含提示词序，响应一律不含 answer。回录逐条复用 review_item()，
+错词只走 recitation_reviews 重默循环，不进错题本。
 """
 
 from __future__ import annotations
@@ -17,6 +21,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.session import require_parent
 from app.core.database import get_session
 from app.models import RecitationItem
+from app.models.recitation import DictationSheet
+from app.services.dictation import (
+    MAX_SHEET_ITEMS,
+    RecordReport,
+    SheetDetail,
+    create_sheet,
+    get_sheet,
+    list_sheets,
+    record_results,
+    sheet_item_ids,
+)
 from app.services.recitation import (
     MAX_CANDIDATES,
     RecitationConflict,
@@ -114,6 +129,80 @@ class ImportRequest(BaseModel):
     text: str
 
 
+SheetStatus = Literal["open", "recorded"]
+
+
+class SheetView(BaseModel):
+    id: int
+    created_on: date
+    created_by: str
+    subject: str
+    unit: str | None
+    item_ids: list[int]
+    status: SheetStatus
+    recorded_on: date | None
+
+
+class SheetItemView(BaseModel):
+    """卷面条目：只有提示，没有 answer 字段（P3-4 定案⑤）。"""
+
+    item_id: int
+    prompt: str
+    unit: str | None
+    status: ItemStatus
+
+
+class SheetDetailResponse(BaseModel):
+    sheet: SheetView
+    items: list[SheetItemView]
+    missing_item_ids: list[int]
+
+
+class SheetListResponse(BaseModel):
+    items: list[SheetView]
+    total: int
+    limit: int
+    offset: int
+
+
+class CreateSheetRequest(BaseModel):
+    item_ids: list[int] = Field(min_length=1, max_length=MAX_SHEET_ITEMS)
+    unit: str | None = Field(default=None, max_length=80)
+
+
+class SheetResultEntry(BaseModel):
+    item_id: int
+    verdict: Verdict
+
+
+class RecordResultsRequest(BaseModel):
+    results: list[SheetResultEntry] = Field(min_length=1, max_length=MAX_SHEET_ITEMS)
+    reviewed_on: date | None = None
+
+
+class SheetResultView(BaseModel):
+    item_id: int
+    prompt: str
+    verdict: Verdict
+    review_id: int
+    rung: int
+    reviewed_on: date
+    scheduled_next: date | None
+    graduated: bool
+    created: bool
+
+
+class SheetSkippedView(BaseModel):
+    item_id: int
+    reason: Literal["missing", "retired"]
+
+
+class RecordResultsResponse(BaseModel):
+    sheet: SheetView
+    results: list[SheetResultView]
+    skipped: list[SheetSkippedView]
+
+
 class ImportDuplicateView(BaseModel):
     line: int
     prompt: str
@@ -181,6 +270,59 @@ def _review_response(outcome: ReviewOutcome) -> ReviewResponse:
     )
 
 
+def _sheet_view(sheet: DictationSheet) -> SheetView:
+    return SheetView(
+        id=sheet.id,
+        created_on=sheet.created_on,
+        created_by=sheet.created_by,
+        subject=sheet.subject,
+        unit=sheet.unit,
+        item_ids=list(sheet_item_ids(sheet)),
+        status=sheet.status,
+        recorded_on=sheet.recorded_on,
+    )
+
+
+def _sheet_detail_response(detail: SheetDetail) -> SheetDetailResponse:
+    return SheetDetailResponse(
+        sheet=_sheet_view(detail.sheet),
+        items=[
+            SheetItemView(
+                item_id=item.item_id,
+                prompt=item.prompt,
+                unit=item.unit,
+                status=item.status,
+            )
+            for item in detail.items
+        ],
+        missing_item_ids=list(detail.missing_item_ids),
+    )
+
+
+def _record_response(report: RecordReport) -> RecordResultsResponse:
+    return RecordResultsResponse(
+        sheet=_sheet_view(report.sheet),
+        results=[
+            SheetResultView(
+                item_id=outcome.item_id,
+                prompt=outcome.prompt,
+                verdict=outcome.verdict,
+                review_id=outcome.review_id,
+                rung=outcome.rung,
+                reviewed_on=outcome.reviewed_on,
+                scheduled_next=outcome.scheduled_next,
+                graduated=outcome.graduated,
+                created=outcome.created,
+            )
+            for outcome in report.results
+        ],
+        skipped=[
+            SheetSkippedView(item_id=entry.item_id, reason=entry.reason)
+            for entry in report.skipped
+        ],
+    )
+
+
 @router.get("/api/recitations", response_model=ItemListResponse)
 async def get_recitations(
     subject: str | None = Query(default=None, max_length=80),
@@ -236,6 +378,101 @@ async def get_due_recitations(
         limit=due.limit,
         today=day,
     )
+
+
+@router.post(
+    "/api/recitations/sheets",
+    response_model=SheetDetailResponse,
+    dependencies=[Depends(require_parent)],
+)
+async def create_dictation_sheet(
+    payload: CreateSheetRequest,
+    session: AsyncSession = Depends(get_session),
+) -> SheetDetailResponse:
+    """生成默写卷（家长）：词序按提交顺序固化；响应不含 answer。"""
+
+    async with session.begin():
+        try:
+            sheet = await create_sheet(
+                session, item_ids=payload.item_ids, unit=payload.unit
+            )
+            detail = await get_sheet(session, sheet.id)
+        except RecitationInvalid as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from None
+    return _sheet_detail_response(detail)
+
+
+@router.get("/api/recitations/sheets", response_model=SheetListResponse)
+async def list_dictation_sheets(
+    status: SheetStatus | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    session: AsyncSession = Depends(get_session),
+) -> SheetListResponse:
+    async with session.begin():
+        try:
+            result = await list_sheets(
+                session, status=status, limit=limit, offset=offset
+            )
+        except RecitationInvalid as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from None
+    return SheetListResponse(
+        items=[_sheet_view(sheet) for sheet in result.sheets],
+        total=result.total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get(
+    "/api/recitations/sheets/{sheet_id}", response_model=SheetDetailResponse
+)
+async def get_dictation_sheet(
+    sheet_id: int,
+    session: AsyncSession = Depends(get_session),
+) -> SheetDetailResponse:
+    """卷面详情对孩子开放：只有提示与词序，响应不含 answer（定案⑤）。"""
+
+    async with session.begin():
+        try:
+            detail = await get_sheet(session, sheet_id)
+        except RecitationNotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from None
+    return _sheet_detail_response(detail)
+
+
+@router.post(
+    "/api/recitations/sheets/{sheet_id}/results",
+    response_model=RecordResultsResponse,
+    dependencies=[Depends(require_parent)],
+)
+async def record_dictation_results(
+    sheet_id: int,
+    payload: RecordResultsRequest,
+    session: AsyncSession = Depends(get_session),
+) -> RecordResultsResponse:
+    """页内勾选回录（家长）：逐条复用 review_item/decide()，整批一个事务。
+
+    open→recorded 单向状态机，重复提交 409；缺失/停用条目跳过并在响应中报告。
+    """
+
+    reviewed_on = payload.reviewed_on or date.today()
+    async with session.begin():
+        try:
+            report = await record_results(
+                session,
+                sheet_id,
+                results=[(entry.item_id, entry.verdict) for entry in payload.results],
+                reviewed_on=reviewed_on,
+                actor="parent",
+            )
+        except RecitationNotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from None
+        except RecitationConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from None
+        except RecitationInvalid as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from None
+    return _record_response(report)
 
 
 @router.get(
