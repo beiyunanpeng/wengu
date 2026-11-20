@@ -813,6 +813,18 @@ export interface DictationSheet {
   item_ids: number[];
   status: DictationSheetStatus;
   recorded_on: string | null;
+  audio_ref: string | null;
+}
+
+export interface DictationAudioEntry {
+  index: number;
+  name: string;
+  size_bytes: number;
+}
+
+export interface DictationAudioListResponse {
+  items: DictationAudioEntry[];
+  truncated: boolean;
 }
 
 export interface DictationSheetItem {

@@ -8,10 +8,14 @@
 - 缺失/停用条目跳过并在响应中报告；同日已有自评幂等返回既有事实；
 - 错词只写 recitation_reviews / learning_events，错题四表全表内容不变；
 - 生成与回录挂 require_parent（403），卷面读接口对孩子开放。
+
+P3-4b 追加：音频列表/挂接校验/播放三态（404 稳定码不 500）+ 迁移 0025 可逆；
+音频样本为手写字节头，伪装 .mp3（PNG 头）必须 422。
 """
 
 from __future__ import annotations
 
+import os
 import sqlite3
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -22,6 +26,7 @@ import pytest
 import sqlalchemy.exc
 from alembic import command
 from alembic.config import Config
+from app.core.config import Settings, get_settings
 from app.core.database import create_sqlite_engine, get_session
 from app.main import create_app
 from app.models import (
@@ -36,7 +41,6 @@ from app.models.recitation import DictationSheet
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import create_engine, delete, inspect, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
-from sqlalchemy.schema import CreateTable
 
 API_DIR = Path(__file__).resolve().parents[2]
 PIN = "2468"
@@ -61,7 +65,10 @@ def _migrated(tmp_path: Path) -> async_sessionmaker:
 
 @asynccontextmanager
 async def _client(
-    factory: async_sessionmaker, *, unlock: bool = True
+    factory: async_sessionmaker,
+    *,
+    unlock: bool = True,
+    settings: Settings | None = None,
 ) -> AsyncIterator[AsyncClient]:
     app = create_app()
 
@@ -70,6 +77,8 @@ async def _client(
             yield session
 
     app.dependency_overrides[get_session] = override_session
+    if settings is not None:
+        app.dependency_overrides[get_settings] = lambda: settings
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test"
     ) as client:
@@ -628,7 +637,11 @@ def _master_ddl(db_path: Path, involved: set[str]) -> dict[str, str]:
 
 
 def test_0024_dictation_sheets_up_down_up(tmp_path) -> None:
-    """0024：默写卷表可逆；status/recorded_on 一致性由 CHECK 在库层兜底。"""
+    """0024：默写卷表可逆；status/recorded_on 一致性由 CHECK 在库层兜底。
+
+    钉在 0024 而非 head：0025 给本表加 audio_ref 列，head 列集已变；
+    本测试只证 0024 自身的 8 列形态与可逆性。
+    """
 
     db_path = tmp_path / "dictation-migrate.db"
     config = _alembic_config(db_path)
@@ -636,7 +649,7 @@ def test_0024_dictation_sheets_up_down_up(tmp_path) -> None:
     command.upgrade(config, "0023_learning_events_occurred_at")
     assert "dictation_sheets" not in _tables(db_path)
 
-    command.upgrade(config, "head")
+    command.upgrade(config, "0024_dictation_sheets")
     engine = create_engine(f"sqlite:///{db_path.as_posix()}")
     try:
         with engine.connect() as connection:
@@ -723,12 +736,16 @@ def test_0024_dictation_sheets_up_down_up(tmp_path) -> None:
     command.downgrade(config, "0023_learning_events_occurred_at")
     assert "dictation_sheets" not in _tables(db_path)
 
-    command.upgrade(config, "head")
+    command.upgrade(config, "0024_dictation_sheets")
     assert "dictation_sheets" in _tables(db_path)
 
 
 def test_0024_dictation_sheets_ddl_is_byte_identical(tmp_path) -> None:
-    """0024 用 op.create_table 显式建表：回退再升级与首次升级、ORM 模型逐字一致。"""
+    """0024 用 op.create_table 显式建表：回退再升级与首次升级逐字一致。
+
+    钉在 0024；ORM 对照由 0025 的 head 列集字面断言承接（ALTER 加列后
+    sqlite_master 文本与 CreateTable 编译产物不再逐字相等，属预期）。
+    """
 
     db_path = tmp_path / "dictation-ddl.db"
     config = _alembic_config(db_path)
@@ -737,19 +754,247 @@ def test_0024_dictation_sheets_ddl_is_byte_identical(tmp_path) -> None:
     command.upgrade(config, "0023_learning_events_occurred_at")
     assert _master_ddl(db_path, involved) == {}
 
-    command.upgrade(config, "head")
+    command.upgrade(config, "0024_dictation_sheets")
     before = _master_ddl(db_path, involved)
     assert set(before) == {"table:dictation_sheets"}
-
-    model_engine = create_engine("sqlite://")
-    try:
-        compiled = str(CreateTable(DictationSheet.__table__).compile(model_engine)).strip()
-        assert before["table:dictation_sheets"] == compiled
-    finally:
-        model_engine.dispose()
 
     command.downgrade(config, "0023_learning_events_occurred_at")
     assert _master_ddl(db_path, involved) == {}
 
+    command.upgrade(config, "0024_dictation_sheets")
+    assert _master_ddl(db_path, involved) == before
+
+
+# ---------------------------------------------------------------------------
+# P3-4b 听写音频线：列表端点 / 挂接校验 / 播放三态 / 迁移 0025
+# ---------------------------------------------------------------------------
+
+MP3_ID3 = b"ID3\x04\x00\x00\x00\x00\x00\x00" + b"\x00" * 32
+WAV = b"RIFF$\x00\x00\x00WAVEfmt " + b"\x00" * 32
+PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
+
+
+def _audio_settings(tmp_path: Path) -> Settings:
+    return Settings(
+        data_dir=tmp_path / "data",
+        db_path=tmp_path / "dictation.db",
+        seeds_dir=tmp_path / "seeds",
+    )
+
+
+def _put_audio(settings: Settings, name: str, data: bytes) -> Path:
+    settings.audio_dir.mkdir(parents=True, exist_ok=True)
+    path = settings.audio_dir / name
+    path.write_bytes(data)
+    return path
+
+
+async def test_audio_list_endpoint_and_child_access(tmp_path) -> None:
+    factory = _migrated(tmp_path)
+    settings = _audio_settings(tmp_path)
+    async with _client(factory, settings=settings) as client:
+        empty = await client.get("/api/recitations/audio")
+        assert empty.status_code == 200, empty.text
+        assert empty.json() == {"items": [], "truncated": False}
+
+        _put_audio(settings, "u1.mp3", MP3_ID3)
+        _put_audio(settings, "u2.wav", WAV)
+        _put_audio(settings, "fake.mp3", PNG)
+        _put_audio(settings, "notes.txt", b"hello")
+        listed = await client.get("/api/recitations/audio")
+        assert listed.status_code == 200, listed.text
+        assert listed.json() == {
+            "items": [
+                {"index": 0, "name": "u1.mp3", "size_bytes": len(MP3_ID3)},
+                {"index": 1, "name": "u2.wav", "size_bytes": len(WAV)},
+            ],
+            "truncated": False,
+        }
+
+    async with _client(factory, unlock=False, settings=settings) as child:
+        response = await child.get("/api/recitations/audio")
+        assert response.status_code == 200, response.text
+        assert len(response.json()["items"]) == 2
+
+
+async def test_sheet_create_audio_ref_validation(tmp_path) -> None:
+    factory = _migrated(tmp_path)
+    settings = _audio_settings(tmp_path)
+    async with _client(factory, settings=settings) as client:
+        alpha = await _create(client, "alpha")
+        _put_audio(settings, "u1.mp3", MP3_ID3)
+        _put_audio(settings, "fake.mp3", PNG)
+        big = _put_audio(settings, "big.wav", WAV)
+        with big.open("r+b") as handle:
+            os.truncate(handle.fileno(), 67108865)
+
+        listening = await _sheet(client, [alpha["id"]], audio_ref="u1.mp3")
+        assert listening["sheet"]["audio_ref"] == "u1.mp3"
+        plain = await _sheet(client, [alpha["id"]])
+        assert plain["sheet"]["audio_ref"] is None
+
+        cases = {
+            "gone.mp3": "audio_not_found",
+            "fake.mp3": "audio_sniff_mismatch",
+            "big.wav": "audio_too_large",
+            "../evil.mp3": "audio_name_invalid",
+            "evil.txt": "audio_format_not_allowed",
+        }
+        for name, code in cases.items():
+            response = await client.post(
+                "/api/recitations/sheets",
+                json={"item_ids": [alpha["id"]], "audio_ref": name},
+            )
+            assert response.status_code == 422, response.text
+            assert response.json()["detail"]["code"] == code
+        listed = await client.get("/api/recitations/sheets")
+        assert listed.json()["total"] == 2
+
+
+async def test_sheet_audio_playback_three_states_and_child_access(tmp_path) -> None:
+    factory = _migrated(tmp_path)
+    settings = _audio_settings(tmp_path)
+    async with _client(factory, settings=settings) as client:
+        alpha = await _create(client, "alpha")
+        _put_audio(settings, "u1.mp3", MP3_ID3)
+        plain = await _sheet(client, [alpha["id"]])
+        listening = await _sheet(client, [alpha["id"]], audio_ref="u1.mp3")
+        listening_id = listening["sheet"]["id"]
+
+        missing_sheet = await client.get("/api/dictation/sheets/999/audio")
+        assert missing_sheet.status_code == 404
+        assert missing_sheet.json()["detail"]["code"] == "sheet_not_found"
+
+        no_audio = await client.get(
+            f"/api/dictation/sheets/{plain['sheet']['id']}/audio"
+        )
+        assert no_audio.status_code == 404
+        assert no_audio.json()["detail"]["code"] == "audio_not_attached"
+
+        ok = await client.get(f"/api/dictation/sheets/{listening_id}/audio")
+        assert ok.status_code == 200, ok.text
+        assert ok.content == MP3_ID3
+        assert ok.headers["content-type"] == "audio/mpeg"
+        assert ok.headers["cache-control"] == "no-store"
+
+    async with _client(factory, unlock=False, settings=settings) as child:
+        response = await child.get(f"/api/dictation/sheets/{listening_id}/audio")
+        assert response.status_code == 200, response.text
+        assert response.content == MP3_ID3
+
+        (settings.audio_dir / "u1.mp3").unlink()
+        gone = await child.get(f"/api/dictation/sheets/{listening_id}/audio")
+        assert gone.status_code == 404, gone.text
+        assert gone.json()["detail"]["code"] == "audio_file_missing"
+
+
+def test_0025_audio_ref_up_down_up(tmp_path) -> None:
+    """0025：audio_ref 加列可逆；列集手写字面钉死，既有行数据不丢。"""
+
+    db_path = tmp_path / "dictation-audio-migrate.db"
+    config = _alembic_config(db_path)
+
+    def _columns() -> dict:
+        engine = create_engine(f"sqlite:///{db_path.as_posix()}")
+        try:
+            with engine.connect() as connection:
+                return {
+                    column["name"]: column["nullable"]
+                    for column in inspect(connection).get_columns("dictation_sheets")
+                }
+        finally:
+            engine.dispose()
+
+    eight_columns = {
+        "id": False,
+        "created_on": False,
+        "created_by": False,
+        "subject": False,
+        "unit": True,
+        "item_ids": False,
+        "status": False,
+        "recorded_on": True,
+    }
+    nine_columns = {
+        "id": False,
+        "created_on": False,
+        "created_by": False,
+        "subject": False,
+        "unit": True,
+        "item_ids": False,
+        "status": False,
+        "recorded_on": True,
+        "audio_ref": True,
+    }
+
+    command.upgrade(config, "0024_dictation_sheets")
+    assert _columns() == eight_columns
+    engine = create_engine(f"sqlite:///{db_path.as_posix()}")
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO dictation_sheets"
+                    " (created_on, created_by, subject, item_ids)"
+                    " VALUES ('2026-11-20', 'parent', '英语', '[1,2]')"
+                )
+            )
+    finally:
+        engine.dispose()
+
+    command.upgrade(config, "head")
+    assert _columns() == nine_columns
+    engine = create_engine(f"sqlite:///{db_path.as_posix()}")
+    try:
+        with engine.connect() as connection:
+            checks = {
+                constraint["name"]
+                for constraint in inspect(connection).get_check_constraints(
+                    "dictation_sheets"
+                )
+            }
+            row = connection.execute(
+                text("SELECT item_ids, audio_ref FROM dictation_sheets")
+            ).one()
+        assert checks == {
+            "ck_dictation_sheets_status",
+            "ck_dictation_sheets_recorded_on",
+        }
+        assert tuple(row) == ("[1,2]", None)
+        with engine.begin() as connection:
+            connection.execute(
+                text("UPDATE dictation_sheets SET audio_ref = 'u1.mp3'")
+            )
+    finally:
+        engine.dispose()
+
+    command.downgrade(config, "0024_dictation_sheets")
+    assert _columns() == eight_columns
+    engine = create_engine(f"sqlite:///{db_path.as_posix()}")
+    try:
+        with engine.connect() as connection:
+            row = connection.execute(
+                text("SELECT item_ids FROM dictation_sheets")
+            ).one()
+        assert tuple(row) == ("[1,2]",)
+    finally:
+        engine.dispose()
+
+    command.upgrade(config, "head")
+    assert _columns() == nine_columns
+
+
+def test_0025_audio_ref_ddl_up_down_up_is_self_consistent(tmp_path) -> None:
+    """0025 原生 ADD/DROP COLUMN：回退再升级与首次升级的 sqlite_master 逐字一致。"""
+
+    db_path = tmp_path / "dictation-audio-ddl.db"
+    config = _alembic_config(db_path)
+    involved = {"dictation_sheets"}
+
+    command.upgrade(config, "head")
+    before = _master_ddl(db_path, involved)
+    assert set(before) == {"table:dictation_sheets"}
+
+    command.downgrade(config, "0024_dictation_sheets")
     command.upgrade(config, "head")
     assert _master_ddl(db_path, involved) == before

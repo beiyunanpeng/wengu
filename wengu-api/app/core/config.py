@@ -60,6 +60,12 @@ class Settings(BaseSettings):
         return self.data_dir / "uploads"
 
     @property
+    def audio_dir(self) -> Path:
+        """听写课程音频目录（P3-4b）：第三方课程音频，绝不进 git、绝不进备份包
+        （设计文档 §19-G-3 定案二同一条理由——分发载体的许可风险）。"""
+        return self.data_dir / "audio"
+
+    @property
     def database_url(self) -> str:
         assert self.db_path is not None
         return f"sqlite+aiosqlite:///{self.db_path.as_posix()}"

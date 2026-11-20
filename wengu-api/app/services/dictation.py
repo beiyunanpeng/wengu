@@ -12,12 +12,14 @@ import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
+from pathlib import Path
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import RecitationItem
 from app.models.recitation import DictationSheet
+from app.services.dictation_audio import validate_audio_ref
 from app.services.recitation import (
     ITEM_ACTIVE,
     VERDICTS,
@@ -163,12 +165,21 @@ async def create_sheet(
     *,
     item_ids: Sequence[int],
     unit: str | None = None,
+    audio_ref: str | None = None,
+    audio_dir: Path | None = None,
     created_by: str = "parent",
     today: date | None = None,
 ) -> DictationSheet:
-    """生成卷面：全部条目必须存在且 active；学科必须一致，unit 缺省取公共单元。"""
+    """生成卷面：全部条目必须存在且 active；学科必须一致，unit 缺省取公共单元。
+
+    P3-4b：audio_ref 非空时校验文件在 audio_dir 内且嗅探通过（AudioError → 422）；
+    一卷一音频，默写卷留空。
+    """
 
     ordered = normalize_item_ids(item_ids)
+    if audio_ref is not None:
+        assert audio_dir is not None
+        audio_ref = validate_audio_ref(audio_dir, audio_ref)
     rows = (
         (
             await session.execute(
@@ -202,6 +213,7 @@ async def create_sheet(
         item_ids=json.dumps(list(ordered)),
         status=SHEET_OPEN,
         recorded_on=None,
+        audio_ref=audio_ref,
     )
     session.add(sheet)
     await session.flush()

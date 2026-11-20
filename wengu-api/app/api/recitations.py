@@ -7,6 +7,10 @@
 P3-4 默写卷：生成与回录挂 `require_parent`（判分主体是家长红笔）；卷面读接口
 对孩子开放但只含提示词序，响应一律不含 answer。回录逐条复用 review_item()，
 错词只走 recitation_reviews 重默循环，不进错题本。
+
+P3-4b 听写音频：音频列表与播放对孩子开放（听写必须让孩子听）；播放走 index 化
+端点返回 bytes + 嗅探 media_type + no-store，不挂 StaticFiles；挂接只在生成时
+校验（文件在 audio_dir 内 + 魔数嗅探），不提供改挂端点。
 """
 
 from __future__ import annotations
@@ -14,11 +18,12 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.session import require_parent
+from app.core.config import Settings, get_settings
 from app.core.database import get_session
 from app.models import RecitationItem
 from app.models.recitation import DictationSheet
@@ -31,6 +36,13 @@ from app.services.dictation import (
     list_sheets,
     record_results,
     sheet_item_ids,
+)
+from app.services.dictation_audio import (
+    MAX_AUDIO_NAME_CHARS,
+    AudioError,
+    AudioNotFound,
+    list_audio,
+    load_audio,
 )
 from app.services.recitation import (
     MAX_CANDIDATES,
@@ -141,6 +153,7 @@ class SheetView(BaseModel):
     item_ids: list[int]
     status: SheetStatus
     recorded_on: date | None
+    audio_ref: str | None
 
 
 class SheetItemView(BaseModel):
@@ -168,6 +181,18 @@ class SheetListResponse(BaseModel):
 class CreateSheetRequest(BaseModel):
     item_ids: list[int] = Field(min_length=1, max_length=MAX_SHEET_ITEMS)
     unit: str | None = Field(default=None, max_length=80)
+    audio_ref: str | None = Field(default=None, max_length=MAX_AUDIO_NAME_CHARS)
+
+
+class AudioEntryView(BaseModel):
+    index: int
+    name: str
+    size_bytes: int
+
+
+class AudioListResponse(BaseModel):
+    items: list[AudioEntryView]
+    truncated: bool
 
 
 class SheetResultEntry(BaseModel):
@@ -280,6 +305,7 @@ def _sheet_view(sheet: DictationSheet) -> SheetView:
         item_ids=list(sheet_item_ids(sheet)),
         status=sheet.status,
         recorded_on=sheet.recorded_on,
+        audio_ref=sheet.audio_ref,
     )
 
 
@@ -380,6 +406,24 @@ async def get_due_recitations(
     )
 
 
+@router.get("/api/recitations/audio", response_model=AudioListResponse)
+async def list_dictation_audio(
+    settings: Settings = Depends(get_settings),
+) -> AudioListResponse:
+    """列出 data/audio/ 内合法音频（家长手动放入）；目录不存在 = 空列表。"""
+
+    result = list_audio(settings.audio_dir)
+    return AudioListResponse(
+        items=[
+            AudioEntryView(
+                index=entry.index, name=entry.name, size_bytes=entry.size_bytes
+            )
+            for entry in result.entries
+        ],
+        truncated=result.truncated,
+    )
+
+
 @router.post(
     "/api/recitations/sheets",
     response_model=SheetDetailResponse,
@@ -388,17 +432,31 @@ async def get_due_recitations(
 async def create_dictation_sheet(
     payload: CreateSheetRequest,
     session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
 ) -> SheetDetailResponse:
-    """生成默写卷（家长）：词序按提交顺序固化；响应不含 answer。"""
+    """生成默写/听写卷（家长）：词序按提交顺序固化；响应不含 answer。
+
+    可选 audio_ref 挂接听写音频：文件必须在 audio_dir 内且魔数嗅探通过，
+    否则 422 {message, code}；一卷一音频，不提供改挂。
+    """
 
     async with session.begin():
         try:
             sheet = await create_sheet(
-                session, item_ids=payload.item_ids, unit=payload.unit
+                session,
+                item_ids=payload.item_ids,
+                unit=payload.unit,
+                audio_ref=payload.audio_ref,
+                audio_dir=settings.audio_dir,
             )
             detail = await get_sheet(session, sheet.id)
         except RecitationInvalid as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from None
+        except AudioError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail={"message": str(exc), "code": exc.code},
+            ) from None
     return _sheet_detail_response(detail)
 
 
@@ -439,6 +497,48 @@ async def get_dictation_sheet(
         except RecitationNotFound as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from None
     return _sheet_detail_response(detail)
+
+
+@router.get("/api/dictation/sheets/{sheet_id}/audio")
+async def get_dictation_sheet_audio(
+    sheet_id: int,
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+) -> Response:
+    """孩子区播放听写音频：bytes + 嗅探 media_type + no-store（与原题图端点同构）。
+
+    卷无 audio_ref / 文件被移走都返回 404 稳定码，绝不 500。
+    """
+
+    async with session.begin():
+        sheet = await session.get(DictationSheet, sheet_id)
+    if sheet is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"message": "默写卷不存在", "code": "sheet_not_found"},
+        )
+    if sheet.audio_ref is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"message": "本卷未挂接听写音频", "code": "audio_not_attached"},
+        )
+    try:
+        data, media_type = load_audio(settings.audio_dir, sheet.audio_ref)
+    except AudioNotFound as exc:
+        raise HTTPException(
+            status_code=404,
+            detail={"message": str(exc), "code": exc.code},
+        ) from None
+    except AudioError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"message": str(exc), "code": exc.code},
+        ) from None
+    return Response(
+        content=data,
+        media_type=media_type,
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @router.post(
