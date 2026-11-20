@@ -1984,6 +1984,31 @@
   **性质**：卡把"四个纯产物（可覆盖）"与"两份含策展键的 source JSON（只能换行级）"混成一句指令，属**会诱导施工方
   破坏数据**的卡面错误，比措辞不准更重。已泛化为 `AGENTS.md §8`「重跑生成脚本的覆盖边界」。
   **本条不改变 P5-17 折入轮的白名单与要求**（施工方已按盘实况处理，无追加动作）。
+- **状态：已合并（2026-11-20，PR#70 squash → main `2daa331`；原分支已删，`ls-remote` 复核为空）**。
+  四个 commit：`f6d3de8` 生成侧 LF + 重跑产物 / `7aa3c51` `.gitattributes` + renormalize /
+  `fed4dd0` 守卫 4 条 + 文档 / `f846bc2` 折入轮第 5 条守卫。审核方独立实跑：全量 **906 passed**
+  （512.48s，= 基线 901 + 新 5）、守卫单跑 5 passed、`ruff check --no-cache .` 全仓绿；
+  renormalize 前后 8 个受影响文件"去 CR 逐字节相等"+ `json.load` 全等；TSV blob sha `f4939df6…` 未变；
+  合并后 main 上 CRLF 普查仅剩 TSV（1268）、`check-attr` 实测 TSV `text: unset` 其余 `text: auto`+`eol: lf`；
+  合并 commit 恰好 16 个文件、全在白名单内、无 `app/**`/`migrations/**`/`requirements.txt`；
+  CI 三绿（api/web/transcribe）、`mergeable=MERGEABLE`。
+  自主变异：施工方三靶（退回 `write_text` / README 塞 CRLF 并 add / 删 TSV 例外行）+ **审核方三靶**
+  （① `import_seed.py` 取值改 `\r\n` → 旧四条守卫全绿，坐实第 26 次缺陷；② `export_topics_junior.py`
+  取值改 `\n` → 第 5 条守卫红；③ `import_seed.py` 另加一处 `\r\n` writer 并保留原 LF 行 → 红在
+  `not in` 断言，补齐施工方披露的"两靶同落 107 行"取证边界）。全部还原 sha256 一致、工作区干净。
+  前端 `tsc / 57 tests / build` 由施工方实跑，审核方本轮未复跑（如实标注）。
+- **登记第 24 / 25 / 26 / 27 次卡面缺陷**（本票四笔，全部归审核方）：24 = TSV 例外行写成
+  `text eol=crlf`（实测 `text` 一设、add 即把 blob 归一成 LF，正解 `-text`）；25 = 守卫规范自相矛盾
+  （要求"只查 HEAD blob"同时要求"塞 CRLF 并 add 必红"，归一生效后不可能同时成立）；
+  26 = 源码守卫只禁 `write_text(`、未钉换行**取值**；27 = 任务 1 把"可覆盖的纯产物"与"含人工策展键、
+  只能换行级处理的 source JSON"混成一句指令，照做会毁策展数据。24/25/27 由施工方实测或上报发现，
+  26 由审核方变异发现。27 已泛化为 `AGENTS.md §8`「重跑生成脚本的覆盖边界」。
+- **本轮新增环境事实（审核方侧，写下防再踩）**：① 沙箱对 `wengu-api` 设访问控制会偶发
+  `Failed to update ACL ... : 5`（连 `echo` 都跑不起），此时改走主机授权执行；② 会话环境里
+  `GIT_CONFIG_KEY_0` / `GIT_CONFIG_VALUE_0` 因名字含 KEY 不持久化、而 `GIT_CONFIG_COUNT` 会——
+  泄漏后主机上每次 git 都报 `missing config key GIT_CONFIG_KEY_0`，造成守卫假红（本轮我第一次跑
+  守卫的 2 failed 就是这个原因，与施工方无关）；今后一律 `-c safe.directory=<repo>`，弃用 env 三件套；
+  ③ 交付分支上游常被 `switch -c ... origin/main` 设成 `origin/main`，推分支必须显式 refspec。
 
 ---
 

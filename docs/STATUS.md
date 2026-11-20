@@ -1,8 +1,11 @@
 # STATUS.md — 开发计划与完成情况
 
-> 快照日期：2026-11-20（**P5-16 全量同步扩科**已合并；main 已含 P5-15 / PR #68）
-> 基线：`main` = `7ca7014`（P5-16 / PR #69 已合并）；P5-15 / PR #68 → `4f7e101` 已合并
-> 全量测试：**742 passed**（2026-11-13 施工方实跑，unit 496 / integration 235 / **e2e 11**，较 P4-5 的 618 增 124：公式单测 119 + 集成 5；含返工① +10 白名单单测、返工② +1 集成）；`ruff check --no-cache .` 全绿；`npm run build` 绿（5.45s）、`npm test` **26 passed**（20 基线 + 6 新增）；`requirements.txt` 零变化（`git diff` 为空）
+> 快照日期：2026-11-20（**P5-17 行尾根治**已合并；main 已含 P5-16 / PR #69）
+> 基线：`main` = `2daa331`（P5-17 / PR #70 已合并）；P5-16 / PR #69 → `7ca7014`、P5-15 / PR #68 → `4f7e101` 已合并
+> 全量测试：**906 passed**（2026-11-20 审核方在 main `2daa331` 实跑 512.48s；= 上一票 901 + P5-17 新增 5 条行尾守卫；
+> unit / integration / e2e 分项本轮未重取，旧口径 742（2026-11-13）已过期）；`ruff check --no-cache .` 全仓绿；
+> `wengu-api/tests/unit/test_repo_eol.py` 5 passed；前端 lint / 57 tests / build 由施工方实跑绿（审核方本轮未复跑）；
+> `requirements.txt` 零变化（P5-17 零迁移、零新依赖）
 > Alembic head：`0023_learning_events_occurred_at`；业务表 **22 张**（P4-6 零迁移、零新依赖；`sympy` 为已声明依赖首次真正启用）
 
 本文件是**状态快照**，不替代以下事实源；冲突时以它们为准：
@@ -340,6 +343,21 @@
   测试：29 条失效字面逐条改对（不放宽、不 skip），全量 pytest **899 passed**（870 基线 + 29 修复归零）；
   审核方裁定折入两项后为 **901 passed**（+ 幽灵点语义 2 条：`test_seed_ghost_topics.py`），main 上复验同数。
   零迁移、零新依赖。
+- **P5-17 行尾根治已合并（2026-11-20，PR#70 → main `2daa331`）**：全仓文本产物 **LF + UTF-8**，
+  生成侧显式钉死（两个 import 脚本的 `_write_json` 改 `open(..., encoding="utf-8", newline="\n")`，
+  仓库文本产物禁用 `Path.write_text()`——Windows 平台翻译即 CRLF），仓库侧 `.gitattributes` 兜底
+  （`* text=auto eol=lf`；唯一例外 `docs/templates/topics_junior.tsv` 用 `-text` 保 CRLF blob，
+  写成 `text eol=crlf` 会在 add 时把 blob 归一成 LF）。普查修正了"只有 1 个 CRLF 文件"的直觉——
+  实际 **9 个**（TSV + `seeds/data/` 六个 JSON + 两个 fixture `truth.json`），根因一直在生成脚本，
+  P5-10 只治了被断言撞见的那一个。一次性 `git add --renormalize .` 单独 commit（约 62 万行 / 19 MB
+  纯换行，人眼不可审，靠"去 CR 后逐字节相等"+ `json.load` 全等机械自证；TSV blob sha `f4939df6…`
+  全程未变）。守卫 `wengu-api/tests/unit/test_repo_eol.py` **5 条**：HEAD blob 白名单式例外 /
+  工作区字节层同尺 / `.gitattributes` 关键规则 / 源码禁 `write_text(` / 钉死 `newline` 取值
+  （含 export 保留 `"\r\n"`）。设计文档 §19-L 纪律⑦ 泛化为"生成侧钉死 + 仓库侧兜底"。
+  全量 **906 passed**、零迁移、零新依赖、不动 `app/**`。
+  本票登记四笔卡面缺陷（第 24/25/26/27，详见 TICKETS P5-17 卡），其中 27 泛化为 `AGENTS.md §8`
+  「重跑生成脚本的覆盖边界」：凡要求重跑生成脚本的卡，必须逐文件区分"可直接覆盖的纯产物"与
+  "含人工策展键、只能换行级处理的 source/元数据文件"。
 - **下一步（v2.6 决策轮定的顺序）**：① ~~P5-6 口径清理~~、~~P0-3 端到端回归~~、
   ~~P3-3a 手填背诵~~、~~P3-3b 词表导入~~、~~P3-3c 从错题抽词~~、~~P5-1a 配置持久化修复~~、
   ~~P5-1b 首次运行向导 UI~~、~~P1-3e 移动端投递~~、~~P1-3f BOM 剥离~~、

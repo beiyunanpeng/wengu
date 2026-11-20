@@ -88,18 +88,16 @@
 - **DoD**：服务能起 + 相应单测/集成/E2E/（涉模型则跑 evals 黄金集回归）通过 + 更新 PRD/文档/CHANGELOG；交付附"怎么跑起来 + 看什么结果 + 实际改动 + 实跑的验证 + 残留风险"，**不把计划说成已完成**。
 - **git 护栏**：正常提交、不跳钩子、每 ticket 可单独回滚；保留他人改动不重置无关文件。
 - **行尾与编码（P5-17）**：新生成进仓库的文本产物一律 **LF + UTF-8**，生成侧显式写死（`open(..., encoding="utf-8", newline="\n")`；仓库文本产物禁用 `Path.write_text()`——Windows 平台翻译即 CRLF）；换行由仓库根 `.gitattributes` 决定（`* text=auto eol=lf`，唯一例外 `docs/templates/topics_junior.tsv` 保持 CRLF），**不得依赖本机 `core.autocrlf`**。守卫：`wengu-api/tests/unit/test_repo_eol.py`。
-- **合并留痕双写（P5-13）**：每票合并后的留痕提交必须同步翻转 `docs/STATUS.md` 对应 bullet/表格行的状态词，并附「PR 号 → squash SHA」锚点（锚点必须实查 `git log --oneline` / `gh pr view --json number,mergeCommit`，严禁凭记忆填 SHA）；**只写 TICKETS 不翻 STATUS 视为留痕不完整**。
-  - **补严（P5-15 留痕时发现）**：若本票在 `docs/STATUS.md` 交付区**没有对应条目**，留痕时必须**新增一条 bullet**（含 PR→SHA 锚点）；因此**出卡时必须在【任务】里明确要求"STATUS 交付区新增本票条目"**，否则双写无处可写。
-    出处：P5-14 / P5-15 两票的卡面只要求"更新现状口径"，交付区因此没有它们的条目，留痕时无状态行可翻——这是卡设计缺口，不由施工方承担。
-    同时：`docs/STATUS.md` 头部「快照日期 / 基线」属于同一把尺，每票留痕一并更新，不得让它漂过两票以上。
-- 涉数据库迁移：向前迁移 + 备份/恢复说明 + 迁移测试；**不手改生产 SQLite 文件**。不提交真实学生数据/生产库/作业原文/API Key/.env/含 PII 的日志。
 - **重跑生成脚本的覆盖边界（卡面纪律；出处 = P5-17 第 27 次卡面缺陷）**：凡卡面要求"重跑生成脚本、产物仅换行/格式差异、
   内容零变化"，必须**逐文件**区分两类产物——① 脚本全权发射、可直接覆盖的纯产物；② 含**人工策展键**的 source/元数据文件
   （如 `seeds/data/_source.json`、`questions_source.json` 里的 `commit_evidence` 等手工键、`counts.load_quality`、
   `name` 的学科后缀），这类**只允许换行级机械处理（renormalize），禁止重跑覆盖**，重跑取证一律在仓库外 scratch 目录做。
   卡面把两类混成一句指令即视为卡面缺陷、由审核方承担，不记施工方。
-  （本条排在 §8 末尾而非紧随「行尾与编码」，是为了不与 `chore/p5-17-gitattributes-eol` 分支在同一插入点改 AGENTS.md——
-  该分支在「git 护栏」后插了行尾条，同位置双插会在 squash 合并时制造冲突；合并后可按需重排。）
+- **合并留痕双写（P5-13）**：每票合并后的留痕提交必须同步翻转 `docs/STATUS.md` 对应 bullet/表格行的状态词，并附「PR 号 → squash SHA」锚点（锚点必须实查 `git log --oneline` / `gh pr view --json number,mergeCommit`，严禁凭记忆填 SHA）；**只写 TICKETS 不翻 STATUS 视为留痕不完整**。
+  - **补严（P5-15 留痕时发现）**：若本票在 `docs/STATUS.md` 交付区**没有对应条目**，留痕时必须**新增一条 bullet**（含 PR→SHA 锚点）；因此**出卡时必须在【任务】里明确要求"STATUS 交付区新增本票条目"**，否则双写无处可写。
+    出处：P5-14 / P5-15 两票的卡面只要求"更新现状口径"，交付区因此没有它们的条目，留痕时无状态行可翻——这是卡设计缺口，不由施工方承担。
+    同时：`docs/STATUS.md` 头部「快照日期 / 基线」属于同一把尺，每票留痕一并更新，不得让它漂过两票以上。
+- 涉数据库迁移：向前迁移 + 备份/恢复说明 + 迁移测试；**不手改生产 SQLite 文件**。不提交真实学生数据/生产库/作业原文/API Key/.env/含 PII 的日志。
 
 ## 9. 数据与隐私
 原图、题库、错题、看板、日志存本地卷；**wengu 内核零云推理**；外部转录（可选包）会把已擦除 PII、裁剪后的卷面送进境内第三方 AI，**必须过 `transcribe/README.md` §0 checklist**，不满足则走离线 `/import` 路径；`Phase0-实测/` 与 `data/` 禁同步、禁打包（见根目录 `PRIVATE-DO-NOT-SYNC.md`）；一切"上云"以最小必要为原则。
