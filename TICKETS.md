@@ -2010,6 +2010,132 @@
   守卫的 2 failed 就是这个原因，与施工方无关）；今后一律 `-c safe.directory=<repo>`，弃用 env 三件套；
   ③ 交付分支上游常被 `switch -c ... origin/main` 设成 `origin/main`，推分支必须显式 refspec。
 
+### P5-18 K12-KGraph 只读对照审计脚本（零依赖、零联网、零写入；报告落仓库外）
+- **背景（审核方 2026-11-20 实测；①–⑧ GitHub 侧，⑨–⑲ HuggingFace 全量侧，均可复现）**：
+  ① GitHub 副本仓库外 `D:\MyProducts\StudyDesk\K12-KGraph`，`clone --depth 1`，HEAD
+     `865bc3556768224d929825d7c258a5e77ac1aab0`（2026-09-28 22:59:02 +0800）；
+     `LICENSE` 首行 = CC BY-NC-SA 4.0（sha 前缀 `6c16319398a96728`），`LICENSE-CODE` = MIT。
+  ② GitHub **只发 demo**：`demo/kg/math_7a_rjb.json` 一本书（157 节点 / 285 边，sha 前缀
+     `568582a7d4fc06e3`），`demo/manifest.json` 的 `schema_version = "0.1.0"`。
+  ③ demo schema：节点 `id/label/name/properties`，**类型字段是 `label` 不是 `type`**；
+     边两形态——`source/source_name/target/target_name/type`（`is_a`/`prerequisites_for`/`relates_to`
+     带 `properties.evidence`）与 `source/source_stem/type/target_name_to_ids[]`（`tests_*`）；
+     demo 带 evidence 边 90 / 285。
+  ④ `books.yaml` 48 条 = 数学 23 / 生物学 9 / 物理 9 / 化学 7，含
+     `book_prefix/subject/stage/grade/publisher`。
+  ⑤ 我们侧真源：`seeds/data/topics.json` 3557 点、`seeds/data/dependencies.json` 5132 边
+     （键 `topic_id/prerequisite_id/strength/reason`）。
+  ⑥ 全仓 grep `cycle|topolog|成环|dag` 实测零命中 → 5132 条先修边从未做 DAG 体检。
+  ⑦ 备份面实测：`app/services/backup.py:226-229` 只打包 DB 快照 + `data_dir/uploads` +
+     `data_dir/seeds_local` + `inbox` + `app-config.json`，不 sweep 任意目录。
+  ⑧ demo 对齐率：Concept+Skill 116 名 vs 我们 `grade=7` 数学 119 点精确同名 9（7.8%）、
+     子串互含 46（39.7%）；45 条 `prerequisites_for` 两端名字都在我们点表内的仅 2 条。
+  ⑨ **全量三层**（HF `lhpku20010120/K12-KGraph`，直连不通、`hf-mirror.com` 通）：
+     `global_KG/` = **瘦图**（`nodes.json` 10685 条仅 `id/label/name`，label 分布
+     Concept 6574 / Skill 1364 / Exercise 1174 / Experiment 652 / Section 609 / Chapter 264 /
+     Book 48；`edges.json` 23278 条仅 `source/target/type`，9 类边，**带 evidence 0 条**）；
+     `subject_specific_KG/{math,physics,chemistry,biology}.json` = **富图**（节点带
+     `properties{definition,importance,pages?,examples?}`、边带 `properties{relations?,evidence?}`）；
+     `afterclass_exercises/*.json` = 15 本分册习题。数据集根另有 K12-Bench / K12-Train / SFT-Baselines。
+  ⑩ **四科富图实测规模**：math 2711/5273（evidence 1473 = 27.9%，prereq 817/853 = 95.8%）；
+     physics 2025/4092（1430 = 34.9%，644/648 = 99.4%）；chemistry 3491/8141
+     （3734 = 45.9%，1335/1344 = 99.3%）；biology 2458/4965（1919 = 38.7%，858/858 = **100.0%**）。
+  ⑪ **边类型不得硬编码**：瘦图 9 类含 `verifies`；富图并集也 9 类，但**数学富图只有 8 类、无
+     `verifies`**（物理/化学/生物各有）。按 9 类遍历会在数学上 KeyError。
+  ⑫ **他们全局图实测有 2 个 2-节点环**（瘦图 prereq 3703 条、自环 0；数学子集无环）：
+     `chemistry_xzxbx2_rjb_cpt100 极性分子 ↔ cpt108 相似相溶规律`、
+     `chemistry_xzxbx1_rjb_skl2 根据键能估算反应热 ↔ cpt10 化学键能量变化与反应热`；
+     与 README 声称的"Automatic DAG validation on `is_a` and `prerequisites_for` subgraphs"**不符**。
+  ⑬ **同样这 2 个环在富图 `chemistry.json` 内独立复现**（prereq 1344 条 → 多节点环 2、自环 0），
+     且四条边**全部带 `properties.evidence`**（极性分子/相似相溶两侧同一段教材文字；
+     键能反应热两侧分别是 H₂+Cl₂ 微观讨论段与 436 kJ 键能计算段）。
+     → **环检测与 evidence 取回都在富图一层完成，瘦图只作规模对照**。
+  ⑭ 学段定位实测：节点**无 book 字段**；`id` 去掉最后一段即 `book_prefix`
+     （`math_7a_rjb_cpt1` → `math_7a_rjb`；`chemistry_xzxbx2_rjb_cpt108` → `chemistry_xzxbx2_rjb`），
+     切出 48 个与 `books.yaml` 一一对应；`appears_in` 的 target 是 Section（瘦图 9689）或
+     Chapter（1082）；`books.yaml` 数学 = 小学 12 / 初中 6 / 高中 5。
+  ⑮ **学科名逐字不等**：他们 subject = `数学/物理/化学/生物学`；我们 = `数学 870 / 英语 791 /
+     语文 683 / 道德与法治 269 / 物理 269 / 科学 269 / 化学 147 / 历史 134 / 生物 66 / 地理 59`。
+     判等结果：数学/物理/化学 True，**`生物学` vs `生物` = False**。对照面只有 4 科，
+     **6 科无对照**（英语/语文/道德与法治/科学/历史/地理）。
+  ⑯ **学段口径不同**：他们 grade 是中文册名（`七年级上册`…`选择性必修三`），我们是 int 1–16。
+     册名→int 的对应**本票无实测依据**，只允许按 `stage` 三档对齐。
+  ⑰ 全量规模对齐率复测：他们数学初中 555 名 vs 我们 `cnm_` grade7-9 的 315 点精确同名 44
+     （**7.9%**）、vs 全 3557 点 53（9.5%）、子串互含 287（51.7%）；数学全量 1886 名 vs 全表 9.5%。
+     独有名为符号化短名（`aas判定法`、`30直角三角形性质`、`x2pqxpq型因式分解`）。
+  ⑱ 粒度差异实测坐实（定案三 ④ 类）：他们化学 Concept 2302 vs 我们化学 147 点；
+     他们生物 Concept 1648 vs 我们生物 66 点；他们数学初中 555 vs 我们 grade7-9 315。
+  ⑲ `importance`（掌握 672 / 重要 621 / 了解 173 / 理解 1 / 无 1244）与 `pages`（238 节点）
+     **无消费方** → 不进清单、不进报告字段。
+- **五条定案（不要重开）**：
+  ① 零新依赖、脚本不联网、全量下载不进本票（决策人手动放件，脚本探测布局）；
+  ② 只出**候选表 + 结构体检**，**禁止输出"覆盖率"结论**（7.9% / 9.5% 是实测底子）；
+  ③ 报告一律落仓库外 `D:\MyProducts\StudyDesk\kg-audit\`；他们的 `definition/examples/stem/answer`
+     一律不得复制进任何进仓库的文件（抄文本即构成 Adaptation、触发 SA）；本地报告可带 evidence 片段；
+  ④ **主层是富图**：环检测与 evidence 都从 `subject_specific_KG/*.json` 取；瘦图仅用于规模对照与
+     交叉验证，两层结论不一致时**以富图为准并如实报差异**；
+  ⑤ **映射表写死**：学科 `{"数学":"数学","物理":"物理","化学":"化学","生物学":"生物"}`，
+     学段只按 `stage` 三档（小学→grade 1–6 / 初中→7–9 / 高中→10–16）；
+     **禁止用字符串包含或前缀猜学科与年级**（⑮ 就是陷阱本体）。
+- **任务**：
+  1. 新增 `wengu-api/scripts/audit_kg.py`，**照 `check_upstream.py` 三层写法**（纯解析/计算层不吃
+     路径不联网不写盘 → 只读输入层 → 输出层）。CLI：`--kg-dir`（默认
+     `D:/MyProducts/StudyDesk/K12-KGraph-hf`，须同时支持 GitHub demo 布局
+     `D:/MyProducts/StudyDesk/K12-KGraph`，靠文件探测判布局；认不出 → 可读错误 + 非零退出）、
+     `--out-dir`（默认 `D:/MyProducts/StudyDesk/kg-audit`）、`--json`、`--subject`（默认四科全跑）。
+     **两个路径任一落在仓库内即拒绝运行**（判定写成纯函数、单测覆盖）。
+  2. 解析层支持三种形态：瘦图（`nodes.json`/`edges.json`，无 properties）、学科富图
+     （`nodes`/`edges`，节点 `properties.definition/importance`、边 `properties.relations/evidence`）、
+     书级 demo（边另带 `source_name/target_name` 与 `tests_*` 的 `target_name_to_ids[]`）。
+     边类型一律按**实测集合遍历**，不得硬编码 9 类（⑪）。
+  3. 结构体检段：复现 ⑨ 的瘦图 label 分布与 23278 边 0 evidence、⑩ 的四科规模与 evidence 率、
+     ⑪ 的数学缺 `verifies`；副本不完整/布局不认识/文件字节与 sha 锚点不符 → 明确报错非零退出，
+     **不得静默出半份报告**。
+  4. 环检测段（两侧都做，Kahn 判有无环 + Tarjan 取强连通分量，纯标准库）：
+     我们侧 `dependencies.json` 5132 边 → **必须打印 `cycles=0` 并保留该节**（实测就是 0）；
+     他们侧富图 chemistry → **必须复现 ⑬ 那两个 2-节点环并附四条边的 evidence 原文**；
+     其余三科富图与瘦图全局 → 复现"0 环 / 全局 2 环"。任一复现不出即为脚本缺陷。
+  5. 候选表段：两档（精确同名 / 归一化子串互含），每条带我们 id、他们 id、双方名字、
+     他们 `appears_in`→Section/Chapter 定位、富图 evidence 前 80 字；数学初中规模实测
+     **555 名 / 精确同名 44 / 子串互含 287**，报告数字必须对得上。
+  6. gap 分类按定案三四类：① 整学科缺失（实测 6 科，见 ⑮）② 前置边缺失/方向相反/成环
+     （本票实测产出即 ⑫⑬ 那两个环，处置走 B 提上游 issue）③ 知识点缺失
+     ④ 粒度差异（实测数字见 ⑱，**单列、不计入缺失总数**）；反向 gap（我们有他们没有）
+     标注"不算问题、不得据此删点"。**无 evidence 的 gap 不得进 ②③ 清单**。
+  7. 新增 `wengu-api/tests/unit/test_audit_kg.py`：纯函数层单测覆盖三种形态解析、label 归类、
+     evidence 抽取（含"瘦图无 evidence 不得进 ②③"）、两档候选匹配、布局探测失败报错、
+     仓库内路径拒绝、学科映射表（**必须有一条断言：`生物学` 映射到 `生物` 且拒绝包含式匹配**）、
+     Kahn/Tarjan（人造 3 环与 2-节点互环都必须检出）。
+  8. 文档：`CHANGELOG.md` 一条；设计文档 §19-G-3 定案二/三 追加"三层 schema + 四科规模 +
+     实测 2 个上游化学环（含 evidence）+ 6 科无对照 + 学科名逐字不等"；
+     `docs/STATUS.md` 交付区新增本票条目（AGENTS §8 补严）。
+- **DoD（逐项贴输出，全部可同时成立）**：
+  - 对 HF 布局与 GitHub demo 布局各跑通一次，报告落 `kg-audit/`（JSON + Markdown 两件套）；
+  - 实测复现：⑩ 四科规模与 evidence 率、⑪ 数学缺 `verifies`、⑬ 两个化学环 + 四条 evidence、
+    我们侧 `cycles=0`、数学初中 555/44/287；
+  - **零写入证明**：运行前后 `git status --porcelain` 为空；`seeds/data/*` 与
+    `docs/templates/topics_junior.tsv` 逐个 sha256 不变；
+  - **不进备份证明**：实跑一次备份导出，贴 zip 文件清单，断言不含 `kg-audit` 与任何 K12 路径；
+  - **零依赖 / 零联网证明**：`requirements.txt` 零变化；源码 grep 无
+    `requests|urllib|httpx|socket|sqlite3|datasets|huggingface|networkx`；
+  - 全量 `pytest -q` 绿（基线以 `--collect-only` 实取，如实报新数）；`ruff check --no-cache .` 绿；
+    既有 5 条行尾守卫仍绿；
+  - 零迁移、不动 `app/**`、不改 loader / `seeds/**`、不建 `seeds_external` 装载。
+- **白名单**：`wengu-api/scripts/audit_kg.py`（新）、`wengu-api/tests/unit/test_audit_kg.py`（新）、
+  `CHANGELOG.md`、`docs/specs/architecture/StudyDesk-设计说明文档-v2.md`、`docs/STATUS.md`。
+- **禁止**：引入依赖；脚本联网；把报告或他们的文本写进仓库任何位置（含被忽略的 `data/`）；
+  输出"覆盖率 X%"；用 `importance`/`pages` 造字段（无消费方）；用字符串包含猜学科或年级；
+  做逐册年级映射（本票无实测依据）；做可视化 / 导入 UI / 教材包机制 / `seeds_external` 装载；
+  改 `seeds/data/*` 或 loader；`--skip`/`xfail`；把"四科富图"说成"全学科对照完成"。
+- **运行期输入（已就位，不由本票产生）**：仓库外 `D:\MyProducts\StudyDesk\K12-KGraph-hf\` 六件，
+  sha256 前缀 `global_KG/nodes.json 99d7d4b86e7c92f6`、`global_KG/edges.json b7b2bea4a16467b5`、
+  `subject_specific_KG/math.json 00ed25179bb4ad09`、`physics.json 2108bcb685554ecb`、
+  `chemistry.json 6441ec8e247f8535`、`biology.json c775d68709aaca2c`；
+  GitHub demo 布局在 `D:\MyProducts\StudyDesk\K12-KGraph`。脚本必须在这两个目录任一缺失时
+  给出可读错误，不得回退成"假装无差异"。
+- **取证副次产物**：审核方干跑脚本 `D:\MyProducts\StudyDesk\_kg_probe.py` / `_kg_probe_global.py` /
+  `_kg_probe_ss.py` / `_kg_probe_final.py`（仓库外，可复跑复核）。
+
 ---
 
 ## 作废清单（v2.5，保留标题供追溯，勿实现）

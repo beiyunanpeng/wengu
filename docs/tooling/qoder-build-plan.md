@@ -3356,4 +3356,107 @@ git 层在 `add` 时归一，产物守卫查不到（工作区守卫比的是 HE
 第 24（TSV 例外行应 `-text`）、第 25（守卫规范自相矛盾）由施工方实测发现；
 第 26（源码守卫只禁 `write_text` 未钉 `newline` 取值）由审核方变异发现；第 27（重跑覆盖边界混写）由施工方上报。
 
+## P5-18 —— K12-KGraph 只读对照审计脚本（零依赖、零联网、零写入；报告落仓库外；基线 = 开工时 `origin/main` 实况，pytest 基线以 `--collect-only` 实取）
+
+你在 wengu 仓库工作。开工前先完整读：AGENTS.md §5（外部数据分发与净化）、§8（一票一 PR、DoD、
+合并留痕双写、「重跑生成脚本的覆盖边界」）；设计文档 **§19-G-3 定案二/三**（外部强图谱只读对照线、
+gap 处置 B→C→A 的权威版）；TICKETS.md 的 **P5-18 卡**（①–⑲ 实测数字、五条定案、DoD、禁止的权威版）
+与 P5-16 卡（`loc_` 命名空间与 `source='local'` 判据）、P5-17 卡（行尾与 `.gitattributes`）；
+样板代码：`wengu-api/scripts/check_upstream.py`（只读脚本的三层结构与退出码约定）、
+`wengu-api/scripts/export_topics_junior.py`（学科/学段判据）；仓外数据实况：
+`D:\MyProducts\StudyDesk\K12-KGraph-hf\`（HF 全量六件）与 `D:\MyProducts\StudyDesk\K12-KGraph\`
+（GitHub demo + `books.yaml`）。
+
+【为什么有这张票】§19-G-3 定案二把 K12-KGraph 定为"只读对照线、绝不进分发面"，定案三定了
+gap 处置优先级 B→C→A，但**至今没有任何机器可跑的对照工具**，也没有一条守卫防止这份
+CC BY-NC-SA 数据被误提交或误打包。审核方已把两种布局都取到本地并逐项实测（卡面 ①–⑲），
+本票就是把那套实测变成可复跑的脚本。最有价值的产出不是"差距清单"，而是**结构体检 + 环检测**：
+实测发现他们全局图有 2 个 2-节点先修环（都在化学选择性必修），与其 README 声称的
+"Automatic DAG validation"矛盾；而我们自己的 5132 条先修边从未做过 DAG 体检（实测 `cycles=0`）。
+
+【五条定案，不要重开】① 零新依赖、脚本不联网、全量下载不进本票；② 只出候选表与结构体检，
+**禁止输出"覆盖率"结论**（实测他们数学初中 555 名对我们 grade7-9 315 点精确同名仅 44 个 = 7.9%）；
+③ 报告一律落仓库外 `D:\MyProducts\StudyDesk\kg-audit\`，他们的 `definition/examples/stem/answer`
+一律不得复制进任何进仓库的文件（抄文本即构成 Adaptation、触发 SA 义务），本地报告可带 evidence 片段；
+④ **主层是富图** `subject_specific_KG/*.json`（环检测与 evidence 都从这里取），
+瘦图 `global_KG/` 只作规模对照，两层结论不一致以富图为准并如实报差异；
+⑤ **映射表写死**：学科 `{"数学":"数学","物理":"物理","化学":"化学","生物学":"生物"}`，
+学段只按 `stage` 三档（小学→grade 1–6 / 初中→7–9 / 高中→10–16），
+**禁止用字符串包含或前缀猜学科与年级**——他们写"生物学"、我们写"生物"，逐字判等为 False，
+用包含关系匹配会静默错配（这是 P5-10"借来的过滤"坑的同类复发形态）。
+
+【任务】
+1. 新增 `wengu-api/scripts/audit_kg.py`，照 `check_upstream.py` 的三层写法：纯解析/计算层
+   （不吃路径、不联网、不写盘）→ 只读输入层 → 输出层。CLI：`--kg-dir`（默认
+   `D:/MyProducts/StudyDesk/K12-KGraph-hf`；也必须支持 GitHub demo 布局
+   `D:/MyProducts/StudyDesk/K12-KGraph`，靠文件探测判布局，认不出就给可读错误 + 非零退出）、
+   `--out-dir`（默认 `D:/MyProducts/StudyDesk/kg-audit`）、`--json`、`--subject`（默认四科全跑）。
+   **`--kg-dir` 或 `--out-dir` 任一落在仓库内即拒绝运行**，该判定写成纯函数并被单测覆盖。
+2. 解析层支持三种形态：瘦图（顶层 `nodes.json`/`edges.json` 两个扁平数组，节点仅
+   `id/label/name`、边仅 `source/target/type`）；学科富图（顶层 `{nodes, edges}`，节点带
+   `properties{definition,importance,pages?,examples?}`、边带 `properties{relations?,evidence?}`
+   且含 `source_name/target_name`）；书级 demo（同富图，但 `tests_concept`/`tests_skill`
+   改用 `source_stem` + `target_name_to_ids[]`）。**边类型按实测集合遍历，不得硬编码 9 类**
+   ——数学富图没有 `verifies`，硬编码会 KeyError。
+3. 结构体检段：复现卡面 ⑨（瘦图 10685 节点 label 分布、23278 边且带 evidence 0 条）、
+   ⑩（四科规模与 evidence 率：math 2711/5273=27.9%、physics 2025/4092=34.9%、
+   chemistry 3491/8141=45.9%、biology 2458/4965=38.7%；prereq 带 evidence
+   95.8% / 99.4% / 99.3% / 100.0%）、⑪（数学缺 `verifies`）。
+   副本不完整、布局不认识、文件字节与卡面 sha 锚点不符 → 明确报错非零退出，**不得静默出半份报告**。
+4. 环检测段（两侧都做，Kahn 判有无环 + Tarjan 取强连通分量，**纯标准库**）：
+   我们侧 `seeds/data/dependencies.json` 5132 边 → 必须打印 `cycles=0` 并保留该节（实测就是 0，
+   复现不出就是脚本错）；他们侧富图 chemistry → 必须复现卡面 ⑬ 那两个 2-节点环
+   （`chemistry_xzxbx2_rjb_cpt100 极性分子 ↔ cpt108 相似相溶规律`、
+   `chemistry_xzxbx1_rjb_skl2 根据键能估算反应热 ↔ cpt10 化学键能量变化与反应热`）
+   **并附这四条边的 `properties.evidence` 原文**；其余三科富图应为 0 环、瘦图全局应为 2 环。
+5. 候选表段：两档（精确同名 / NFKC 归一化后子串互含），每条带我们 id、他们 id、双方名字、
+   他们 `appears_in` 定位到的 Section/Chapter、富图 evidence 前 80 字。数学初中实测规模
+   **555 名 / 精确同名 44 / 子串互含 287**，报告数字必须对得上。
+6. gap 分类按定案三四类输出：① 整学科缺失（实测 6 科：英语/语文/道德与法治/科学/历史/地理）
+   ② 前置边缺失/方向相反/成环（本票实测产出即那两个化学环，处置走 B 提上游 issue）
+   ③ 知识点缺失 ④ 粒度差异（实测：他们化学 Concept 2302 vs 我们化学 147 点、
+   他们生物 1648 vs 我们 66 点、他们数学初中 555 vs 我们 grade7-9 315）——
+   **④ 单列、不计入缺失总数**；反向 gap（我们有他们没有）标注"不算问题、不得据此删点"。
+   **无 evidence 的 gap 不得进 ②③ 清单**（定案三硬规矩；瘦图 0 evidence 就是为此）。
+7. 新增 `wengu-api/tests/unit/test_audit_kg.py`：纯函数层单测覆盖三种形态解析、label 归类、
+   evidence 抽取（含"瘦图无 evidence 不得进 ②③"这条）、两档候选匹配、布局探测失败报错、
+   仓库内路径拒绝、学科映射表（**必须有一条断言：`生物学` 映射到 `生物`，且包含式匹配被拒绝**）、
+   Kahn/Tarjan（人造 3 环样例与 2-节点互环都必须检出）。
+8. 文档：`CHANGELOG.md` 一条；设计文档 §19-G-3 定案二/三 追加"三层 schema + 四科规模 +
+   实测 2 个上游化学环（含 evidence）+ 6 科无对照 + 学科名逐字不等"；
+   `docs/STATUS.md` 交付区新增本票条目（AGENTS §8 补严要求，别漏）。
+
+【DoD——逐项贴输出】
+- 对 HF 布局与 GitHub demo 布局**各跑通一次**，报告落 `kg-audit/`（JSON + Markdown 两件套）；
+- 实测复现：四科规模与 evidence 率、数学缺 `verifies`、两个化学环 + 四条 evidence、
+  我们侧 `cycles=0`、数学初中 555/44/287；
+- **零写入证明**：运行前后 `git status --porcelain` 为空；`seeds/data/*` 与
+  `docs/templates/topics_junior.tsv` 逐个 sha256 不变；
+- **不进备份证明**：实跑一次备份导出，贴 zip 内文件清单，断言不含 `kg-audit` 与任何 K12 路径；
+- **零依赖 / 零联网证明**：`requirements.txt` 零变化；脚本源码 grep 无
+  `requests|urllib|httpx|socket|sqlite3|datasets|huggingface|networkx`；
+- 全量 `pytest -q` 绿（基线以 `--collect-only` 实取，如实报新数）；`ruff check --no-cache .` 全仓绿；
+  既有 5 条行尾守卫（`test_repo_eol.py`）仍绿；
+- 零迁移、不动 `app/**`、不改 loader / `seeds/**`、不建 `seeds_external` 装载。
+
+【提交结构】两个 commit：① 脚本 + 单测；② 文档（CHANGELOG / 设计文档 / STATUS 交付区）。
+（squash 合并下不构成回滚粒度，仅为审查可读性。）
+
+【允许改动的文件】`wengu-api/scripts/audit_kg.py`（新）、`wengu-api/tests/unit/test_audit_kg.py`（新）、
+`CHANGELOG.md`、`docs/specs/architecture/StudyDesk-设计说明文档-v2.md`、`docs/STATUS.md`。
+**报告与他们的数据一律写仓库外**，不得新增任何仓内文件。
+
+【禁止】引入依赖；脚本联网；把报告或他们的 `definition/examples/stem/answer` 写进仓库任何位置
+（含被 `.gitignore` 忽略的 `data/`）；输出"覆盖率 X%"；用 `importance`/`pages` 造字段（无消费方）；
+用字符串包含猜学科或年级；做逐册年级映射（本票无实测依据）；做可视化 / 导入 UI / 教材包机制 /
+`seeds_external` 装载；改 `seeds/data/*` 或 loader；用 `--skip`/`xfail` 让测试过；
+把"四科富图"说成"全学科对照完成"。
+
+【投单纪律】git fetch origin; git switch -c feat/p5-18-kg-audit origin/main；
+一票一 PR 分支冻结；中文 commit 用 `git commit -F <仓库外 UTF-8 文件>`；
+提交前 `git diff --name-only` 核对并贴清单；交付贴两种布局的实跑输出、两个化学环与 evidence 原文、
+`cycles=0` 与四科规模复现、零写入与不进备份证明；单列「审核方需复核的点」；
+卡面与盘上不符时以盘上为准并上报，不要硬凑。
+
+
 
