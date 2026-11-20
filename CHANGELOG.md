@@ -642,6 +642,32 @@
 
 ### Changed
 
+- **行尾根治（P5-17；零迁移、零新依赖、零运行时改动）**（2026-11-20）：全仓文本统一 **LF**，
+  唯一例外 `docs/templates/topics_junior.tsv` 保持 **CRLF**（P5-10 定案，blob 137,623B /
+  CRLF 1268 逐字节未动）。起因 = 两次事故（P5-10 TSV 换行 CI 红、P5-16 CRLF 幻影 diff）+
+  普查发现 HEAD 含 CRLF 的文本 blob 有 **9 个**，根因是 import 脚本 `_write_json` 用
+  `Path.write_text()`（Windows 生成即 CRLF）。**生成侧**：`_write_json` 改显式
+  `open(..., encoding="utf-8", newline="\n")`，仓库文本产物禁用 `Path.write_text()`；
+  同一快照 `8b57f2e` 显式 `--upstream-commit` 重跑两个 import，四个纯数据产物与旧 blob
+  去 CR 后**逐字节相等**、`json.load` 语义全等（topics 3,440,064→3,332,573B /
+  dependencies 1,012,518→981,724B / questions 13,433,773→12,952,205B /
+  figures_sha256 57,673→57,031B，Windows 实测非推理）；两份 source JSON 含 P5-15/P5-16
+  手工策展键（`commit_evidence` 等），不重跑覆盖，换行由 renormalize 机械处理。
+  **仓库侧**：新增 `.gitattributes`（`* text=auto eol=lf` + TSV `-text` 例外 +
+  `*.ps1 text eol=lf` + png/jpg/gif/ico 显式 binary）+ 一次性 `git add --renormalize .`
+  单独 commit（4 文件纯换行，逐文件去 CR 逐字节相等 + json.load 全等）。
+  **卡面缺陷两处如实上报（以盘上实况为准）**：① 卡面 TSV 例外行 `text eol=crlf` 实测会把
+  blob 归一成 LF（eol 只控工作区），与「TSV blob 字节不变」DoD 冲突，改 `-text`；
+  ② `.gitattributes` 生效后 `git add` 自动归一 CRLF（实测 index==HEAD），只查 HEAD blob
+  的守卫抓不到「塞 CRLF 并 add」，守卫加查工作区字节层。新守卫
+  `wengu-api/tests/unit/test_repo_eol.py` 5 条（HEAD blob / 工作区 / .gitattributes 规则 /
+  源码禁 `write_text(` / `test_text_writers_pin_explicit_newline` 钉死 `newline="\n"` 取值
+  ——只禁 `write_text` 挡不住「保留 `open()` 但换行取值回退」，由审核方变异发现，
+  第 26 次卡面缺陷，折入轮补），三处变异 RED→GREEN 自证（还原 sha256 一致）；
+  折入轮另做两靶变异（取值改 `\r\n` / 删 `newline` kwarg）均新守卫红、既有四条仍绿。
+  文档：AGENTS.md §8 新增行尾与编码条、设计文档 §19-L 纪律⑦泛化（生成侧钉死 + 仓库侧兜底）、
+  seeds/README.md 补「产物为 LF，TSV 例外」。全量 pytest **906 passed**（基线 901 + 新 5）、
+  ruff / selfcheck --strict（18 OK）/ 前端 lint + 57 tests + build 全绿。
 - **本地自建命名空间解耦（P5-15；§19-G-3 定案一；先于扩科同步票；零迁移、零新依赖）**（2026-11-18）：
   本地自建知识点 id 从「语文 `cnl_` / 化学 `cnc_`」改为**统一 `loc_` 单前缀**（`loc_001`…），
   学科由 `subject` 字段承载（白名单键语文/化学不变）；上游 10 科前缀全在 `cn?_` 家族内，`loc_` 永不冲突

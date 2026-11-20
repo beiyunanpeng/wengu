@@ -1,0 +1,15 @@
+# P5-17 行尾根治：全仓文本 LF；换行由本文件决定，不依赖本机 core.autocrlf
+* text=auto eol=lf
+
+# 唯一例外：转录目录 TSV 的 blob 与工作区都必须保持 CRLF（P5-10 定案，导出脚本写死 newline="\r\n"）。
+# 用 -text 而非 text eol=crlf：后者只控工作区，add 时仍会把 blob 归一成 LF（本票实测踩中）。
+docs/templates/topics_junior.tsv -text
+
+# PS5.1 要 BOM+LF；BOM 属内容不受 eol 影响（显式 text 防自动检测误判）
+*.ps1 text eol=lf
+
+# 二进制显式声明（当前仅 PNG，jpg/gif/ico 预防性列出）
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
