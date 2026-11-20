@@ -9,6 +9,39 @@
 
 ### Added
 
+- **P3-4 英语默写闭环（卷面生成 + 页内勾选回录 + 既有二档调度复用；听力线拆 P3-4b/P3-4c 两票）**（2026-11-20）：
+  - **迁移 `0024_dictation_sheets`（可逆）**：`dictation_sheets`（id / created_on / created_by / subject / unit? /
+    item_ids JSON 有序数组 / status open→recorded / recorded_on?），双 CHECK（status 二态 +
+    recorded_on 与状态一致）库层兜底；不建逐词外键（条目停用/删除后卷面仍可回录，缺失跳过），
+    **不预留音频/时间戳字段**（P3-4b 需要时由它自己的迁移加列）。up/down/up 迁移测试 +
+    回退再升级 DDL 与 ORM 模型逐字一致测试随票新增。
+  - **新增 `app/services/dictation.py`（纯函数层 + 输入层）**：词序按提交顺序固化
+    （非空 / 正整数 / 不重复 / ≤200 / 同学科）；回录校验归属 + 二档 + 不重复、按卷面词序重排；
+    **逐条复用 `recitation.review_item()`，`decide()` / `VERDICTS` 原样不动**——同一 fixture 同一输入下
+    批量回录每条 rung / 下次到期与单条 review 端点逐项相等（集成测试对照断言，复用性自证）；
+    整批一个事务，任何异常整批回滚。
+  - **API 四端点（`api/recitations.py` 内联 schema）**：POST `/api/recitations/sheets`（require_parent）生成、
+    GET `/sheets` + GET `/sheets/{id}`（孩子可读）、POST `/sheets/{id}/results`（require_parent）回录。
+    **卷面投影与响应一律不含 answer**（schema 无字段 + 响应字段/值双层断言 + 打印页源码守卫三层）；
+    open→recorded 单向状态机，重复提交 409 且不产生第二条事实；缺失/停用条目跳过并在响应
+    `skipped` 列明；同日已有自评幂等沿用既有结果（`created=false`）。
+  - **前端**：`/recitations` 家长区新增「默写卷」——勾选 active 条目生成 → 自动跳打印页；
+    open 卷列表（可跨天/跨设备回录）；回录视图按卷词序逐词 对/错 → 批量提交 → 每词新档位 /
+    下次到期 / 毕业与跳过报告。新 `/print/dictation` 打印页（卷号 / 日期 / 词序表 / 提示 / 空行，
+    `window.print()`，**无答案页**）。错词只走 `recitation_reviews` 重默循环，**不进错题本**
+    （错题四表全表内容不变断言）。
+  - 判分主体是家长卷面红笔，**系统零判分代码**，只做一致性检查与调度；不动 `app/judge/**`、
+    seeds、错题写入路径；零新依赖、零联网。
+  - 新增单测 11 条 + 集成 13 条（含迁移 2 条），全量 **953 passed**；`ruff check --no-cache .` 全仓绿、
+    行尾守卫 5 条绿、前端 lint / 57 tests / build 绿；浏览器实走 golden path
+    （生成 → 打印 → 回录 → 到期变化）零控制台错误。
+  - 卡面缺陷两笔（以盘上为准并上报）：① `test_migrations.py` 不在白名单，但其
+    `EXPECTED_TABLES` / 22 张字面随新表必须更新（最小改动两处）；② 前端测试是 node --test
+    纯逻辑、无 DOM 设施，定案⑤"组件测试双断言"以打印页源码守卫 + API 响应断言代替。
+  - 折入轮（2026-11-20，审核方变异发现两处"有承诺无守卫"）：200 词上限补手写字面值
+    边界两侧断言（常量调大 / `>` 写成 `>=` 均 RED→GREEN 变异自证）+ API 201 词 422 断言；
+    `backup.py` `COUNT_TABLES` 补 `dictation_sheets` 并加真计数断言（建 1 卷 → manifest
+    counts == 1，删表即红）；全量 **954 passed**（953 + 集成 1）。
 - **P5-18 K12-KGraph 只读对照审计脚本（§19-G-3 定案二/三落地；零迁移、零新依赖、零联网、对仓库零写入）**（2026-11-20）：
   - **新增 `wengu-api/scripts/audit_kg.py`**（check_upstream 三层式：纯解析/计算 → 只读输入 → 输出）：
     CLI `--kg-dir`（默认 `../K12-KGraph-hf`，文件探测同时支持 GitHub demo 布局 `../K12-KGraph`）、

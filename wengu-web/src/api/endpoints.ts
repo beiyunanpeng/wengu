@@ -24,6 +24,11 @@ import type {
   ConceptMergeResponse,
   ConfigUpdate,
   DashboardResponse,
+  DictationResultEntry,
+  DictationResultsResponse,
+  DictationSheetDetail,
+  DictationSheetListResponse,
+  DictationSheetStatus,
   DraftConfirmPayload,
   DraftConfirmResponse,
   DueReviewResponse,
@@ -911,6 +916,46 @@ export function addRecitationCandidates(payload: {
 }): Promise<RecitationCandidateBatchResponse> {
   return requestJson<RecitationCandidateBatchResponse>(
     "/api/recitations/candidates/batch",
+    "POST",
+    payload,
+  );
+}
+
+export function createDictationSheet(payload: {
+  item_ids: number[];
+  unit?: string | null;
+}): Promise<DictationSheetDetail> {
+  return requestJson<DictationSheetDetail>(
+    "/api/recitations/sheets",
+    "POST",
+    payload,
+  );
+}
+
+export function listDictationSheets(
+  status?: DictationSheetStatus,
+): Promise<DictationSheetListResponse> {
+  const query = status ? `?status=${status}` : "";
+  return apiRequest<DictationSheetListResponse>(
+    `/api/recitations/sheets${query}`,
+  );
+}
+
+export function getDictationSheet(
+  sheetId: number,
+): Promise<DictationSheetDetail> {
+  return apiRequest<DictationSheetDetail>(`/api/recitations/sheets/${sheetId}`);
+}
+
+export function recordDictationResults(
+  sheetId: number,
+  payload: {
+    results: DictationResultEntry[];
+    reviewed_on?: string;
+  },
+): Promise<DictationResultsResponse> {
+  return requestJson<DictationResultsResponse>(
+    `/api/recitations/sheets/${sheetId}/results`,
     "POST",
     payload,
   );

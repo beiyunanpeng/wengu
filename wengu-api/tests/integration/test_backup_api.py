@@ -24,7 +24,7 @@ import time
 import zipfile
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -34,6 +34,7 @@ from app.core.config import Settings, get_settings
 from app.core.database import create_sqlite_engine, get_session
 from app.main import create_app
 from app.models import KnowledgeSeed, LearningEvent, PracticeRecord
+from app.models.recitation import DictationSheet
 from app.services.backup import (
     KEEP_BACKUPS,
     BackupNameError,
@@ -121,6 +122,24 @@ async def _seed_and_dispose(data_dir: Path, events: int = 2) -> None:
         await engine.dispose()
 
 
+async def _seed_sheet(data_dir: Path) -> None:
+    factory = _migrated(data_dir)
+    engine = factory.kw["bind"]
+    try:
+        async with factory() as session, session.begin():
+            session.add(
+                DictationSheet(
+                    created_on=date(2026, 11, 20),
+                    created_by="parent",
+                    subject="英语",
+                    unit="U1",
+                    item_ids="[1]",
+                )
+            )
+    finally:
+        await engine.dispose()
+
+
 def _prepare(tmp_path: Path, events: int = 2) -> Settings:
     settings = _settings(tmp_path)
     asyncio.run(_seed_and_dispose(settings.data_dir, events))
@@ -190,6 +209,7 @@ def _extract_snapshot(archive: Path, target: Path) -> Path:
 
 def test_create_backup_is_read_only_and_complete(tmp_path: Path) -> None:
     settings = _prepare(tmp_path)
+    asyncio.run(_seed_sheet(settings.data_dir))
     data_dir = Path(settings.data_dir)
     _write(data_dir / "uploads" / "page1.png", "fake-image-bytes")
     _write(data_dir / "uploads" / "nested" / "page2.png", "more-bytes")
@@ -227,6 +247,7 @@ def test_create_backup_is_read_only_and_complete(tmp_path: Path) -> None:
         assert manifest["counts"]["learning_events"] == 2
         assert manifest["counts"]["knowledge_seed"] == 1
         assert manifest["counts"]["practice_records"] == 1
+        assert manifest["counts"]["dictation_sheets"] == 1
         for item in manifest["files"]:
             payload = zf.read(item["path"])
             assert len(payload) == item["size_bytes"]

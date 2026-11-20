@@ -37,6 +37,7 @@ EXPECTED_TABLES = {
     "recitation_items",
     "recitation_reviews",
     "pomodoro_sessions",
+    "dictation_sheets",
 }
 
 # 易变状态一律不存字段（AGENTS §5：掌握度/毕业/统计由事实推导）
@@ -735,7 +736,7 @@ def test_p5_6_drops_orphan_photo_tables_up_down_up(tmp_path) -> None:
         "photo_capture_items",
         "problem_extractions",
     }.isdisjoint(tables)
-    assert len(tables - {"alembic_version"}) == 22
+    assert len(tables - {"alembic_version"}) == 23
 
     engine = create_engine(f"sqlite:///{db_path.as_posix()}")
     try:
