@@ -437,7 +437,7 @@ export default function RecitationsPage() {
   return (
     <Stack gap="md">
       <Stack gap={4}>
-        <Title order={2}>英语背诵</Title>
+        <Title order={2}>背诵与默写</Title>
         <Text size="sm" c="dimmed">
           家长手动录入条目，孩子按记忆阶梯自评（1/3/7/14/30 天）。
           “记得”进一档，“没记住”保持当前档；背诵不是错题，也不计入掌握度。
@@ -710,6 +710,7 @@ export default function RecitationsPage() {
                   <Text size="sm" c="dimmed">
                     来自 active 英语错题的当前题面，按出现错题数排序；每次现算，
                     不会自动入库。勾选后才会写入背诵池。
+                    语文古诗文请用手填 / 批量导入整句，抽词只适用于英语词形。
                   </Text>
                   <Button
                     size="compact-sm"

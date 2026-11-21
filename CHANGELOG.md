@@ -9,6 +9,32 @@
 
 ### Added
 
+- **P3-5 语文客观并入（题池全收 + 转录侧"不进本"闸门 + 语文闭环证据测试；零新依赖、零迁移）**（2026-11-21）：
+  - **转录模板 v2→v3**（`docs/templates/doubao_transcribe_v1.md`）：「只转录这些题」新增"不进本"口径——
+    作文/续写/仿写/看图写话、**需整篇材料或整段语境才能作答的阅读理解大题一律不转录**；
+    语文独立可判分短小题（课文常识/字词/拼音/古诗文理解选择等）照旧转录。
+    契约镜像 `template.version` 同步 **3**（其余字段一律不动），`transcribe/README.md` 两处示例与
+    DRIFT 表同步 v3；`selfcheck --strict` **18 OK / 0 DRIFT / 0 WARN**（模板 version 两条均 模板=3 契约=3）、
+    `evals` 13/13。Skill 只引用 `template_ref` 不内嵌版本号，零改动。
+    折入轮再升 **v4**：删 subject/前缀两张硬编码清单、改以《知识点目录》（`topics_junior.tsv`）为唯一真源，
+    新增语文 few-shot 示例（`cnc_j004`），契约同步 **4**，并加模板字面回退守卫 `test_template_gate_literals.py` 4 条。
+  - **运行时零改动（A3′，§19-M 定案一）**：题池全收——原 A3"按 seed domain 切闸门"被实测否证
+    （domain 标"阅读理解"的 480 道初中题实为独立短选题，按 domain 切会误伤）；不加任何按
+    domain/学科的闭环白名单，`CANDIDATE_SUBJECT` 不动，判分器/AST 沙箱/`app/judge/**` 不动，
+    不重跑 import（`seeds/data/*` 六文件 sha256 前后逐字一致）。
+  - **闭环证据测试 `wengu-api/tests/integration/test_yuwen_closed_loop.py`（集成 3 条）**：
+    ① 语文转录报文 → `POST /api/imports` → 草稿 → 核对页确认挂 `cnc_` 主考点 → 首排 → 到期 →
+    组卷抽**真实 seed 语文 choice 题** → `judgeAnswer` 判分 → 事件与掌握度（0.5）更新全链；
+    同一夹具仅换 subject/主考点，**语文与数学行为观测逐键相等**（零学科分支）；
+    ② 遵守 v3 的转录输出（作文/整篇材料大题不产出）全链后 mistakes 恰好只有独立短小题——
+    **不进本面零 mistakes 行，靠转录侧不产出、不靠代码过滤**；
+    ③ 反向锚定：作文题即使误入报文服务端也照常收草稿、照常转正（闸门只在转录模板，
+    钉住"闸门位置"防代码闸门回潮）。
+  - **前端**：`RecitationsPage` 标题「英语背诵」→「背诵与默写」，抽词卡片补"语文古诗文请用手填 /
+    批量导入整句，抽词只适用于英语词形"；默认 subject 仍"英语"、`IMPORT_SUBJECTS` 枚举与抽词逻辑不动。
+  - 设计文档 §5.9 表下加注（闸门实现位置=转录模板 v3、A3 否证指向 §19-M 定案一）；STATUS 交付区留痕。
+  - 新增集成 3，全量 **979 passed in 467.13s**（基线 `--collect-only` 实取 976 + 3）；
+    `ruff check --no-cache .` 全仓绿、行尾守卫 5 绿、前端 tsc / 61 tests / build 绿。
 - **P3-4b 听写音频线（卷级挂接 + 目录扫描 + index 化播放端点 + 听写卷面隐藏提示；零新依赖、零联网）**（2026-11-21）：
   - **迁移 `0025_dictation_sheet_audio_ref`（可逆，原生 ADD/DROP COLUMN）**：`dictation_sheets` 加
     `audio_ref` 可空 TEXT（只存纯文件名），**一卷一音频、默写卷留空、不预留其他列**；
