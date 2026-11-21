@@ -1,13 +1,13 @@
 ---
 id: doubao_transcribe
-version: 3
+version: 4
 channel: agent_transcribe_v1
 applies_to: [doubao_app_web, qwenwork_skill, workbuddy]
 schema_fields: [subject, problem_text, student_answer, standard_answer, correction_notes, error_cause_suggestion, suggested_topic_id, source_ref, captured_at]
 max_items_per_batch: 500
 ---
 
-# 已批改错题转录模板 v3（wengu 外部提取通道 · 唯一真源）
+# 已批改错题转录模板 v4（wengu 外部提取通道 · 唯一真源）
 
 > **这是给豆包 / 千问办公 / WorkBuddy 用的转录指令**，是 wengu 的"事实源级"产物：改语义**必须把上面 `version` 递增**并同步 `docs/tooling/` 的 Skill 配方。
 > **它只做一件事：把"已经在卷子上用红笔批改+订正过"的错题，原样转录成结构化 JSON。**
@@ -35,13 +35,13 @@ max_items_per_batch: 500
 - 语文的**独立可判分短小题照旧转录**：课文常识、字词、拼音、古诗文理解选择等——题干自身完整、不依赖整篇材料即可作答的，不受上一条限制。
 
 ## 每题必须给出的字段（严格用这些英文键）
-- `subject`：学科，取值 `数学 | 英语 | 语文 | 物理 | 化学`（≤20 字）。
+- `subject`：学科，取值以《知识点目录》（`topics_junior.tsv`）的**学科分节**为准——目录覆盖哪些学科就填哪些，本模板不再列学科清单（≤20 字）。
 - `problem_text`：**题干原文**，逐字转录，保留数学式子（可写 LaTeX 或原样）。看不清的地方用占位符 `〔?〕`，**绝不猜、绝不补全**（≤2000 字）。
 - `student_answer`：**孩子最初写、被红笔判错的答案**（划掉的那份）。看不清用 `〔?〕`（≤500 字）。
 - `standard_answer`：**卷子上订正后的正确答案**（红笔写或订正栏）。若卷子上没有可辨认的订正答案，用 `〔?〕`，**不要自己解题去编一个答案**（≤500 字）。
 - `correction_notes`（**可选，可留空**）：**只逐字抄录卷面上孩子/家长手写的订正笔记**（如"移项要变号""这里漏了负号""下次先通分"等手写批注）。**卷面没有手写笔记就留空；绝不自己写讲解、绝不补全、绝不把标准答案或错因塞进来**（≤500 字）。看不清的手写字用占位符。
 - `error_cause_suggestion`：从卷面痕迹**推断**的错因候选，取值 `概念不清 | 计算失误 | 审题不清 | 方法不会 | 记忆模糊 | 步骤跳步 | 抄写错误`，拿不准就留空 `""`。**这只是建议，不是结论**。
-- `suggested_topic_id`：**建议**的知识点 id，从下面《知识点目录》里选**一个**最贴合的 `cnm_*/cne_*/cnp_*` id；选不准就留空 `""`。**这只是建议，最终以核对页人工确认为准。**
+- `suggested_topic_id`：**建议**的知识点 id，从下面《知识点目录》中**该学科分节**里选**一个**最贴合的 id（目录是唯一真源，本模板不再列前缀清单）；选不准就留空 `""`。**这只是建议，最终以核对页人工确认为准。**
 - `source_ref`：卷面出处，如 `期中卷 第3题`、`练习册 P21 第5题`，没有就留空 `""`（≤200 字）。
 - `captured_at`：拍摄/转录日期，格式 `YYYY-MM-DD`，不知道就留空 `""`。
 
@@ -82,6 +82,17 @@ max_items_per_batch: 500
       "suggested_topic_id": "cne_007",
       "source_ref": "Unit 3 练习 第2题",
       "captured_at": "2026-10-28"
+    },
+    {
+      "subject": "语文",
+      "problem_text": "《观沧海》中“水何澹澹，山岛竦峙”的“竦峙”意思是",
+      "student_answer": "耸立",
+      "standard_answer": "高高地挺立",
+      "correction_notes": "",
+      "error_cause_suggestion": "记忆模糊",
+      "suggested_topic_id": "cnc_j004",
+      "source_ref": "语文练习 第4题",
+      "captured_at": "2026-11-20"
     }
   ]
 }
@@ -99,4 +110,4 @@ max_items_per_batch: 500
 - `error_cause_suggestion` / `suggested_topic_id` 是**AI 建议值**，入 `ingestion_drafts` 后在**核对页**由家长/孩子确认转为**确认值**（来源 `ai → parent/student`），**冲突不静默覆盖**。
 - `correction_notes`（v2.7 D6 / P1-17 新增）是**可选纯展示字段**：`FIELD_LIMITS` 限 ≤500 字、未知字段静默丢弃；只承载卷面孩子/家长手写订正笔记，**agent 不得自产讲解**。写入三径——核对页确认 payload、ImportPage 手填表单、转录 JSON——空 = 不存（NULL）。详情页与 `standard_answer` 并排展示，编辑走 `POST /api/mistakes/{id}/notes` **追加版本行、绝不改写历史**。**笔记不进判分、排期、掌握度任何链路**；含 `〔?〕` 只标 `has_placeholder` 徽章，不挡转正（转正闸门只卡 `problem_text`/`student_answer`/`standard_answer`）。
 - **`verify` 不向转录端暴露（仅题库通道使用）**：后端 `FIELD_LIMITS` 与契约镜像各 **10 键**，本模板 `schema_fields` 只 **9 键**，差的正是 `verify`。`verify` 是**题库通道** `agent_bank_transcribe_v1` 的答案自洽表达式（入库时在 AST 白名单沙箱核验答案用）；**转录端只转录、不推理、不得生成 `verify`**，故模板不含它。契约用 `template.bank_only_fields=["verify"]` 显式声明这一差异，`selfcheck` 按「契约字段 − `bank_only_fields` == 模板 `schema_fields`」判定，**不靠忽略项蒙过**。这是字段口径收口说明，不改发给模型的指令与 `schema_fields`，当时在 v2 内收口未升版；v3 的升版原因是「只转录这些题」新增"不进本"口径（P3-5：作文/续写/仿写/看图写话/需整篇材料的阅读理解大题一律不转录，闸门只存在于本指令，运行时不加任何按 domain 或学科的代码闸门）。
-- 版本纪律：改本文件任一语义 → `version+1` → 跑后端契约回归 `wengu-api/tests/integration/test_imports_api.py` / `test_intake_api.py`（含/不含 `correction_notes` 对照）+ 行为锚定 `test_transcribe_contract_anchor.py`（后端真实校验函数消费 `transcribe/evals/fixtures/*.json`）→ 跑 `python transcribe/validate.py selfcheck --strict` 确认 0 DRIFT（模板 `id`/`version`/`schema_fields` ↔ 契约镜像一致）→ 确认 `docs/tooling/wengu-transcribe.md` 与 `transcribe/skills/wengu-transcribe/SKILL.md` 的 `template_ref` 仍指向本文件（Skill 动态加载模板正文，自动拾取新字段）。原系统内模型在环黄金样例已随 v2.5 零模型退役（见 `docs/methodology/evals.md`）；转录黄金样例现以纯标准库 fixtures 形态随可选包分发于 `transcribe/evals/`。
+- 版本纪律：改本文件任一语义 → `version+1` → 跑后端契约回归 `wengu-api/tests/integration/test_imports_api.py` / `test_intake_api.py`（含/不含 `correction_notes` 对照）+ 行为锚定 `test_transcribe_contract_anchor.py`（后端真实校验函数消费 `transcribe/evals/fixtures/*.json`）→ 跑 `python transcribe/validate.py selfcheck --strict` 确认 0 DRIFT（模板 `id`/`version`/`schema_fields` ↔ 契约镜像一致）→ 确认 `docs/tooling/wengu-transcribe.md` 与 `transcribe/skills/wengu-transcribe/SKILL.md` 的 `template_ref` 仍指向本文件（Skill 动态加载模板正文，自动拾取新字段）。原系统内模型在环黄金样例已随 v2.5 零模型退役（见 `docs/methodology/evals.md`）；转录黄金样例现以纯标准库 fixtures 形态随可选包分发于 `transcribe/evals/`。v4 升版原因（P3-5 折入轮）：删除 subject 与前缀两张硬编码清单、改以《知识点目录》（`topics_junior.tsv`）为唯一真源（目录实测 9 学科 9 前缀，旧清单只 5 科 3 前缀，扩科即腐化），并新增语文 few-shot 示例（`cnc_j004` 取自目录语文分节）；既有"不进本"口径与 `schema_fields` 不变。

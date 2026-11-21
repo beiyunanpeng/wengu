@@ -31,7 +31,7 @@
   },
   "template": {
     "id": "doubao_transcribe",
-    "version": 3,
+    "version": 4,
     "path": "docs/templates/doubao_transcribe_v1.md",
     "bank_only_fields": ["verify"],
     "bank_only_reason": "verify 是题库通道 agent_bank_transcribe_v1 的答案自洽表达式（入库 AST 沙箱核验用）；转录端只转录不推理、不得生成 verify，故模板 schema_fields 不含它。selfcheck 按「契约字段 − bank_only_fields == 模板 schema_fields」显式判定，不靠忽略项。"

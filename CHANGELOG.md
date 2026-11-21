@@ -16,6 +16,8 @@
     契约镜像 `template.version` 同步 **3**（其余字段一律不动），`transcribe/README.md` 两处示例与
     DRIFT 表同步 v3；`selfcheck --strict` **18 OK / 0 DRIFT / 0 WARN**（模板 version 两条均 模板=3 契约=3）、
     `evals` 13/13。Skill 只引用 `template_ref` 不内嵌版本号，零改动。
+    折入轮再升 **v4**：删 subject/前缀两张硬编码清单、改以《知识点目录》（`topics_junior.tsv`）为唯一真源，
+    新增语文 few-shot 示例（`cnc_j004`），契约同步 **4**，并加模板字面回退守卫 `test_template_gate_literals.py` 4 条。
   - **运行时零改动（A3′，§19-M 定案一）**：题池全收——原 A3"按 seed domain 切闸门"被实测否证
     （domain 标"阅读理解"的 480 道初中题实为独立短选题，按 domain 切会误伤）；不加任何按
     domain/学科的闭环白名单，`CANDIDATE_SUBJECT` 不动，判分器/AST 沙箱/`app/judge/**` 不动，

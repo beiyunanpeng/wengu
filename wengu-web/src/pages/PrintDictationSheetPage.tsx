@@ -22,7 +22,7 @@ export default function PrintDictationSheetPage() {
   useEffect(() => {
     if (sheetId === null) {
       setLoading(false);
-      setError("缺少 sheet_id，请从「英语背诵」页生成默写卷后再打印。");
+      setError("缺少 sheet_id，请从「背诵与默写」页生成默写卷后再打印。");
       return;
     }
     let active = true;
@@ -158,8 +158,8 @@ export default function PrintDictationSheetPage() {
         {printable && (
           <p className="print-note">
             {listening
-              ? "孩子听上方音频在横线上听写（卷面不印提示）；家长用红笔批改后，回「英语背诵」页按卷勾选回录。"
-              : "孩子看提示在横线上默写；家长用红笔批改后，回「英语背诵」页按卷勾选回录。"}
+              ? "孩子听上方音频在横线上听写（卷面不印提示）；家长用红笔批改后，回「背诵与默写」页按卷勾选回录。"
+              : "孩子看提示在横线上默写；家长用红笔批改后，回「背诵与默写」页按卷勾选回录。"}
           </p>
         )}
       </main>
