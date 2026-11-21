@@ -2525,9 +2525,63 @@
   注入，且**不得只看包装器退出码**——后台任务的 exit 1 可能来自"归还文件属主"步骤而非测试本身；
   判定一律用第二种独立方法钉死（逐文件 `tr -dc '\r' | wc -c` 计数 + 复跑）。
 
----
-
-## 作废清单（v2.5，保留标题供追溯，勿实现）
+### P5-19 迁移与 ORM 的结构等价测试（限定 `dictation_sheets`；纯测试、零生产改动）
+- **背景（审核方 2026-11-21 实测，①–⑥ 均可复现）**：
+  ① 欠账来历：P3-4b 的 0025 用 `ALTER TABLE ADD COLUMN` 加 `audio_ref` 后，`sqlite_master` 文本与
+     ORM `CreateTable` 编译产物不再逐字相等，原 0024 的 ORM 逐字对照被移除，现由
+     `test_0025_audio_ref_up_down_up`（列名 + 可空性手写字面）与
+     `test_sheet_model_and_view_expose_audio_ref`（模型侧 9 列字面）承接——
+     **类型与 `server_default` 已无人对照**（登记于 `docs/STATUS.md` §7 第 19 条）。
+  ② 审核方自查（alembic `upgrade head` 建库 vs `Base.metadata.create_all()` 建库，结构化比对）：
+     **`dictation_sheets` 两侧完全一致**——列集合
+     `{id, created_on, created_by, subject, unit, item_ids, status, recorded_on, audio_ref}`，
+     类型 INTEGER/DATE/TEXT 一致、可空性一致、`status` 默认值 `'open'` 一致、主键一致、
+     CHECK 名 `{ck_dictation_sheets_status, ck_dictation_sheets_recorded_on}` 一致。
+     → 本测试**今天即绿**，是补守卫不是修 bug。
+  ③ **不可扩面**：同一脚本对 23 张表比对发现约 **30 处历史性差异**，形态是迁移 DDL 有
+     `server_default`（`attempts.created_at` = CURRENT_TIMESTAMP、`bank_drafts.status` = 'draft'、
+     `concepts.status` = 'suggested' 等）而 ORM 模型未声明。运行期只走 alembic，暂不影响正确性；
+     **扩到全仓会把历史欠账一次性变红**，属另一件事（未立项）。
+  ④ 两条技术约束（实测得出，卡面必须遵守）：`inspect().get_check_constraints()` 在 SQLite 下
+     返回的 **sql_text 是空串**，只能比 CHECK **名字**；`sqlite_master` 文本两侧**必然不同**
+     （ALTER 追加），**禁止比文本**。
+  ⑤ 注册面实测：`import app.models` 即注册全部 23 张表（含 `dictation_sheets`，虽然
+     `models/__init__.py` 只显式导入 `RecitationItem`/`RecitationReview`）；
+     `Base` 在 `app/core/database.py:21`，审核方曾误用 `from app.models import Base` 得 0 表。
+  ⑥ 现有工具函数在 `wengu-api/tests/integration/test_dictation_api.py`：`_alembic_config`(:52)、
+     `_tables`(:614)、`_master_ddl`(:623)。**本票不 import 别的测试文件**，自带小工具。
+- **三条定案（不要重开）**：
+  ① **只比 `dictation_sheets` 一张表**，不得扩到全仓（理由见背景③）；
+  ② 比较**结构化六项**：列名+类型+可空性+默认值 / 主键 / CHECK 名 / 外键 / 唯一约束 / 索引；
+     禁止比 `sqlite_master` 文本、禁止只比列名（那是弱化既有覆盖）；
+  ③ **禁止 skip 语义**：任一侧没建出 `dictation_sheets` 就必须失败并说明是哪一侧——
+     防止"两边都空所以相等"的假绿。
+- **任务**：
+  1. 新文件 `wengu-api/tests/integration/test_schema_equivalence.py`：
+     - 前置断言两侧都建出目标表（`create_all` 侧必须先 `import app.models`）；
+     - 一个纯函数 `describe_table(inspection, name) -> dict`，返回六项结构化指纹；
+     - 断言两库指纹相等，**不等时必须打印差集**（列名级），禁止裸 `assert a == b` 无信息失败；
+     - 表名以常量 `TABLE = "dictation_sheets"` 写明范围，docstring 指向 STATUS §7 第 19 条。
+  2. 文档：`CHANGELOG.md` 一条；`docs/STATUS.md` §7 第 19 条**更新处置状态**
+     （从"下一张碰该表的票顺带补"改为"已由 P5-19 单独补齐；全仓 30 处历史差异仍未处置、未立项"）
+     + 交付区新增本票条目。
+- **DoD（逐项贴输出，全部可同时成立）**：
+  - 新测试绿（今天即应绿，两侧结构本就一致）；
+  - **变异自证两靶都必须 RED→GREEN，且失败信息要指到具体列**：
+    ① 只给 ORM 模型加一列、不加迁移 → 本测试红；② 只给迁移加一列、不改 ORM → 本测试红；
+    两靶各自还原后 sha256 一致，交付 diff 里不得出现模型或迁移的残留改动；
+  - 全量 `pytest -q` 绿（基线以 `--collect-only` 实取，当前 **983**，如实报新数）；
+    `ruff check --no-cache .` 全仓绿；行尾守卫 5 条仍绿；
+  - **零生产代码改动**：`git diff --name-only` 不含 `wengu-api/app/**`、不含 `migrations/**`；
+    零迁移、零新依赖、零联网。
+- **白名单**：`wengu-api/tests/integration/test_schema_equivalence.py`（新）、`CHANGELOG.md`、
+  `docs/STATUS.md`。**只有三个文件**——本票不碰模型、不碰迁移、不碰前端。
+- **禁止**：扩到全仓 23 表；比 `sqlite_master` 文本；把六项指纹弱化成列名；
+  用 `skip`/`xfail`/`try-except 跳过`处理"表不存在"；import 其它测试文件的私有工具函数；
+  顺手去修背景③那 30 处历史差异（未立项，动了就是越界）；
+  把 STATUS §7 第 19 条删除而不是更新为已补状态。
+- **裁定记录**：本票源自审核方自查（`D:\MyProducts\StudyDesk\_p34b_schema_equiv_probe.py`，可复跑），
+  不是施工方缺陷；它是当前队列上唯一"今天做比明天做便宜"的一张。
 
 ---
 
