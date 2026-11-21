@@ -2474,6 +2474,27 @@
 - **后续（同批登记，暂不投）**：语文默写（古诗文背默）复用 P3-4/P3-4b 卷线，
   `create_sheet` 要求一卷一学科、学科取自条目 → 语文条目今天已可用，**本票不动那条线**；
   若试用后发现家长不会用，另开一张纯 UI 引导票。
+- **卡面补强（折入轮 2026-11-21；登记第 31 / 32 次卡面缺陷，均归审核方）**：
+  **第 31 次 = 卡面任务 1 只写了"新增不进本口径"，没要求给指令级约束配回退守卫**。
+  审核方变异 M-C 证实：把模板那两条"不进本"bullet 整行删掉，`selfcheck` 与 pytest **全部仍绿**
+  ——闸门是纯文本承诺，谁都能静默删掉。折入补一条字面守卫测试。
+  **第 32 次 = 卡面把 v4 的靶子写小了**：原话是"模板 `suggested_topic_id` 未列 `cnc_`"，
+  实读发现模板硬编码了**两张**过时清单——第 44 行前缀枚举只 3 个（`topics_junior.tsv` 实测 1267 行、
+  覆盖 9 个学科 9 个前缀：`cnm_` 315 / `cne_` 257 / `cnc_` 189 / `cnh_` 134 / `cnd_` 110 /
+  `cnp_` 92 / `cnb_` 66 / `cng_` 59 / `cnk_` 45），第 38 行 subject 枚举只 5 科
+  （历史/道德与法治/生物/地理 不在内，而 seeds 已有 10 科）。只补 `cnc_` 治不了根，下次扩科照样腐化。
+  后端 `ingestion.py:20 FIELD_LIMITS["subject"] = 20` 只做长度校验、**无枚举闸门**，
+  故删除硬编码属零代码改动。v4 因此改为"两处硬编码清单删除、《知识点目录》为唯一真源"，
+  并在示例 JSON 里新增一条语文条目（few-shot 才是模型实际模仿的对象）。
+  **审核方四靶变异结论**：M-A 装载层加按 domain 的闭环闸门 → 红（定案①有守卫）；
+  M-B 契约 `template.version` 3→2 → 红（selfcheck 16 OK / **2 DRIFT**，探针有牙）；
+  M-C 删模板两条口径 → **绿（缺口，即第 31 次）**；M-D 前缀枚举加 `cnc_` → 绿（未被锚定，v4 零风险）。
+- **折入白名单扩充（仅此折入用途）**：`wengu-web/src/lib/nav.ts`、
+  `wengu-web/src/pages/PrintDictationSheetPage.tsx`、`wengu-api/tests/unit/test_template_gate_literals.py`（新）、
+  `docs/specs/architecture/StudyDesk-设计说明文档-v2.md`、`docs/STATUS.md`。
+  折入 = 分支上一个普通追加 commit（不 amend `896e6ed`），`git diff --name-only` 恰好 9 文件。
+  现状表述同步只许改四处（设计文档第 152、1009 行与 STATUS 第 421、1357 行的"模板 v3"），
+  **历史条目一律不得改写**（CHANGELOG 旧行、STATUS 第 1383 行 P5-8、模板"v2 内收口未升版"句）。
 
 ---
 

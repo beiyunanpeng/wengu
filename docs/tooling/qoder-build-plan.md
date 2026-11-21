@@ -3739,5 +3739,31 @@ UI 配置；预留其他列；引入 jsdom/testing-library；`--skip`/`xfail`；
 新集成测试四步断言、全量 pytest/ruff/前端三件套尾部统计、`seeds/data` sha256 前后对照；
 单列「审核方需复核的点」；卡面与盘上不符时以盘上为准并上报，不要硬凑。
 
+## P3-5 卡面补强（折入轮，2026-11-21；登记第 31 / 32 次卡面缺陷，均归审核方）
+
+**第 31 次 = 指令级约束没配回退守卫**：卡面任务 1 只要求模板新增"不进本"口径，没要求"谁删掉这句
+必须有测试红"。审核方变异 M-C 证实：整行删掉两条 bullet，`selfcheck` 与 pytest 全部仍绿。
+折入新增 `wengu-api/tests/unit/test_template_gate_literals.py` 四条字面断言补上。
+
+**第 32 次 = v4 的靶子被写小了**：原口径是"补 `cnc_` 前缀"，实读发现模板硬编码了**两张**过时清单——
+第 44 行前缀枚举只 3 个，而 `topics_junior.tsv` 实测 1267 行覆盖 9 学科 9 前缀
+（cnm_ 315 / cne_ 257 / cnc_ 189 / cnh_ 134 / cnd_ 110 / cnp_ 92 / cnb_ 66 / cng_ 59 / cnk_ 45）；
+第 38 行 subject 枚举只 5 科，而 seeds 已有 10 科。只补 `cnc_` 下次扩科仍腐化，
+故 v4 改为**删除两处硬编码、《知识点目录》为唯一真源**，并在示例 JSON 增一条语文条目
+（few-shot 才是模型实际模仿的对象，光改枚举语文挂点仍会留空）。
+后端 `ingestion.py:20 FIELD_LIMITS["subject"] = 20` 只做长度校验、无枚举闸门 → 零代码改动。
+
+**审核方四靶变异**：M-A 装载层加 domain 闸门 → 红（定案①有守卫）；M-B 契约版本 3→2 → 红
+（selfcheck 16 OK / 2 DRIFT，探针有牙）；M-C 删模板两条口径 → 绿（缺口，即第 31 次）；
+M-D 前缀枚举加 cnc_ → 绿（未被锚定，v4 零风险）。
+
+**折入白名单扩充**（仅此用途）：`wengu-web/src/lib/nav.ts`、
+`wengu-web/src/pages/PrintDictationSheetPage.tsx`、`wengu-api/tests/unit/test_template_gate_literals.py`（新）、
+`docs/specs/architecture/StudyDesk-设计说明文档-v2.md`、`docs/STATUS.md`；折入 = 普通追加 commit
+（不 amend `896e6ed`），`git diff --name-only` 恰好 9 文件。现状表述只许改四处
+（设计文档第 152、1009 行；STATUS 第 421、1357 行），历史条目一律不得改写
+（CHANGELOG 旧行、STATUS 第 1383 行 P5-8、模板"v2 内收口未升版"句）。
+
+
 
 
