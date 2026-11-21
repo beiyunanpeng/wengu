@@ -92,7 +92,11 @@ class RecitationReview(Base):
 
 
 class DictationSheet(Base):
-    """P3-4 默写卷：item_ids 为 JSON 有序快照（无逐词外键），status 只有 open→recorded。"""
+    """P3-4 默写卷：item_ids 为 JSON 有序快照（无逐词外键），status 只有 open→recorded。
+
+    P3-4b：audio_ref 可空 TEXT 存 <data_dir>/audio/ 内纯文件名，一卷一音频，
+    默写卷留空；音频本体不进 git/备份，本列只是文件名引用。
+    """
 
     __tablename__ = "dictation_sheets"
 
@@ -109,6 +113,7 @@ class DictationSheet(Base):
         server_default=text("'open'"),
     )
     recorded_on: Mapped[date_cls | None] = mapped_column(Date, nullable=True)
+    audio_ref: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     __table_args__ = (
         CheckConstraint(

@@ -26,10 +26,12 @@ import {
   addRecitationCandidates,
   createDictationSheet,
   createRecitation,
+  dictationAudioUrl,
   getDashboard,
   getDictationSheet,
   getDueRecitations,
   importRecitations,
+  listDictationAudio,
   listDictationSheets,
   listRecitationCandidates,
   listRecitations,
@@ -38,6 +40,7 @@ import {
   updateRecitation,
 } from "../api/endpoints";
 import type {
+  DictationAudioEntry,
   DictationResultsResponse,
   DictationSheet,
   DictationSheetDetail,
@@ -104,6 +107,9 @@ export default function RecitationsPage() {
   const [sheetSelection, setSheetSelection] = useState<number[]>([]);
   const [creatingSheet, setCreatingSheet] = useState(false);
   const [sheets, setSheets] = useState<DictationSheet[]>([]);
+  const [audioFiles, setAudioFiles] = useState<DictationAudioEntry[]>([]);
+  const [audioTruncated, setAudioTruncated] = useState(false);
+  const [sheetAudioRef, setSheetAudioRef] = useState("");
   const [recording, setRecording] = useState<DictationSheetDetail | null>(null);
   const [verdicts, setVerdicts] = useState<Record<number, RecitationVerdict>>({});
   const [recordingBusy, setRecordingBusy] = useState(false);
@@ -143,6 +149,7 @@ export default function RecitationsPage() {
     if (unlocked) {
       void loadCandidates();
       void loadSheets();
+      void loadAudio();
     } else {
       setCandidates([]);
       setSelectedWords([]);
@@ -150,6 +157,9 @@ export default function RecitationsPage() {
       setBatchIds([]);
       setSheets([]);
       setSheetSelection([]);
+      setAudioFiles([]);
+      setAudioTruncated(false);
+      setSheetAudioRef("");
       setRecording(null);
       setVerdicts({});
       setRecordReport(null);
@@ -335,6 +345,16 @@ export default function RecitationsPage() {
     }
   }
 
+  async function loadAudio() {
+    try {
+      const response = await listDictationAudio();
+      setAudioFiles(response.items);
+      setAudioTruncated(response.truncated);
+    } catch (cause) {
+      setActionError(errorMessage(cause));
+    }
+  }
+
   async function generateSheet() {
     if (creatingSheet || sheetSelection.length === 0) {
       return;
@@ -348,8 +368,12 @@ export default function RecitationsPage() {
             item.status === "active" && sheetSelection.includes(item.id),
         )
         .map((item) => item.id);
-      const detail = await createDictationSheet({ item_ids: ordered });
+      const detail = await createDictationSheet({
+        item_ids: ordered,
+        audio_ref: sheetAudioRef || null,
+      });
       setSheetSelection([]);
+      setSheetAudioRef("");
       await loadSheets();
       navigate(`/print/dictation?sheet_id=${detail.sheet.id}`);
     } catch (cause) {
@@ -941,6 +965,22 @@ export default function RecitationsPage() {
                         </Table.Tbody>
                       </Table>
                     </Table.ScrollContainer>
+                    <Select
+                      label="听写音频（可选）"
+                      placeholder="不挂音频 = 默写卷"
+                      clearable
+                      data={audioFiles.map((entry) => ({
+                        value: entry.name,
+                        label: entry.name,
+                      }))}
+                      value={sheetAudioRef || null}
+                      onChange={(value) => setSheetAudioRef(value ?? "")}
+                    />
+                    {audioTruncated && (
+                      <Text size="xs" c="dimmed">
+                        音频文件过多，仅列出前 500 个。
+                      </Text>
+                    )}
                     <Group gap="sm" wrap="wrap">
                       <Button
                         size="compact-sm"
@@ -963,11 +1003,14 @@ export default function RecitationsPage() {
                         loading={creatingSheet}
                         disabled={sheetSelection.length === 0}
                       >
-                        生成默写卷（{sheetSelection.length} 词）
+                        生成{sheetAudioRef ? "听写" : "默写"}卷（
+                        {sheetSelection.length} 词）
                       </Button>
                     </Group>
                     <Text size="xs" c="dimmed">
                       一张卷只能含同一学科的条目；生成后自动跳转打印页。
+                      听写音频由家长手动放入 data/audio/ 目录（mp3/m4a/wav）；
+                      挂音频的卷面只印序号与空行，不印提示。
                     </Text>
                   </>
                 )}
@@ -993,7 +1036,16 @@ export default function RecitationsPage() {
                       <Table.Tbody>
                         {sheets.map((sheet) => (
                           <Table.Tr key={sheet.id}>
-                            <Table.Td>#{sheet.id}</Table.Td>
+                            <Table.Td>
+                              <Group gap={4}>
+                                #{sheet.id}
+                                {sheet.audio_ref && (
+                                  <Badge size="xs" variant="light">
+                                    听写
+                                  </Badge>
+                                )}
+                              </Group>
+                            </Table.Td>
                             <Table.Td>{sheet.created_on}</Table.Td>
                             <Table.Td>{sheet.subject}</Table.Td>
                             <Table.Td>{sheet.unit ?? "—"}</Table.Td>
@@ -1049,6 +1101,19 @@ export default function RecitationsPage() {
                         对照红笔批改结果逐词勾选；已停用条目会自动跳过。
                         同一天已有自评的词沿用既有结果，不重复计数。
                       </Text>
+                      {recording.sheet.audio_ref && (
+                        <Stack gap={4}>
+                          <Text size="xs" c="dimmed">
+                            听写音频：{recording.sheet.audio_ref}
+                          </Text>
+                          <audio
+                            controls
+                            preload="metadata"
+                            src={dictationAudioUrl(recording.sheet.id)}
+                            style={{ width: "100%" }}
+                          />
+                        </Stack>
+                      )}
                       {recording.items.map((item, index) => (
                         <Group
                           key={item.item_id}

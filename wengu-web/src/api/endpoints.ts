@@ -24,6 +24,7 @@ import type {
   ConceptMergeResponse,
   ConfigUpdate,
   DashboardResponse,
+  DictationAudioListResponse,
   DictationResultEntry,
   DictationResultsResponse,
   DictationSheetDetail,
@@ -924,12 +925,21 @@ export function addRecitationCandidates(payload: {
 export function createDictationSheet(payload: {
   item_ids: number[];
   unit?: string | null;
+  audio_ref?: string | null;
 }): Promise<DictationSheetDetail> {
   return requestJson<DictationSheetDetail>(
     "/api/recitations/sheets",
     "POST",
     payload,
   );
+}
+
+export function listDictationAudio(): Promise<DictationAudioListResponse> {
+  return apiRequest<DictationAudioListResponse>("/api/recitations/audio");
+}
+
+export function dictationAudioUrl(sheetId: number): string {
+  return `/api/dictation/sheets/${sheetId}/audio`;
 }
 
 export function listDictationSheets(

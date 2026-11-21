@@ -2,9 +2,10 @@ import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { errorMessage } from "../api/client";
-import { getDictationSheet } from "../api/endpoints";
+import { dictationAudioUrl, getDictationSheet } from "../api/endpoints";
 import type { DictationSheetDetail } from "../api/types";
 import { toISODate } from "../lib/dates";
+import { buildPrintRows } from "./dictationPrint";
 import "../print.css";
 
 export default function PrintDictationSheetPage() {
@@ -49,17 +50,22 @@ export default function PrintDictationSheetPage() {
   }, [sheetId]);
 
   const today = toISODate(new Date());
-  const printable = Boolean(detail && detail.items.length > 0);
+  const rows = detail ? buildPrintRows(detail) : [];
+  const listening = detail?.sheet.audio_ref != null;
+  const printable = rows.length > 0;
+  const sheetKind = listening ? "听写卷" : "默写卷";
 
   return (
     <div className="print-shell" data-print-dictation="true">
       <div className="print-toolbar">
         <div className="print-toolbar-title">
-          <strong>默写卷</strong>
+          <strong>{sheetKind}</strong>
           <span>
             {detail
-              ? `卷号 ${detail.sheet.id} · ${detail.items.length} 词`
-              : "看提示写"}
+              ? `卷号 ${detail.sheet.id} · ${rows.length} 词`
+              : listening
+                ? "听音频写"
+                : "看提示写"}
           </span>
         </div>
         <div className="print-actions">
@@ -75,17 +81,26 @@ export default function PrintDictationSheetPage() {
             返回背诵页
           </button>
         </div>
+        {detail && listening && (
+          <audio
+            controls
+            preload="metadata"
+            src={dictationAudioUrl(detail.sheet.id)}
+            aria-label="听写音频"
+            style={{ flexBasis: "100%" }}
+          />
+        )}
       </div>
 
       <main className="print-sheet">
         <header className="print-doc-head">
           <div>
-            <h1 className="print-doc-title">默写卷</h1>
+            <h1 className="print-doc-title">{sheetKind}</h1>
             <div className="print-meta">
               {detail
                 ? `卷号 ${detail.sheet.id} · ${detail.sheet.subject}` +
                   (detail.sheet.unit ? ` · ${detail.sheet.unit}` : "") +
-                  ` · 共 ${detail.items.length} 词 · 生成于 ${detail.sheet.created_on}`
+                  ` · 共 ${rows.length} 词 · 生成于 ${detail.sheet.created_on}`
                 : "看提示，把单词写在横线上"}
             </div>
           </div>
@@ -99,7 +114,7 @@ export default function PrintDictationSheetPage() {
           </div>
         )}
 
-        {!loading && !error && detail && detail.items.length === 0 && (
+        {!loading && !error && detail && rows.length === 0 && (
           <div className="print-empty">
             本卷条目都已删除，没有可打印的内容；请回背诵页重新生成。
           </div>
@@ -107,20 +122,23 @@ export default function PrintDictationSheetPage() {
 
         {!loading &&
           !error &&
-          detail?.items.map((item, index) => (
+          rows.map((row, index) => (
             <article
               className="print-question"
-              key={item.item_id}
-              data-dictation-item={item.item_id}
+              key={row.item_id}
+              data-dictation-item={row.item_id}
             >
               <header className="print-question-head">
                 <span>第 {index + 1} 词</span>
                 <span>
-                  {item.unit ? `${item.unit} · ` : ""}看提示写
-                  {item.status === "retired" ? " · 条目已停用" : ""}
+                  {row.unit ? `${row.unit} · ` : ""}
+                  {listening ? "听音频写" : "看提示写"}
+                  {row.status === "retired" ? " · 条目已停用" : ""}
                 </span>
               </header>
-              <div className="print-prompt">{item.prompt}</div>
+              {row.prompt !== undefined && (
+                <div className="print-prompt">{row.prompt}</div>
+              )}
               <div
                 style={{
                   borderBottom: "1px solid #999",
@@ -139,7 +157,9 @@ export default function PrintDictationSheetPage() {
 
         {printable && (
           <p className="print-note">
-            孩子看提示在横线上默写；家长用红笔批改后，回「英语背诵」页按卷勾选回录。
+            {listening
+              ? "孩子听上方音频在横线上听写（卷面不印提示）；家长用红笔批改后，回「英语背诵」页按卷勾选回录。"
+              : "孩子看提示在横线上默写；家长用红笔批改后，回「英语背诵」页按卷勾选回录。"}
           </p>
         )}
       </main>

@@ -22,6 +22,7 @@ from app.api.recitations import (
     SheetView,
 )
 from app.models import RecitationItem
+from app.models.recitation import DictationSheet
 from app.services.dictation import (
     MAX_SHEET_ITEMS,
     SHEET_OPEN,
@@ -130,6 +131,26 @@ def test_sheet_projection_and_schemas_have_no_answer_field() -> None:
         RecordResultsResponse,
     ):
         assert "answer" not in schema.model_fields
+
+
+def test_sheet_model_and_view_expose_audio_ref() -> None:
+    """P3-4b：模型列集手写字面钉死（9 列），audio_ref 可空；卷面视图透传。"""
+
+    columns = {
+        column.name: column.nullable for column in DictationSheet.__table__.columns
+    }
+    assert columns == {
+        "id": False,
+        "created_on": False,
+        "created_by": False,
+        "subject": False,
+        "unit": True,
+        "item_ids": False,
+        "status": False,
+        "recorded_on": True,
+        "audio_ref": True,
+    }
+    assert "audio_ref" in SheetView.model_fields
 
 
 def test_print_dictation_page_source_never_mentions_answer() -> None:

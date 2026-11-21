@@ -270,6 +270,33 @@ def test_create_backup_is_read_only_and_complete(tmp_path: Path) -> None:
         conn.close()
 
 
+def test_backup_excludes_audio_dir(tmp_path: Path) -> None:
+    """P3-4b：data/audio/ 第三方课程音频绝不进备份包（§19-G-3 定案二同一理由）。"""
+
+    settings = _prepare(tmp_path)
+    data_dir = Path(settings.data_dir)
+    _write(data_dir / "uploads" / "page1.png", "fake-image-bytes")
+    audio_dir = data_dir / "audio"
+    audio_dir.mkdir(parents=True)
+    mp3_bytes = b"ID3\x04\x00\x00\x00\x00\x00\x00"
+    wav_bytes = b"RIFF$\x00\x00\x00WAVEfmt "
+    (audio_dir / "u1.mp3").write_bytes(mp3_bytes)
+    (audio_dir / "u2.wav").write_bytes(wav_bytes)
+
+    result = create_backup(settings)
+    with zipfile.ZipFile(result.path) as zf:
+        names = zf.namelist()
+        assert "uploads/page1.png" in names
+        assert not any(name.startswith("audio/") for name in names)
+        assert not any("u1.mp3" in name or "u2.wav" in name for name in names)
+        manifest = json.loads(zf.read("manifest.json"))
+        assert not any(
+            item["path"].startswith("audio/") for item in manifest["files"]
+        )
+    assert (audio_dir / "u1.mp3").read_bytes() == mp3_bytes
+    assert (audio_dir / "u2.wav").read_bytes() == wav_bytes
+
+
 def test_snapshot_stays_consistent_under_concurrent_writes(tmp_path: Path) -> None:
     settings = _prepare(tmp_path, events=1)
 
