@@ -2370,6 +2370,36 @@
   动 `decide()`/`VERDICTS`/错题写入路径。
 - **审核方侧动作（不进施工方白名单）**：`PRIVATE-DO-NOT-SYNC.md`（仓库外）扩一条——第三方课程音频
   `<data_dir>/audio/` 不进备份、不外发，性质同 K12-KGraph（**是许可问题不是隐私问题**）。
+- **状态：已合并（2026-11-21，PR#73 squash → main `c24fb8d`；原分支已删，`ls-remote` 复核为空）**。
+  两个 commit：`7a98b8c` 代码（15 文件）/ `325bbf7` 文档（3 文件）。
+  审核方独立复验：全量 `pytest -q` **976 passed / 647.70s / EXIT=0**（= 954 + unit 16 + integration 6）；
+  `ruff check --no-cache .` 全仓绿；行尾守卫 5 passed（首跑 2 failed 为沙箱 git 访问抖动造成的假红，
+  已用"本票 18 个改动文件逐个 `tr -dc '\r' | wc -c` 全为 0"独立证实真实状态）；迁移+音频子集 7 passed；
+  新前端测试 `node --test` 直跑 4 pass / 0 fail；合并后 main 定向六文件复跑 **81 passed / 75.42s**。
+  分发面三项自查：`git ls-files` 全仓零 `.mp3/.wav/.m4a` 样本；`git check-ignore -v` 两形态命中
+  `.gitignore:35`/`:38`（零新增规则）；`print.css:283-285` 实测 `@media print { .print-toolbar {
+  display: none !important } }` —— 播放器屏幕可见、落纸隐藏，与施工方第 6 条说法一致。
+  生产库未被触碰：`data/wengu.db` mtime 18:45、`wengu-api/data/wengu.db` mtime 10-28，均早于交付
+  00:57；演示件在仓外 `_p34b_demo/data/audio/`。
+  审核方自主变异**五靶全红**：M1 `MAX_AUDIO_BYTES` 64MB→128MB（字面钉死生效）、M2 嗅探末尾兜底放行
+  未知字节（伪装件必拒生效）、M3 播放端点不再映射 `AudioNotFound`→404（"不得 500"有牙）、
+  **M4 备份打包根加 `audio/` → 红**（正是本票最担心的那条漂移，`test_backup_excludes_audio_dir` 兜住）、
+  M5 前端 `listening` 恒 false → 红。四文件还原 sha256 逐个一致、工作区干净。
+  CI `api / web / transcribe` 三绿、`MERGEABLE`；**web 作业补上了审核方本地跑不了的前端三件套**
+  （沙箱内 `npm` 命中的是 WSL"未安装分发版"占位程序）。
+- **第 30 次卡面缺陷（审核方，白名单反推第 6 次漏）**：任务 6 要求"打印数据准备抽纯函数 + node 测试"，
+  白名单却没含新前端模块的落点（`wengu-web/src/pages/dictationPrint.ts`、
+  `wengu-web/tests/dictationPrint.test.ts`）。施工方循 `mergeSelection.ts` 先例新建并主动上报，
+  **追认保留**。教训并入既有纪律：反推白名单时必须把"新抽象层会落在哪个新文件"一并列出，
+  不能只列被改的既有文件。
+- **遗留（本票不处置）**：
+  ① **ORM 逐字对照降级**——0025 是 `ALTER TABLE ADD COLUMN`，`sqlite_master` 文本与 `CreateTable`
+     编译产物不再逐字相等，原 0024 的 ORM 对照被移除（理由成立），现由"9 列手写字面"承接，
+     **只覆盖列名 + 可空性，类型与 `server_default` 无人对照**。审核方自查证实 `dictation_sheets`
+     在"alembic 建库"与 `Base.metadata.create_all()` 两条路径下结构化完全一致，故一条**限定本表**的
+     结构等价测试可行且当前即绿 —— 处置：写入 `STATUS.md §7` 第 19 条，**下一张碰到
+     `dictation_sheets` 的票必须顺带补**；若长期无此类票，再单开一张纯测试小票。
+  ② 播放路径前缀 `/api/dictation/...` 与 `/api/recitations` 不一致，统一属独立重构、无消费方不动。
 
 ---
 

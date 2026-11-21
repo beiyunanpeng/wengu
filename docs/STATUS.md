@@ -1,10 +1,10 @@
 # STATUS.md — 开发计划与完成情况
 
-> 快照日期：2026-11-21（**P3-4b 听写音频线已交付待审**，分支 `feat/p3-4b-dictation-audio`；P3-4 已合并 PR #72）
-> 基线：`main` = `31e1dad`（P3-4b 卡面）；P3-4 / PR #72 → `8da6ddf`、P5-18 / PR #71 → `2b8b033`、P5-17 / PR #70 → `2daa331` 已合并
-> 全量测试：**976 passed**（2026-11-21 施工方在分支实跑；= main 954 + P3-4b 新增 unit 16 + integration 6；
+> 快照日期：2026-11-21（**P3-4b 听写音频线已合并**，PR #73；P3-4 已合并 PR #72）
+> 基线：`main` = `c24fb8d`（P3-4b / PR #73 已合并）；P3-4 / PR #72 → `8da6ddf`、P5-18 / PR #71 → `2b8b033` 已合并
+> 全量测试：**976 passed**（2026-11-21 施工方在分支实跑、审核方独立复跑 647.70s 同数；= main 954 + P3-4b 新增 unit 16 + integration 6；
 > unit / integration / e2e 分项本轮未重取，旧口径 742（2026-11-13）已过期）；`ruff check --no-cache .` 全仓绿；
-> `wengu-api/tests/unit/test_repo_eol.py` 5 passed；前端 lint / 61 tests / build 本轮已复跑绿；
+> `wengu-api/tests/unit/test_repo_eol.py` 5 passed；前端 lint / 61 tests / build 由 CI web 作业绿（审核方本地 `npm` 不可用，沙箱内命中的是 WSL 未安装分发版占位程序）；
 > `requirements.txt` 零变化（P3-4b 零新依赖、零联网、不动 `app/judge/**` 与错题写入路径）
 > Alembic head：`0025_dictation_sheet_audio_ref`（P3-4b 新增，up/down/up 与 DDL 自一致测试绿）；业务表 **23 张**（加列不加表）
 
@@ -394,7 +394,8 @@
   + API 201 词 422 断言；`COUNT_TABLES` 补 `dictation_sheets` + manifest 真计数断言
   （把 `_table_counts` 改成"键在值恒 0"即红，证明测的是值不是键）。审核方八靶变异全数处置，
   合并后 main 复跑守卫+默写+备份 36 passed、全量 **954 passed**、ruff 绿、行尾守卫 5 绿。
-- **P3-4b 听写音频线已交付待审（2026-11-21，分支 `feat/p3-4b-dictation-audio`，基线 main `31e1dad`）**：
+- **P3-4b 听写音频线已合并（2026-11-21，PR#73 squash → main `c24fb8d`；两 commit `7a98b8c` /
+  `325bbf7`，原分支已删）**：
   听写 = 默写卷 + 卷级音频挂接。家长手动把课程音频放入 `data/audio/`（mp3/m4a/wav，魔数嗅探与
   扩展名一致才准入，≤64MB；目录缺失 = 空列表非错误）；迁移 `0025_dictation_sheet_audio_ref`
   原生加列（可逆，up/down/up + 9 列手写字面 + DDL 自一致测试），一卷一音频、默写卷留空、不改挂。
@@ -410,6 +411,11 @@
   ruff 全仓绿、行尾守卫 5 绿、前端三件套绿；浏览器实走选音频生成→听写卷面无提示→控件可播放→
   回录入档零控制台错误。卡面偏差两笔已上报：前端纯函数模块 + 测试 2 件在白名单外（循
   mergeSelection 惯例）；0024 两条迁移测试钉到 0024 修订号，ORM 逐字对照由 0025 列集字面承接。
+  审核方复验：全量 **976 passed**（双实跑同数）、ruff 绿、行尾守卫 5 绿、合并后 main 定向六文件
+  81 passed、自主变异五靶全红（含"备份打包根加 audio"与"前端 listening 恒 false"两条本票最担心的
+  漂移）；仓库零音频样本入库、两形态 check-ignore 命中既有规则、生产库 mtime 未被触碰。
+  裁定：两笔偏差分别为**审核方第 30 次卡面缺陷**（白名单漏新前端模块落点，追认保留）与一条遗留
+  （ORM 逐字对照降级 → 见 §7 第 19 条）。
 - **下一步（v2.6 决策轮定的顺序）**：① ~~P5-6 口径清理~~、~~P0-3 端到端回归~~、
   ~~P3-3a 手填背诵~~、~~P3-3b 词表导入~~、~~P3-3c 从错题抽词~~、~~P5-1a 配置持久化修复~~、
   ~~P5-1b 首次运行向导 UI~~、~~P1-3e 移动端投递~~、~~P1-3f BOM 剥离~~、
@@ -1208,6 +1214,16 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
     `.session_secret`（本机密钥）**不进包**；换机需同时拷贝仓库。备份 zip 含全部错题与
     家长 PIN 哈希，**禁止上传网盘/群聊/外部服务**；`GET /api/backup/list` 每次现算每份 zip
     的 sha256，备份很多时略慢。云备份、加密与清空级联清理仍属 P5-2 后续，未实现。
+19. **模型与迁移的结构对照只到"列名 + 可空性"**：P3-4b 的 0025 用 `ALTER TABLE ADD COLUMN` 加
+    `audio_ref` 后，`sqlite_master` 文本与 ORM `CreateTable` 编译产物不再逐字相等，原 0024 的
+    ORM 逐字对照被移除（理由成立），现由"9 列手写字面断言"承接——**类型与 `server_default` 已无人对照**。
+    审核方 2026-11-21 自查（alembic 建库 vs `Base.metadata.create_all()` 结构化比对）证实
+    `dictation_sheets` 两条路径当前完全一致，但**全仓 23 张表存在约 30 处历史性差异**，形态是迁移
+    DDL 有 `server_default`（如 `attempts.created_at` = CURRENT_TIMESTAMP、`bank_drafts.status` =
+    'draft'、`concepts.status` = 'suggested'）而 ORM 模型未声明。运行期只走 alembic，暂不影响正确性，
+    但**任何"用 ORM 直接建库"的路径（新测试、导出工具、误用）都会得到不同 schema**。
+    处置：不做全仓等价测试（会把历史欠账一次性变红），改为**下一张碰到 `dictation_sheets` 的票
+    必须顺带补一条限定本表的结构等价测试**（列名/类型/可空/默认值/主键/CHECK 名）。
 
 ## 8. 工程不变量（已落地，后续不得回退）
 
