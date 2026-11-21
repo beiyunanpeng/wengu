@@ -2582,6 +2582,32 @@
   把 STATUS §7 第 19 条删除而不是更新为已补状态。
 - **裁定记录**：本票源自审核方自查（`D:\MyProducts\StudyDesk\_p34b_schema_equiv_probe.py`，可复跑），
   不是施工方缺陷；它是当前队列上唯一"今天做比明天做便宜"的一张。
+- **状态：已合并（2026-11-21，PR#75 squash → main `e951e80`；原分支已删，`ls-remote` 复核为空）**。
+  单 commit `8e679a6`，3 文件恰等白名单，零生产代码改动。
+  审核方独立复验：新守卫绿；`ruff check --no-cache .` All checks passed；全量 `pytest -q`
+  **984 passed / 569.30s / EXIT=0**（= 983 + 1，双实跑同数）；行尾守卫 **5 passed**
+  （首跑 2 failed 为沙箱 git 抖动假红，**第四次复发**，已用两种独立方法钉死真实状态：分支 3 文件
+  逐个 CR=0 + HEAD blob 层 CRLF 普查仅 `topics_junior.tsv`）；合并后 main 上守卫+行尾+迁移回归
+  25 passed、`selfcheck` 18 OK / 0 DRIFT / 0 WARN。
+  审核方自主变异**四靶**：M2 ORM `audio_ref` `Text`→`Integer`（不动迁移）→ **红**，类型真在尺子上；
+  M3 迁移 `status` 的 `server_default` `'open'`→`'OPEN'`（不动 ORM）→ **红**，默认值真在尺子上；
+  M4 从指纹里删掉 `check_names` → 绿（元守卫不守自己，符合预期，不要求补）；
+  M1 注释掉 `import app.models` → 绿——**根因是审核方靶子设计失误，非守卫缺陷**：
+  `tests/conftest.py:33-35` 模块级 `from app.seed.state import …` / `from app.services.bank import …` /
+  `from app.services.session import …` 已把 23 张表注册进 `Base.metadata`，
+  所以"两边都空所以相等"这条假绿路径在本仓测试环境下**结构上不存在**，
+  那条前置断言属**冗余保险而非失效防线**（实测 `Base` 单独导入时 metadata 0 表、
+  `import app.models` 后 23 表；alembic 迁移脚本与 `env.py` 均不 import 模型）。
+- **第 33 次卡面缺陷（审核方，白名单/必改清单反推第 6 次漏）**：施工方把 STATUS 第 462 行
+  「当前待审」指针从"P3-5（已交付）"翻正为"P5-19"，超出卡面任务 2 的字面范围——但原句与头部
+  "P3-5 已合并 PR#74"**自相矛盾**，属我上一轮留痕的残留。**追认该改动**，缺陷记我：
+  卡只列了"§7 第 19 条 + 交付区条目"，没把 STATUS 内其它"当前待审/指针"类现状句列入必改清单。
+  这是第 28 次（漏 `test_migrations.py`）、第 30 次（漏新前端模块落点）之后**同一类反推漏项的
+  第三次复发**，已固化为 `AGENTS.md §8`「状态类票的必改清单」，本票留痕即按该规则执行
+  （头部三行 + 交付区条目 + 队列指针三处同翻）。
+- **裁定记录**：② 头部基线与全量数由本留痕收口（正确，不属施工方 scope）；③ isort 把 `app`
+  归第三方块——认可，不改配置是对的（动配置会波及全仓排序）；④ 默认值取 inspector 原始串、
+  两侧同尺——认可，与"对照库结构而非映射配置"的定位一致。
 
 ---
 
