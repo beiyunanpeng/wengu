@@ -2401,6 +2401,84 @@
      `dictation_sheets` 的票必须顺带补**；若长期无此类票，再单开一张纯测试小票。
   ② 播放路径前缀 `/api/dictation/...` 与 `/api/recitations` 不一致，统一属独立重构、无消费方不动。
 
+### P3-5 语文客观并入（题池全收 + 转录侧"不进本"闸门 + 语文闭环证据测试；零新依赖、零迁移）
+- **背景（审核方 2026-11-21 读盘实测，①–⑦ 均可复现）**：
+  ① 语文题池已在仓库：`seeds/data/questions.json` 语文 **2732 题**，`topic_id` 命中 seed
+     **2732/2732（0 孤儿）**，全部 `type=choice`、全部 4 选项、全部有 `answer` 与 `verify`、无配图；
+     真实装载 `app/seed/bank.py load_bank()` 实测 **verified 2732 / 2732 = 100%**、`dropped == {}`。
+  ② 题面形态：初中语文题 prompt **中位 16 字 / p90 26 字 / 最长 44 字**，`≥120 字` **0 题**，
+     "阅读下面材料/文段"触发词 **0 命中** → domain 标"阅读理解/习作基础"的 480 道初中题实为
+     独立短选题。**按 domain 设闭环闸门会误伤这 480 题**——决策轮原口径 A3 由此修订为 A3′
+     （定案见设计文档 **§19-M 定案一**）。
+  ③ 判分侧零缺口：`app/judge/normalize.py:272 _parse_choice()`、`:316-319` 单选比对、
+     `:355-360` 支持 `unordered` 集合比对 → **本票不写任何判分代码**。
+  ④ 转录侧闸门缺失：`docs/templates/doubao_transcribe_v1.md`（frontmatter `version: 2`）第 32 行
+     只有"做对的题、空白没做的题、与题目无关的页眉页脚一律不转录"，**没有一句"作文/需整篇材料的题
+     不转录"**；`subject` 枚举（第 36 行）已含语文。
+  ⑤ 版本耦合由 CLI 探针守护而非 pytest：`transcribe/validate.py:382` 比对
+     `fm_template.version == contract["template"].version`，不一致报 DRIFT；审核方 grep 证实
+     **pytest 侧无模板版本断言** → DoD 必须实跑 `selfcheck` 贴输出。
+  ⑥ UI 现状：`RecitationsPage.tsx:440` 标题「英语背诵」、`:84/:90` 默认 `subject="英语"`，
+     但 `:59-66 IMPORT_SUBJECTS` 已含 语文/历史/道德与法治/道法/生物/地理；`:706` 「从错题抽词（英语）」；
+     `services/recitation.py:51 CANDIDATE_SUBJECT = "英语"`。
+  ⑦ 证据缺口：生产库 `data/wengu.db` 错题 3 条 `primary_topic_id` **全 NULL**、最近事件 2026-10-30；
+     `wengu-api/data/wengu.db` 错题 2 条同样全 NULL → **语文闭环从未有过一条真实或测试证据**。
+- **四条定案（不要重开；出处 = 设计文档 §19-M 定案一）**：
+  ① **题池全收**：语文 choice 题与数学/英语走同一条检索与判分链路，**运行时不加任何按 domain
+     或按学科的闭环白名单**；
+  ② **"不进本"闸门落在转录模板指令**：作文/续写/仿写/看图写话/需整篇材料才能作答的阅读理解大题
+     一律不转录 → 天然不进错题本、不排复习，只留外部讲解与成长记录；
+  ③ 改模板语义**必须递增 `version`（2→3）并同步契约 `template.version`**，
+     Skill 只引用不内嵌（`transcribe/skills/wengu-transcribe/SKILL.md:44` 既有纪律）；
+  ④ 抽词线保持英语专用（`CANDIDATE_SUBJECT` 不动）：语文古诗文是整句/整篇默写，
+     词形抽取不适用，§5.9 亦无此要求。
+- **任务**：
+  1. `docs/templates/doubao_transcribe_v1.md`：在「只转录这些题」段内新增"不进本"口径
+     （作文/续写/仿写/看图写话/需整篇材料或整段语境才能作答的阅读理解大题 → 一律不转录；
+     独立可判分的短小题——课文常识、字词、拼音、古诗文理解选择等——照旧转录），
+     frontmatter `version: 2 → 3`，正文标题与"唯一真源"表述同步 v3。
+  2. `transcribe/contract/ingestion_v1.json`：`template.version` 同步为 3，其余字段一律不动。
+  3. `transcribe/README.md`：两处示例 `--template-version 2` → 3（第 44、63 行），
+     并把第 113 行"模板 v2 / 契约 1 → DRIFT"示例表更新为 v3 口径（不得留过实文档）。
+  4. 新集成测试 `wengu-api/tests/integration/test_yuwen_closed_loop.py`：夹具走**全链**——
+     语文转录报文 → `POST /api/imports` → 草稿 → 核对页确认（挂 `cnc_` 语文主考点）→ 排期 →
+     到期 → 组卷抽到语文 choice 题 → `judgeAnswer` 判分 → 事件与掌握度更新；断言
+     **语文与数学走同一条代码路径、零学科分支**（同一夹具仅换 `subject`，行为等价），
+     并断言"不进本"面**不产生任何 `mistakes` 行**（靠转录侧不产出，不靠代码过滤）。
+  5. `wengu-web/src/pages/RecitationsPage.tsx`：标题「英语背诵」→「背诵与默写」；默认 `subject`
+     保持"英语"；在抽词卡片补一句"语文古诗文请用手填 / 批量导入整句，抽词只适用于英语词形"；
+     **不改 `IMPORT_SUBJECTS` 枚举、不改抽词逻辑**。
+  6. 文档：`CHANGELOG.md` 一条；设计文档 §5.9 表下加注（"不进本"闸门实现位置 = 转录模板 v3；
+     按 domain 切闸门已被实测否证，见 §19-M 定案一）；`docs/STATUS.md` 交付区新增本票条目。
+- **DoD（逐项贴输出，全部可同时成立）**：
+  - `python transcribe/validate.py selfcheck`（或既有等价入口）**18 OK / 0 DRIFT / 0 WARN**，
+    其中模板-契约版本那条必须显示 **v3 == 3**；
+  - 模板与 README 不再残留 `--template-version 2` / `version: 2`（grep 输出为证）；
+  - 新集成测试绿，贴出"语文错题入本 → 排期 → 组卷 → 判分"四步的关键断言行；
+  - 全量 `pytest -q` 绿（基线以 `--collect-only` 实取，当前 **976**，如实报新数）；
+    `ruff check --no-cache .` 全仓绿；行尾守卫 5 条仍绿；前端 `tsc` + `node --test` + `build` 绿；
+  - **零迁移、零新依赖、不动 `app/judge/**`、不动 `app/seed/**`、不加任何按 domain/学科的代码闸门**；
+  - `seeds/data/*` 逐文件 sha256 不变（本票不重跑 import——§19-G-3 定案二与第 27 次卡面缺陷纪律）。
+- **白名单**：`docs/templates/doubao_transcribe_v1.md`、`transcribe/contract/ingestion_v1.json`、
+  `transcribe/README.md`、`wengu-api/tests/integration/test_yuwen_closed_loop.py`（新）、
+  `wengu-web/src/pages/RecitationsPage.tsx`、`CHANGELOG.md`、
+  `docs/specs/architecture/StudyDesk-设计说明文档-v2.md`、`docs/STATUS.md`。
+  反推依据：模板与契约由 `validate.py:382` 硬耦合 → 两文件必须同改；README 两处示例 + 一处
+  DRIFT 表引用版本号；pytest 侧无版本断言（已 grep 证实）故不列其它测试文件；
+  Skill 文件只引用 `template_ref` 不内嵌版本号，**不改**（改了反而违反"不要内嵌"纪律）。
+- **禁止**：在 `bank.py`/`quiz.py`/`review.py`/`subjects.py`/`ingestion.py` 里加按 domain 或按学科的
+  闭环白名单；改 `CANDIDATE_SUBJECT`；重跑 import 或改 `seeds/data/*`；改判分器与 AST 沙箱；
+  把模板正文内嵌进 Skill；只改模板不改契约版本号（必 DRIFT）；只改契约不改 README 示例；
+  用 `--skip`/`xfail`；**把"语文题池 100% verified"表述成"语文闭环已验证"**——
+  验证由本票第 4 项交付，交付前不得这样写。
+- **后续（同批登记，暂不投）**：语文默写（古诗文背默）复用 P3-4/P3-4b 卷线，
+  `create_sheet` 要求一卷一学科、学科取自条目 → 语文条目今天已可用，**本票不动那条线**；
+  若试用后发现家长不会用，另开一张纯 UI 引导票。
+
+---
+
+## 作废清单（v2.5，保留标题供追溯，勿实现）
+
 ---
 
 ## 作废清单（v2.5，保留标题供追溯，勿实现）

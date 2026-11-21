@@ -3669,4 +3669,75 @@ UI 配置；预留其他列；引入 jsdom/testing-library；`--skip`/`xfail`；
 限定本表的结构等价测试（列名/类型/可空/默认值/主键/CHECK 名）；② `/api/dictation` 与
 `/api/recitations` 前缀不一致，无消费方不统一。
 
+## P3-5 —— 语文客观并入（题池全收 + 转录侧"不进本"闸门 + 语文闭环证据测试；零新依赖、零迁移；基线 = 开工时 `origin/main` 实况，pytest 基线以 `--collect-only` 实取）
+
+你在 wengu 仓库工作。开工前先完整读：AGENTS.md §5（导入即不可信输入、模型只提代码才判、唯一写入路径）、
+§8（一票一 PR、DoD、合并留痕双写、「重跑生成脚本的覆盖边界」）；设计文档 **§5.9 英语/语文表**、
+**§19-M 定案一**（本轮排序定案，含"原 A3 口径被实测否证改 A3′"的完整理由）；TICKETS.md 的 **P3-5 卡**
+（①–⑦ 实测背景、四条定案、任务、DoD、白名单、禁止的权威版）与 P3-3a/b/c、P3-8、P3-4/P3-4b 已合并卡；
+代码与真源：`docs/templates/doubao_transcribe_v1.md`（frontmatter `version: 2`，第 32 行"只转录这些题"段、
+第 36 行 subject 枚举）、`transcribe/contract/ingestion_v1.json`（`template.version`）、
+`transcribe/validate.py:382`（模板与契约版本一致性探针）、`transcribe/README.md`（第 44、63 行示例、
+第 113 行 DRIFT 表）、`wengu-api/app/judge/normalize.py:272/316-319/355-360`（choice 判分，**只读不改**）、
+`wengu-api/app/seed/bank.py`（装载期 verify 沙箱与 `verify_status`，**只读不改**）、
+`wengu-api/app/services/recitation.py:51 CANDIDATE_SUBJECT`（**不改**）、
+`wengu-web/src/pages/RecitationsPage.tsx:59-66/:84/:90/:440/:706`。
+
+【为什么有这张票】语文客观题是 Phase 3 里唯一"内容已就位"的一块：仓库题库有语文 2732 题、
+挂点 100% 命中、装载后判分 100% verified，判分链路早就支持选择题。真正缺的只有两件事——
+一条从未被证明跑通的闭环证据，以及 §5.9 那条"作文/阅读理解不进本"在转录真源里**一个字都没写**。
+决策轮原本要按 seed domain 给题池切一道闸门（A3），审核方实测否证了它：domain 标"阅读理解"的
+初中题 prompt 中位只有 16 字、最长 44 字、0 题带材料，它们其实是"关于某篇课文的独立短选题"，
+按 domain 切会误伤 480 道可正常复习的题。所以本票按 A3′ 做：**题池全收，闸门上移到转录模板**。
+
+【四条定案，不要重开】① 题池全收，**运行时不加任何按 domain 或按学科的闭环白名单**；
+② "不进本"闸门 = 转录模板指令（作文/续写/仿写/看图写话/需整篇材料才能作答的阅读理解大题一律不转录），
+转录侧不收 → 本里就没有，不在核对页之后再加代码闸门；③ 改模板语义必须 `version` 2→3 并同步契约
+`template.version`，Skill 只引用不内嵌；④ 抽词线保持英语专用（`CANDIDATE_SUBJECT` 不动）。
+
+【任务】
+1. `docs/templates/doubao_transcribe_v1.md`：「只转录这些题」段内新增"不进本"口径（口径原文见卡），
+   frontmatter `version: 2 → 3`，正文标题与"唯一真源"表述同步 v3。
+2. `transcribe/contract/ingestion_v1.json`：`template.version` 同步为 3，其余字段一律不动。
+3. `transcribe/README.md`：第 44、63 行示例 `--template-version 2` → 3；第 113 行 DRIFT 示例表同步 v3 口径。
+4. 新集成测试 `wengu-api/tests/integration/test_yuwen_closed_loop.py`：夹具走全链
+   （语文转录报文 → `POST /api/imports` → 草稿 → 核对页确认挂 `cnc_` 主考点 → 排期 → 到期 →
+   组卷抽到语文 choice 题 → `judgeAnswer` 判分 → 事件与掌握度更新）；断言语文与数学
+   **走同一条代码路径、零学科分支**（同一夹具只换 `subject`，行为等价），并断言"不进本"面
+   **不产生任何 `mistakes` 行**（靠转录侧不产出，不靠代码过滤）。
+5. `wengu-web/src/pages/RecitationsPage.tsx`：标题「英语背诵」→「背诵与默写」；默认 `subject` 保持
+   "英语"；抽词卡片补一句"语文古诗文请用手填 / 批量导入整句，抽词只适用于英语词形"。
+   不改 `IMPORT_SUBJECTS` 枚举、不改抽词逻辑。
+6. 文档：`CHANGELOG.md` 一条；设计文档 §5.9 表下加注（闸门实现位置 = 转录模板 v3；
+   按 domain 切闸门已被实测否证，指向 §19-M 定案一）；`docs/STATUS.md` 交付区新增本票条目。
+
+【DoD——逐项贴输出】
+- `python transcribe/validate.py selfcheck`（或既有等价入口）**18 OK / 0 DRIFT / 0 WARN**，
+  模板-契约版本那条必须显示 **v3 == 3**；
+- grep 证明模板与 README 不再残留 `version: 2` / `--template-version 2`；
+- 新集成测试绿，贴出"入本 → 排期 → 组卷 → 判分"四步关键断言行；
+- 全量 `pytest -q` 绿（基线 `--collect-only` 实取，当前 976，如实报新数）；`ruff check --no-cache .` 全仓绿；
+  行尾守卫 5 条仍绿；前端 `tsc` + `node --test` + `build` 绿；
+- 零迁移、零新依赖、不动 `app/judge/**`、不动 `app/seed/**`、不加 domain/学科代码闸门；
+  `seeds/data/*` 逐文件 sha256 不变（**本票不重跑 import**，§19-G-3 定案二与第 27 次卡面缺陷纪律）。
+
+【允许改动的文件】`docs/templates/doubao_transcribe_v1.md`、`transcribe/contract/ingestion_v1.json`、
+`transcribe/README.md`、`wengu-api/tests/integration/test_yuwen_closed_loop.py`（新）、
+`wengu-web/src/pages/RecitationsPage.tsx`、`CHANGELOG.md`、
+`docs/specs/architecture/StudyDesk-设计说明文档-v2.md`、`docs/STATUS.md`。
+**Skill 文件 `transcribe/skills/wengu-transcribe/SKILL.md` 不在名单内且不应改**——它只引用
+`template_ref`、不内嵌版本号，改了反而违反"不要内嵌"纪律。
+
+【禁止】在 `bank.py`/`quiz.py`/`review.py`/`subjects.py`/`ingestion.py` 加按 domain 或学科的闭环白名单；
+改 `CANDIDATE_SUBJECT`；重跑 import 或改 `seeds/data/*`；改判分器与 AST 沙箱；把模板正文内嵌进 Skill；
+只改模板不改契约版本号（必 DRIFT）；只改契约不改 README 示例；`--skip`/`xfail`；
+**把"语文题池 100% verified"写成"语文闭环已验证"**——验证由本票第 4 项交付。
+
+【投单纪律】git fetch origin; git switch -c feat/p3-5-yuwen-intake origin/main；
+一票一 PR 分支冻结；中文 commit 用 `git commit -F <仓库外 UTF-8 文件>`；
+提交前 `git diff --name-only` 核对并贴清单；交付贴 selfcheck 全行输出、版本 grep 证据、
+新集成测试四步断言、全量 pytest/ruff/前端三件套尾部统计、`seeds/data` sha256 前后对照；
+单列「审核方需复核的点」；卡面与盘上不符时以盘上为准并上报，不要硬凑。
+
+
 
