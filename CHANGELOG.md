@@ -9,6 +9,15 @@
 
 ### Added
 
+- **P5-19 `dictation_sheets` 迁移与 ORM 结构等价测试（清 STATUS §7 第 19 条欠账；纯测试、零生产改动）**（2026-11-21）：
+  新增 `wengu-api/tests/integration/test_schema_equivalence.py`（集成 1 条）——alembic `upgrade head` 与
+  `Base.metadata.create_all()` 双路建库，前置断言两侧都建出目标表（失败指明哪一侧，无 skip 语义）；
+  `describe_table` 纯函数比**六项结构化指纹**（列名+类型+可空性+默认值 / 主键 / CHECK 名 / 外键 / 唯一约束 / 索引），
+  不比 `sqlite_master` 文本（0025 ALTER 后必然不同）；不等时打印列名级差集与逐项指纹。
+  范围钉死 `dictation_sheets` 一张表：全仓 23 表约 30 处历史性 `server_default` 差异**仍未处置、未立项**，不扩面。
+  两靶变异（ORM 单侧加列 / 迁移单侧加列）均 RED→GREEN 且失败指到具体列，还原 sha256 逐字节一致。
+  全量 **984 passed in 522.61s**（基线 `--collect-only` 实取 983 + 1）、ruff 全仓绿、行尾守卫 5 绿；
+  零生产代码改动（不碰 `wengu-api/app/**` 与 `migrations/**`）、零迁移、零新依赖、零联网。
 - **P3-5 语文客观并入（题池全收 + 转录侧"不进本"闸门 + 语文闭环证据测试；零新依赖、零迁移）**（2026-11-21）：
   - **转录模板 v2→v3**（`docs/templates/doubao_transcribe_v1.md`）：「只转录这些题」新增"不进本"口径——
     作文/续写/仿写/看图写话、**需整篇材料或整段语境才能作答的阅读理解大题一律不转录**；
