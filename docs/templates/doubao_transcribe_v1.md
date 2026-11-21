@@ -1,13 +1,13 @@
 ---
 id: doubao_transcribe
-version: 2
+version: 3
 channel: agent_transcribe_v1
 applies_to: [doubao_app_web, qwenwork_skill, workbuddy]
 schema_fields: [subject, problem_text, student_answer, standard_answer, correction_notes, error_cause_suggestion, suggested_topic_id, source_ref, captured_at]
 max_items_per_batch: 500
 ---
 
-# 已批改错题转录模板 v2（wengu 外部提取通道 · 唯一真源）
+# 已批改错题转录模板 v3（wengu 外部提取通道 · 唯一真源）
 
 > **这是给豆包 / 千问办公 / WorkBuddy 用的转录指令**，是 wengu 的"事实源级"产物：改语义**必须把上面 `version` 递增**并同步 `docs/tooling/` 的 Skill 配方。
 > **它只做一件事：把"已经在卷子上用红笔批改+订正过"的错题，原样转录成结构化 JSON。**
@@ -31,6 +31,8 @@ max_items_per_batch: 500
 - **只挑被红笔标记为"错"的题**：有红叉 / 红圈 / 划线订正 / 订正后的正确答案的题。
 - 做对的题、空白没做的题、与题目无关的页眉页脚**一律不转录**。
 - 一道大题里若只有部分小问错，就只转录错的那几个小问。
+- **不进错题本的题一律不转录**：作文 / 续写 / 仿写 / 看图写话，以及**需整篇材料或整段语境才能作答的阅读理解大题**，即使被红笔判错也跳过，不出现在输出 JSON 里。
+- 语文的**独立可判分短小题照旧转录**：课文常识、字词、拼音、古诗文理解选择等——题干自身完整、不依赖整篇材料即可作答的，不受上一条限制。
 
 ## 每题必须给出的字段（严格用这些英文键）
 - `subject`：学科，取值 `数学 | 英语 | 语文 | 物理 | 化学`（≤20 字）。
@@ -96,5 +98,5 @@ max_items_per_batch: 500
 - 本模板产出的 JSON 由 **P1-3d 监听目录导入引擎**消费：`validate_envelope` 认 `channel="agent_transcribe_v1"`（兼容旧 `doubao_json`），`validate_and_normalize` 逐字段校验长度/类型，并**强制 `standard_answer` 非空才可转正**、`〔?〕` 命中即标记 `has_placeholder` 走人工。
 - `error_cause_suggestion` / `suggested_topic_id` 是**AI 建议值**，入 `ingestion_drafts` 后在**核对页**由家长/孩子确认转为**确认值**（来源 `ai → parent/student`），**冲突不静默覆盖**。
 - `correction_notes`（v2.7 D6 / P1-17 新增）是**可选纯展示字段**：`FIELD_LIMITS` 限 ≤500 字、未知字段静默丢弃；只承载卷面孩子/家长手写订正笔记，**agent 不得自产讲解**。写入三径——核对页确认 payload、ImportPage 手填表单、转录 JSON——空 = 不存（NULL）。详情页与 `standard_answer` 并排展示，编辑走 `POST /api/mistakes/{id}/notes` **追加版本行、绝不改写历史**。**笔记不进判分、排期、掌握度任何链路**；含 `〔?〕` 只标 `has_placeholder` 徽章，不挡转正（转正闸门只卡 `problem_text`/`student_answer`/`standard_answer`）。
-- **`verify` 不向转录端暴露（仅题库通道使用）**：后端 `FIELD_LIMITS` 与契约镜像各 **10 键**，本模板 `schema_fields` 只 **9 键**，差的正是 `verify`。`verify` 是**题库通道** `agent_bank_transcribe_v1` 的答案自洽表达式（入库时在 AST 白名单沙箱核验答案用）；**转录端只转录、不推理、不得生成 `verify`**，故模板不含它。契约用 `template.bank_only_fields=["verify"]` 显式声明这一差异，`selfcheck` 按「契约字段 − `bank_only_fields` == 模板 `schema_fields`」判定，**不靠忽略项蒙过**。这是字段口径收口说明，不改发给模型的指令与 `schema_fields`，故 `version` 保持 2。
+- **`verify` 不向转录端暴露（仅题库通道使用）**：后端 `FIELD_LIMITS` 与契约镜像各 **10 键**，本模板 `schema_fields` 只 **9 键**，差的正是 `verify`。`verify` 是**题库通道** `agent_bank_transcribe_v1` 的答案自洽表达式（入库时在 AST 白名单沙箱核验答案用）；**转录端只转录、不推理、不得生成 `verify`**，故模板不含它。契约用 `template.bank_only_fields=["verify"]` 显式声明这一差异，`selfcheck` 按「契约字段 − `bank_only_fields` == 模板 `schema_fields`」判定，**不靠忽略项蒙过**。这是字段口径收口说明，不改发给模型的指令与 `schema_fields`，当时在 v2 内收口未升版；v3 的升版原因是「只转录这些题」新增"不进本"口径（P3-5：作文/续写/仿写/看图写话/需整篇材料的阅读理解大题一律不转录，闸门只存在于本指令，运行时不加任何按 domain 或学科的代码闸门）。
 - 版本纪律：改本文件任一语义 → `version+1` → 跑后端契约回归 `wengu-api/tests/integration/test_imports_api.py` / `test_intake_api.py`（含/不含 `correction_notes` 对照）+ 行为锚定 `test_transcribe_contract_anchor.py`（后端真实校验函数消费 `transcribe/evals/fixtures/*.json`）→ 跑 `python transcribe/validate.py selfcheck --strict` 确认 0 DRIFT（模板 `id`/`version`/`schema_fields` ↔ 契约镜像一致）→ 确认 `docs/tooling/wengu-transcribe.md` 与 `transcribe/skills/wengu-transcribe/SKILL.md` 的 `template_ref` 仍指向本文件（Skill 动态加载模板正文，自动拾取新字段）。原系统内模型在环黄金样例已随 v2.5 零模型退役（见 `docs/methodology/evals.md`）；转录黄金样例现以纯标准库 fixtures 形态随可选包分发于 `transcribe/evals/`。

@@ -41,7 +41,7 @@
 | 1 | **过 §0 合规 checklist**，裁图、擦除 PII | 一张只含题目/作答/红笔痕迹的图 |
 | 2 | **取模板**：读 `docs/templates/doubao_transcribe_v1.md` 中「===[ 发给模型的指令 ]===」到结束标记之间的整段；核对其 frontmatter `version` 与 `contract/ingestion_v1.json` 的 `template.version` 一致 | 指令正文（**不要改写、不要内嵌进 Skill**） |
 | 3 | **转录**：把「指令 + 图」交给 AI 工具，拿到 `{channel, items}` JSON | 原始 JSON；只转录被红笔判错的题 |
-| 4 | **自检**：`python transcribe/validate.py check <file.json> --source-tool <工具名> --template-version 2 --manifest <batch>.manifest.json` | `accepted / rejected / placeholder / incomplete / unknown_fields` 逐项报告 + 批次 manifest |
+| 4 | **自检**：`python transcribe/validate.py check <file.json> --source-tool <工具名> --template-version 3 --manifest <batch>.manifest.json` | `accepted / rejected / placeholder / incomplete / unknown_fields` 逐项报告 + 批次 manifest |
 | 5 | **人工看回执**：`rejected > 0` 要回头补转录；`placeholder / incomplete` 高的批次要预期核对页工作量 | 你知道「这摞卷子丢了几道题」——**漏转录不再静默** |
 | 6 | **投递**：把 JSON 放进 `./data/inbox/`（可用 `WENGU_INBOX_DIR` 覆盖）。服务没起也没关系，起来后会自动补扫；处理完归档到 `.processed/` | `ingestion_drafts` 草稿 |
 | 7 | **核对页人工确认转正**：题目 / 错答 / 正答三栏并排，确认主考点与错因 | 唯一写入路径建错题 + 首排复习 |
@@ -60,7 +60,7 @@ python transcribe/validate.py evals
 
 # 校验一批转录产物
 python transcribe/validate.py check data/inbox/transcribe-20261112-01.json \
-  --source-tool doubao_web --template-version 2 \
+  --source-tool doubao_web --template-version 3 \
   --manifest data/inbox/transcribe-20261112-01.manifest.json
 ```
 
@@ -110,7 +110,7 @@ P5-8 把 P5-7 留下的三方字段漂移全部收口（改现有文件、需人
 |---|---|---|
 | 字段集合 | DRIFT：契约 9 / 后端 10 | 契约补 `correction_notes:500` → **10 键与后端一致** |
 | 模板 `schema_fields` ↔ 契约字段 | DRIFT：模板缺 `verify`、契约缺 `correction_notes` | 契约补 `correction_notes`；`verify` 声明为题库通道专用（`template.bank_only_fields`），selfcheck 按「契约字段 − bank_only == 模板 schema_fields」**显式判定** |
-| 模板 version | DRIFT：模板 v2 / 契约 1 | 契约 `template.version` → **2**（模板不重复升版） |
+| 模板 version | DRIFT：模板 v2 / 契约 1 | 契约 `template.version` → **2**（模板不重复升版）；P3-5 模板新增"不进本"口径升 **v3**，契约同步 → **3** |
 | 版本纪律回归目录 | DRIFT：文档要求跑已退役的旧目录 | 模板与旧 Skill 改指 `transcribe/evals/`；selfcheck 改判「文档引用的回归目录必须存在、且不再指向退役旧路径」 |
 | 旧 Skill 硬编码个人路径 | WARN：含开发者本机绝对路径 | 改指便携 Skill，inbox 改仓库相对默认 `./data/inbox`，绝对路径删除 |
 
