@@ -2630,7 +2630,8 @@
     `wengu-api/README.md` 目录树的 `├─ migrations/` 行（`# Alembic（head = 0021_pomodoro_sessions）`）、
     `docs/STATUS.md` §4.8 基础设施（`- SQLite WAL + Alembic（head 0023）`）、`docs/STATUS.md` §5.2
     （`- Alembic head \`0023_learning_events_occurred_at\`；**22 张业务表**`）。
-  - 已正确、本票要"钉住别退回"的一处：`目录结构.md:88`（P6-2 已翻正 0026）。
+  - 已正确、本票要"钉住别退回"的一处：`目录结构.md` 的 `│  ├─ migrations/` 行
+    （`# Alembic（head = 0026_recitation_source）`，P6-2 已翻正）。
 - **三条定案（不要重开）**：
   ① **只改"当前态"文档**，历史留痕一律不动——`CHANGELOG.md` / `TICKETS.md` /
     `docs/tooling/qoder-build-plan.md` / `docs/deploy/*.md` / `docs/specs/**` 里的旧 head 串

@@ -6,7 +6,7 @@
 > unit / integration / e2e 分项本轮未重取，旧口径 742（2026-11-13）已过期）；`ruff check --no-cache .` 全仓绿；
 > `wengu-api/tests/unit/test_repo_eol.py` 5 passed；前端 lint / 61 tests / build 由 CI `web` 作业绿（PR #76 三作业全绿：`api` 5m23s / `web` 22s / `transcribe` 9s；审核方本地 `npm` 不可用，沙箱内命中的是 WSL 未安装分发版占位程序）；
 > `requirements.txt` 零变化（P6-2 零新依赖、零联网，不动 `seeds/**`、`wengu-web/**`、判分器与 AST 沙箱）
-> Alembic head：`0026_recitation_source`（P6-2 新增，up/down/up + stamp 重跑幂等与 DDL 自一致测试绿）；业务表 **23 张**（加列不加表；**§4.8 与 §5.2 仍写 head 0023 / 22 张、`wengu-api/README.md` 仍写 0021——三处过实自述归 P5-20 翻正，本留痕不越票动手**）
+> Alembic head：`0026_recitation_source`（P6-2 新增，up/down/up + stamp 重跑幂等与 DDL 自一致测试绿）；业务表 **23 张**（加列不加表；`wengu-api/README.md` 目录树与本文 §4.8 / §5.2 三处仍是合并前的旧自述，归 **P5-20** 翻正，本留痕不越票动手，也不在此重复那些旧值以免多一处会漂的字面）
 
 本文件是**状态快照**，不替代以下事实源；冲突时以它们为准：
 
