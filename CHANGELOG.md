@@ -9,6 +9,24 @@
 
 ### Added
 
+- **P6-2 `recitation_items` 加 `source` 列（Phase 6 背单词数据层第一票；迁移 0026 + 模型 + 迁移测试）**（2026-11-25）：
+  新增迁移 `0026_recitation_source`——`source TEXT NOT NULL DEFAULT 'manual'` +
+  `ck_recitation_items_source`（`source IN ('seed','manual','candidate')`），既有行经
+  server_default 自动回填 `manual`；SQLite 加 CHECK 走 `batch_alter_table(recreate="always")`
+  反射重建，既有 `ck_recitation_items_status` / `uq_recitation_items_subject_prompt` 与
+  `recitation_reviews` 两条 FK（CASCADE/RESTRICT）逐字保留（迁移测试钉死）；
+  `source` **不进任何唯一键**（一词一条记忆轨不变）。模型 `RecitationItem` 同步追加列与 CHECK，
+  与迁移逐字一致。upgrade/downgrade 均按列+约束名探测幂等，stamp 回 0025 重跑不报错。
+  **本票只是标记列，不改 `create_item`/`decide`/`due_items`/`candidate_words` 任何服务逻辑
+  （导入路径接 source 是 P6-4），无用户可见行为变化，背单词尚不可用。**
+  迁移测试：head 字面断言推至 `0026_recitation_source`；新增
+  `test_p6_2_recitation_source_up_down_up`（0025→0026 DDL 规范化逐字比对 = 原样 + source 列 + 新 CHECK、
+  唯一键仍 `(subject,prompt)`、`PRAGMA foreign_key_check` 空、CASCADE 实测、seed 读回 / bogus 拒 /
+  缺省 manual 三条行为、downgrade 行内容零变化、up/down/up + stamp 重跑幂等）。
+  三靶变异（server_default 改 `'seed'` / downgrade 丢 UNIQUE 恢复 / source 纳入唯一键）
+  均 RED→GREEN，还原 sha256 逐字节一致。
+  全量 **985 passed**（基线 `--collect-only` 实取 984 + 1）、ruff 全仓绿、行尾守卫 5 绿；
+  零新依赖、零联网，不碰 `seeds/**`、`wengu-web/**`、判分器与 AST 沙箱。
 - **P5-19 `dictation_sheets` 迁移与 ORM 结构等价测试（清 STATUS §7 第 19 条欠账；纯测试、零生产改动）**（2026-11-21）：
   新增 `wengu-api/tests/integration/test_schema_equivalence.py`（集成 1 条）——alembic `upgrade head` 与
   `Base.metadata.create_all()` 双路建库，前置断言两侧都建出目标表（失败指明哪一侧，无 skip 语义）；

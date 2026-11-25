@@ -161,6 +161,13 @@ def test_migrations_upgrade_and_downgrade(tmp_path) -> None:
 
     command.upgrade(config, "head")
     assert _tables(db_path) - {"alembic_version"} == EXPECTED_TABLES
+    engine = create_engine(f"sqlite:///{db_path.as_posix()}")
+    try:
+        with engine.connect() as connection:
+            head = connection.scalar(text("SELECT version_num FROM alembic_version"))
+    finally:
+        engine.dispose()
+    assert head == "0026_recitation_source"
 
     command.downgrade(config, "base")
     assert _tables(db_path) - {"alembic_version"} == set()
@@ -1011,6 +1018,7 @@ def test_p3_3a_recitation_tables_up_down_up(tmp_path) -> None:
             "status": False,
             "created_by": False,
             "created_at": False,
+            "source": False,
         }
         assert review_columns == {
             "id": False,
@@ -1023,6 +1031,7 @@ def test_p3_3a_recitation_tables_up_down_up(tmp_path) -> None:
             "created_at": False,
         }
         assert "ck_recitation_items_status" in item_checks
+        assert "ck_recitation_items_source" in item_checks
         assert "ck_recitation_reviews_verdict" in review_checks
         assert "uq_recitation_items_subject_prompt" in item_uniques
         assert "uq_recitation_reviews_item_reviewed_on" in review_uniques
@@ -1139,7 +1148,8 @@ def test_p3_3a_recitation_tables_up_down_up(tmp_path) -> None:
 
 @pytest.mark.integration
 def test_p3_3a_recitation_reversible_ddl_is_byte_identical(tmp_path) -> None:
-    """0020 用 op.create_table 显式建表：回退再升级的 DDL 与首次升级、ORM 模型逐字一致。"""
+    """0020 用 op.create_table 显式建表：回退再升级的 DDL 与首次升级一致；
+    recitation_items 经 0026 batch 重建，只允许呈现差异（表名引号/约束顺序，规范化后逐字）。"""
 
     db_path = tmp_path / "recitation-ddl.db"
     config = _alembic_config(db_path)
@@ -1159,7 +1169,11 @@ def test_p3_3a_recitation_reversible_ddl_is_byte_identical(tmp_path) -> None:
     try:
         for model in (RecitationItem, RecitationReview):
             compiled = str(CreateTable(model.__table__).compile(model_engine)).strip()
-            assert before[f"table:{model.__tablename__}"] == compiled
+            actual = before[f"table:{model.__tablename__}"]
+            if model is RecitationItem:
+                assert _canonical_table_ddl(actual) == _canonical_table_ddl(compiled)
+            else:
+                assert actual == compiled
     finally:
         model_engine.dispose()
 
@@ -1169,10 +1183,208 @@ def test_p3_3a_recitation_reversible_ddl_is_byte_identical(tmp_path) -> None:
     command.upgrade(config, "head")
     after = _master_ddl(db_path, involved)
 
-    mismatches = _ddl_mismatches(before, after)
+    # 0026 batch 重建的约束顺序随进程哈希种子变化，recitation_items 比规范化 token
+    assert _canonical_table_ddl(before["table:recitation_items"]) == (
+        _canonical_table_ddl(after["table:recitation_items"])
+    ), "0020+0026 回退再升级后的 recitation_items DDL 与首次升级不一致"
+    mismatches = _ddl_mismatches(
+        {k: v for k, v in before.items() if k != "table:recitation_items"},
+        {k: v for k, v in after.items() if k != "table:recitation_items"},
+    )
     assert not mismatches, "0020 回退再升级后的 DDL 与首次升级不一致：\n" + "\n".join(
         mismatches
     )
+
+
+@pytest.mark.integration
+def test_p6_2_recitation_source_up_down_up(tmp_path) -> None:
+    """0026：source 列 + CHECK；既有 CHECK/UNIQUE/FK 逐字保留；down 只丢 source 标记。"""
+
+    db_path = tmp_path / "recitation-source.db"
+    config = _alembic_config(db_path)
+    involved = {"recitation_items", "recitation_reviews"}
+
+    command.upgrade(config, "0025_dictation_sheet_audio_ref")
+    engine = create_engine(f"sqlite:///{db_path.as_posix()}")
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO recitation_items"
+                    " (subject, prompt, answer, unit, created_by, created_at)"
+                    " VALUES ('英语', 'legacy-word', '旧词', 'Unit 1', 'parent',"
+                    " CURRENT_TIMESTAMP)"
+                )
+            )
+    finally:
+        engine.dispose()
+    before = _master_ddl(db_path, involved)
+    before_canon = _canonical_table_ddl(before["table:recitation_items"])
+
+    command.upgrade(config, "head")
+    engine = create_engine(f"sqlite:///{db_path.as_posix()}")
+    try:
+        with engine.connect() as connection:
+            inspector = inspect(connection)
+            columns = {
+                column["name"]: column["nullable"]
+                for column in inspector.get_columns("recitation_items")
+            }
+            checks = {
+                constraint["name"]
+                for constraint in inspector.get_check_constraints("recitation_items")
+            }
+            uniques = {
+                constraint["name"]: constraint["column_names"]
+                for constraint in inspector.get_unique_constraints("recitation_items")
+            }
+            indexes = {
+                index["name"]: index["column_names"]
+                for index in inspector.get_indexes("recitation_items")
+            }
+            review_fks = {
+                fk["name"]: fk
+                for fk in inspector.get_foreign_keys("recitation_reviews")
+            }
+            legacy = connection.execute(
+                text(
+                    "SELECT subject, prompt, answer, unit, status, created_by, source"
+                    " FROM recitation_items WHERE prompt = 'legacy-word'"
+                )
+            ).one()
+            assert connection.execute(text("PRAGMA foreign_key_check")).fetchall() == []
+        assert columns["source"] is False
+        assert {"ck_recitation_items_status", "ck_recitation_items_source"} <= checks
+        assert uniques["uq_recitation_items_subject_prompt"] == ["subject", "prompt"]
+        assert all("source" not in cols for cols in uniques.values())
+        assert all("source" not in cols for cols in indexes.values())
+        assert (
+            review_fks["fk_recitation_reviews_item_id"]["options"].get("ondelete")
+            == "CASCADE"
+        )
+        assert (
+            review_fks["fk_recitation_reviews_event_id"]["options"].get("ondelete")
+            == "RESTRICT"
+        )
+        assert tuple(legacy) == (
+            "英语", "legacy-word", "旧词", "Unit 1", "active", "parent", "manual",
+        )
+
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO recitation_items"
+                    " (subject, prompt, created_by, created_at, source)"
+                    " VALUES ('英语', 'seed-word', 'parent', CURRENT_TIMESTAMP, 'seed')"
+                )
+            )
+            assert connection.scalar(
+                text(
+                    "SELECT source FROM recitation_items WHERE prompt = 'seed-word'"
+                )
+            ) == "seed"
+            with pytest.raises(
+                sqlalchemy.exc.IntegrityError, match="ck_recitation_items_source"
+            ):
+                connection.execute(
+                    text(
+                        "INSERT INTO recitation_items"
+                        " (subject, prompt, created_by, created_at, source)"
+                        " VALUES ('英语', 'bogus-word', 'parent', CURRENT_TIMESTAMP,"
+                        " 'bogus')"
+                    )
+                )
+            connection.execute(
+                text(
+                    "INSERT INTO recitation_items"
+                    " (subject, prompt, created_by, created_at)"
+                    " VALUES ('英语', 'default-word', 'parent', CURRENT_TIMESTAMP)"
+                )
+            )
+            assert connection.scalar(
+                text(
+                    "SELECT source FROM recitation_items WHERE prompt = 'default-word'"
+                )
+            ) == "manual"
+    finally:
+        engine.dispose()
+
+    after = _master_ddl(db_path, involved)
+    after_canon = _canonical_table_ddl(after["table:recitation_items"])
+    assert after_canon[0] == before_canon[0]
+    assert after_canon[1][:-1] == before_canon[1]
+    assert after_canon[1][-1] == "source TEXT DEFAULT 'manual' NOT NULL"
+    assert set(after_canon[2]) == set(before_canon[2]) | {
+        "CONSTRAINT ck_recitation_items_source CHECK (source IN ('seed','manual','candidate'))"
+    }
+    assert after["table:recitation_reviews"] == before["table:recitation_reviews"]
+
+    # 默认连接不开 foreign_keys，单独开 PRAGMA 验证 ON DELETE CASCADE 仍在
+    conn = sqlite3.connect(str(db_path))
+    try:
+        conn.execute("PRAGMA foreign_keys=ON")
+        conn.execute(
+            "INSERT INTO learning_events (id, type, actor, idempotency_key)"
+            " VALUES (1, 'recitation_reviewed', 'student', 'p62:legacy:2026-11-25')"
+        )
+        conn.execute(
+            "INSERT INTO recitation_reviews"
+            " (item_id, verdict, rung, reviewed_on, event_id, created_at)"
+            " VALUES (1, 'remembered', 0, '2026-11-25', 1, CURRENT_TIMESTAMP)"
+        )
+        conn.execute("DELETE FROM recitation_items WHERE id = 1")
+        conn.commit()
+        assert conn.execute("SELECT COUNT(*) FROM recitation_reviews").fetchone() == (0,)
+        assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+    finally:
+        conn.close()
+
+    command.downgrade(config, "0025_dictation_sheet_audio_ref")
+    down = _master_ddl(db_path, involved)
+    # batch 重建的原文差异 = 表名双引号 + 约束顺序（随进程哈希种子变化），规范化后逐字一致
+    assert _canonical_table_ddl(down["table:recitation_items"]) == before_canon
+    assert down["table:recitation_reviews"] == before["table:recitation_reviews"]
+    engine = create_engine(f"sqlite:///{db_path.as_posix()}")
+    try:
+        with engine.connect() as connection:
+            columns = {
+                column["name"] for column in inspect(connection).get_columns("recitation_items")
+            }
+            remaining = connection.execute(
+                text(
+                    "SELECT subject, prompt, answer, unit, status, created_by"
+                    " FROM recitation_items WHERE prompt = 'seed-word'"
+                )
+            ).one()
+        assert "source" not in columns
+        assert tuple(remaining) == ("英语", "seed-word", None, None, "active", "parent")
+    finally:
+        engine.dispose()
+
+    command.upgrade(config, "head")
+    assert _canonical_table_ddl(
+        _master_ddl(db_path, involved)["table:recitation_items"]
+    ) == after_canon
+
+    # 函数级幂等：stamp 回 0025 再 upgrade，0026 在已有 source 的 schema 上重跑不报错
+    command.stamp(config, "0025_dictation_sheet_audio_ref")
+    command.upgrade(config, "head")
+    engine = create_engine(f"sqlite:///{db_path.as_posix()}")
+    try:
+        with engine.connect() as connection:
+            inspector = inspect(connection)
+            columns = [
+                column["name"]
+                for column in inspector.get_columns("recitation_items")
+            ]
+            checks = {
+                constraint["name"]
+                for constraint in inspector.get_check_constraints("recitation_items")
+            }
+        assert columns.count("source") == 1
+        assert "ck_recitation_items_source" in checks
+    finally:
+        engine.dispose()
 
 
 @pytest.mark.integration
