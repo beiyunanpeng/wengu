@@ -3964,12 +3964,15 @@ P3-4 翻过一次、P6-2 又翻一次（`目录结构.md` 0021→0026），但**
 - 业务表 23 张（`app.core.database.Base.metadata.tables` 23 项，与
   `tests/integration/test_migrations.py` 的 `EXPECTED_TABLES` 逐字同集）。
 - 22→23 的唯一原因是 `0024_dictation_sheets` 新建了一张表；0025 与 0026 都是加列不加表。
-- 仍写旧值、且是"当前事实"口吻的三处（本票要改）：
-  ① `wengu-api/README.md:22` 锚点 `# Alembic（head = 0021_pomodoro_sessions）`
-  ② `docs/STATUS.md:644`（§4.8 基础设施）锚点 `- SQLite WAL + Alembic（head 0023）`
-  ③ `docs/STATUS.md:1127`（§5.2 数据库与 seed）锚点
+- 仍写旧值、且是"当前事实"口吻的三处（本票要改；**一律只认锚点子串，本卡不给行号**——
+  STATUS 每次留痕都会让行号整体位移，实测同一条 §4.8 从 626 → 644 → 670）：
+  ① `wengu-api/README.md` 目录树里的 `├─ migrations/` 行，锚点
+     `# Alembic（head = 0021_pomodoro_sessions）`
+  ② `docs/STATUS.md` §4.8 基础设施，锚点 `- SQLite WAL + Alembic（head 0023）`
+  ③ `docs/STATUS.md` §5.2 数据库与 seed，锚点
      `- Alembic head \`0023_learning_events_occurred_at\`；**22 张业务表**`
-- 已经正确、本票要"钉住别退回"的一处：`目录结构.md:88`（P6-2 已翻正为 0026）。
+- 已经正确、本票要"钉住别退回"的一处：`目录结构.md` 的 `│  ├─ migrations/` 行
+  （锚点 `# Alembic（head = 0026_recitation_source）`，P6-2 已翻正）。
 
 【任务一：翻正三处当前态自述】
 ①②③ 的 head 串一律写全名 `0026_recitation_source`，不要只写 `0026`（裸数字分不清是
@@ -4013,7 +4016,7 @@ D. **反向钉住历史留痕**：以下字面串必须在原位、不得被"顺
    `venv/Scripts/python.exe -m pytest --collect-only -q` **实取**写进 PR，不许照抄本卡给的数）。
 2. 四条变异各贴 RED→GREEN 两次输出，失败信息要指到具体文件与串：
    变异一 `目录结构.md` 的 head 改回 `0021_pomodoro_sessions` → 红；
-   变异二 `wengu-api/README.md:22` 改成只写 `0026`（裸数字）→ 红；
+   变异二 `wengu-api/README.md` 的 `├─ migrations/` 行改成只写 `0026`（裸数字）→ 红；
    变异三 §5.2 的 `23 张业务表` 改回 22 → 红；
    变异四 把 CHANGELOG 里任一条 `head 仍 \`0020_recitation\`` "顺手更新成 0026" → 被 D 组钉住红。
    还原后逐文件 sha256 与本分支 blob 一致，交付 diff 里不得有变异残留。
@@ -4058,3 +4061,41 @@ D. **反向钉住历史留痕**：以下字面串必须在原位、不得被"顺
 临时 0027 探针的"加→红 / 删→绿 / git status 空"三步、DDL 零变化比对、
 全量 pytest/ruff/行尾守卫尾部统计；单列「审核方需复核的点」；
 卡面与盘上不符时以盘上为准并上报，不要硬凑。
+
+---
+
+## P6-2 交付后补记（2026-11-25，PR #76 → main `10f731b`）
+
+施工方交付 `c756f72`（7 文件 +362/−12，恰为白名单），审核方复验后 squash 合并为 `10f731b`，
+合并后 `main` 复跑 **985 passed / 0 failed（453.46s）**；CI 三作业全绿（`api` 5m23s /
+`web` 22s / `transcribe` 9s）。远端分支已删，`ls-remote` 只剩 `main`，历史线性。
+
+**审核方独立取证（不借被测文件的 helper）**：自建脚本 dump 0025 / 0026 / downgrade 三态
+`sqlite_master` 原文——丢失的约束 token 集合为空；两条 FK 三态恒为 `CASCADE` + `RESTRICT`，
+未被 batch 反射悄悄统一；`PRAGMA foreign_key_check` 空；`source` 落末列、不进任何唯一键或索引。
+逐字符 diff 证明 0025 原文与 downgrade 原文的全部差异只有表名双引号与两条约束互换顺序两处，
+故 `_canonical_table_ddl`（**父提交 117 行既有函数、912 行已在用，非本票新造**）的放宽
+不放行任何语义 token。施工方"约束顺序随 `PYTHONHASHSEED` 漂移"已复现：seed=2 时顺序变成
+`uq → ck_status → ck_source`，其余种子为 `ck_status → uq → ck_source`——原始逐字断言确会跨进程假红。
+
+**审核方五靶变异（与施工方演示的三靶完全不同）**：迁移 CHECK 值域删 `'candidate'`、
+列类型 `Text`→`String(20)`、`0020` 的 `event_id` FK `RESTRICT`→`CASCADE`、`nullable=False`→`True`、
+只改模型 server_default→`'candidate'`——全部 RED；还原后四文件 sha256 与分支 blob 逐一 MATCH。
+
+**两个绿色观察（不返工，仅备案给后续票）**：
+① 把 `upgrade()` 整段幂等探测删掉，测试仍绿——幂等实际由 alembic batch 反射对同名列静默替换
+兜住，inspect 守卫属双保险；因此 DoD 1"重复 upgrade 不报错"在测试里不区分守卫是否存在。
+② `test_p6_2_*` 只断 DB DDL，模型↔迁移漂移靠既有 P3-3a 等价测试捕获（M8 靶证其有牙），
+两测分工不同、非重复覆盖。
+
+**第 34 / 35 次卡面缺陷（均归审核方）**：第 34 次——"过时 head 自述"只列 `目录结构.md`，
+漏 `wengu-api/README.md:22`（0021）、`docs/STATUS.md` §4.8（0023）、§5.2（0023 与 22 张业务表，
+实测 23 张）三处；施工方只发现并上报了 README 一处、未越白名单动手。第 35 次——DoD 引用
+盘上不存在的基线（`test_migrations.py` 原无 head 字面断言、`migrations/README.md` 无 0025 条目可照）。
+同族根因与第 28 / 30 / 33 次一致：白名单与基线从旧描述反推、没从盘上读，已固化为
+`AGENTS.md §8`「卡面引用盘上现状必须实读」。欠账翻正另立 **P5-20**（登记于 `d5eb28c`）。
+
+**对同批落盘的 P5-20 卡的一处自我订正**：我第一版 P5-20 卡给过 STATUS 的行号（644 / 1127），
+但**本票留痕提交自己就把这两句推到了 670 / 1153**（§1 新增两条 bullet 共 26 行）——
+行号在 STATUS 这种每票都往 §1 追加的文件里根本不可靠，已把 P5-20 卡改成**只给锚点子串、不给行号**。
+这正是我刚写进 `AGENTS.md §8` 的那条纪律的反面教材：连审核方自己也会踩。

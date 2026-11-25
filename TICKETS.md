@@ -2613,7 +2613,8 @@
 
 ### P5-20 文档"当前态"自述与盘上事实对齐 + 字面守卫（纯文档订正 + 一条单测；零生产改动、零迁移）
 
-- **状态**：待开工（依赖 P6-2 / PR #76 合并后的 `main` 作基线）。
+- **状态**：**待投**（基线已就绪——P6-2 于 2026-11-25 合并 PR #76 → main `10f731b`，卡内行号
+  即按合并后的 main 实读；开工时仍以当时 `origin/main` 复核锚点）。
 - **背景（第 34 / 35 次卡面缺陷的根治票，审核方 2026-11-25 实测）**：
   "文档自述的 alembic head / 业务表数"与盘上事实不一致，已**第三次复发**——P3-4 翻过一次、
   P6-2 又翻一次（`目录结构.md` 0021→0026），但**全仓普查从未做过**：P6-2 卡面的必改清单
@@ -2624,10 +2625,11 @@
     解析 revision/down_revision 链推导，两法同数；26 个 revision 文件连成一条线无分叉）。
   - 业务表 23 张（`Base.metadata.tables` 23 项，与 `test_migrations.py` 的 `EXPECTED_TABLES`
     逐字同集）。22→23 的唯一原因是 `0024_dictation_sheets` 新建表；0025 / 0026 均加列不加表。
-  - 仍是"当前事实"口吻却写旧值的三处（本票要改）：`wengu-api/README.md:22`
-    （`# Alembic（head = 0021_pomodoro_sessions）`）、`docs/STATUS.md:644`（§4.8 基础设施
-    `SQLite WAL + Alembic（head 0023）`）、`docs/STATUS.md:1127`（§5.2
-    `Alembic head 0023_learning_events_occurred_at；**22 张业务表**`）。行号会漂，只认锚点子串。
+  - 仍是"当前事实"口吻却写旧值的三处（本票要改；**只认锚点子串、不给行号**——STATUS 每票留痕
+    都会让 §1 之后的行号整体位移，实测同一条 §4.8 已从 626 → 644 → 670）：
+    `wengu-api/README.md` 目录树的 `├─ migrations/` 行（`# Alembic（head = 0021_pomodoro_sessions）`）、
+    `docs/STATUS.md` §4.8 基础设施（`- SQLite WAL + Alembic（head 0023）`）、`docs/STATUS.md` §5.2
+    （`- Alembic head \`0023_learning_events_occurred_at\`；**22 张业务表**`）。
   - 已正确、本票要"钉住别退回"的一处：`目录结构.md:88`（P6-2 已翻正 0026）。
 - **三条定案（不要重开）**：
   ① **只改"当前态"文档**，历史留痕一律不动——`CHANGELOG.md` / `TICKETS.md` /
@@ -2655,7 +2657,7 @@
     `venv/Scripts/python.exe -m pytest --collect-only -q` **实取**写进 PR，不照抄卡面数字）。
   - 变异自证四靶各 RED→GREEN、还原后 sha256 逐字节一致，且失败信息要指到具体文件与串：
     ① `目录结构.md` 的 head 改回 `0021_pomodoro_sessions` → 红；
-    ② `wengu-api/README.md:22` 改成裸数字 `0026` → 红；
+    ② `wengu-api/README.md` 的 `├─ migrations/` 行改成裸数字 `0026` → 红；
     ③ §5.2 的 `23 张业务表` 改回 22 → 红；
     ④ 把 `CHANGELOG.md` 任一条 `head 仍 \`0020_recitation\`` "顺手更新成 0026" → 被反向
     历史留痕断言钉住红。
@@ -2761,8 +2763,16 @@ seeds/vocab/
 - 官方 PDF（义务教育 31.5MB / 高中 7.7MB）**不进 git**，只在 `_source_vocab.json` 记 URL + sha256。
 - 补充块 22 个专有名词/文化词 ECDICT 无详情 → **详情字段留 null，不编造、不另找源**。
 
-### P6-2 recitation_items 加 source 列（迁移 0026 + 模型 + 迁移测试）【完整卡，可投】
-- **状态**：待投（本票是 Phase 6 唯一完整卡）。
+### P6-2 recitation_items 加 source 列（迁移 0026 + 模型 + 迁移测试）【完整卡，已合并】
+- **状态**：**已合并（PR #76 → main `10f731b`，2026-11-25）**。
+- **交付后事实修正（审核方在 `c756f72` 上实读，两条卡面基线不实）**：
+  ① 卡面 DoD 6 写"head 断言从 0025 推到 0026"——`tests/integration/test_migrations.py` 在父提交
+  里**没有任何** head 字面断言（grep `version_num` / `0025` / `head ==` 零命中），本票是**新增**
+  `assert head == "0026_recitation_source"`；② 卡面 DoD 7 写"照 0025 风格补一行"——
+  `migrations/README.md` 的条目实际只到 0019（无 0020–0025 条目），施工方改照 0018/0019 风格补。
+  两处施工方均主动上报、未硬凑，我核为真；记第 35 次卡面缺陷（归审核方）。
+  ③ 卡面白名单只列 `目录结构.md` 一处过时 head 自述，漏 `wengu-api/README.md`、`docs/STATUS.md`
+  §4.8 / §5.2 三处——记第 34 次卡面缺陷，欠账翻正另立 **P5-20**，本票不越票改。
 - **依赖**：无（schema 独立，但必须先于 P6-4）。
 - **背景（按盘上事实）**：见上"复用现网引擎的核实结论"四条约束项。本票是**加法式 schema 增量**，
   只动 `recitation_items` 一列一约束，不碰其它表、不碰判分/复习逻辑、不碰服务函数签名。
