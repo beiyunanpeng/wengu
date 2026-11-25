@@ -2611,6 +2611,72 @@
 
 ---
 
+### P5-20 文档"当前态"自述与盘上事实对齐 + 字面守卫（纯文档订正 + 一条单测；零生产改动、零迁移）
+
+- **状态**：待开工（依赖 P6-2 / PR #76 合并后的 `main` 作基线）。
+- **背景（第 34 / 35 次卡面缺陷的根治票，审核方 2026-11-25 实测）**：
+  "文档自述的 alembic head / 业务表数"与盘上事实不一致，已**第三次复发**——P3-4 翻过一次、
+  P6-2 又翻一次（`目录结构.md` 0021→0026），但**全仓普查从未做过**：P6-2 卡面的必改清单
+  只列了 `目录结构.md` 一处，实际盘上另有三处旧自述。止血不改根治 = 每票重新发现一遍。
+  本票既翻正现存三处，又留一条会红的守卫，把"文档必须跟随迁移推进"变成 CI 事实。
+- **盘上事实（审核方两种独立方法核对，施工方开工时须以当时 `origin/main` 复核）**：
+  - 单一 head = `0026_recitation_source`（`alembic heads` 与按 `migrations/versions/*.py`
+    解析 revision/down_revision 链推导，两法同数；26 个 revision 文件连成一条线无分叉）。
+  - 业务表 23 张（`Base.metadata.tables` 23 项，与 `test_migrations.py` 的 `EXPECTED_TABLES`
+    逐字同集）。22→23 的唯一原因是 `0024_dictation_sheets` 新建表；0025 / 0026 均加列不加表。
+  - 仍是"当前事实"口吻却写旧值的三处（本票要改）：`wengu-api/README.md:22`
+    （`# Alembic（head = 0021_pomodoro_sessions）`）、`docs/STATUS.md:644`（§4.8 基础设施
+    `SQLite WAL + Alembic（head 0023）`）、`docs/STATUS.md:1127`（§5.2
+    `Alembic head 0023_learning_events_occurred_at；**22 张业务表**`）。行号会漂，只认锚点子串。
+  - 已正确、本票要"钉住别退回"的一处：`目录结构.md:88`（P6-2 已翻正 0026）。
+- **三条定案（不要重开）**：
+  ① **只改"当前态"文档**，历史留痕一律不动——`CHANGELOG.md` / `TICKETS.md` /
+    `docs/tooling/qoder-build-plan.md` / `docs/deploy/*.md` / `docs/specs/**` 里的旧 head 串
+    是**当时的事实记录**，翻正它等于篡改审计链；真需要口径说明走仓库既有括注先例
+    （`README.md` 的 P3-8 / P5-10 尾部「本条为当时的事实记录」，实测该括注先例 2 处）。
+  ② 守卫的 head 与表数**必须从盘上派生**（扫 `migrations/versions/` 求唯一 head、
+    取 `len(Base.metadata.tables)`），**禁止在测试里写死 `0026_recitation_source` 或 `23`**——
+    写死等于每加一条迁移就要改守卫，是把债换个地方欠。派生自证由另一条断言与
+    `EXPECTED_TABLES` 交叉制约（两个真源相互制约）。
+  ③ 守卫**只扫白名单锚点句、不扫全文**：`docs/STATUS.md` §7 等处含 `业务表 **19 张**`、
+    `业务表 19 → **21**` 这类历史证据句，全文扫必假红。
+- **任务**：
+  1. 翻正三处当前态自述（head 一律写 revision 全名，不写裸 `0026`）；§5.2 那句的括号内
+     照既有写法补 0024（新增 `dictation_sheets`，表数 22→23 的唯一来源）/
+     0025（`audio_ref` 加列）/ 0026（`source` 加列）三条来历。
+  2. 新文件 `wengu-api/tests/unit/test_docs_current_state.py`，风格逐字照
+     `tests/unit/test_template_gate_literals.py`（`REPO_ROOT = Path(__file__).resolve().parents[3]`
+     + 纯 `read_text(encoding="utf-8")`，**绝不调 subprocess 跑 git 或 alembic**——沙箱内
+     `git ls-tree` 会以 dubious ownership 假红，本仓已复发四次）。四组断言见 DoD。
+  3. 文档：`CHANGELOG.md` 一条；`docs/STATUS.md` 交付区新增本票 + 头部快照/基线 +
+     **§1 内所有「当前待审」指针句一并翻转**（第 33 次纪律）。
+- **DoD（逐项贴输出）**：
+  - 全量 `pytest -q` 全绿，条数 = 开工基线 + 本票新增条数（基线用
+    `venv/Scripts/python.exe -m pytest --collect-only -q` **实取**写进 PR，不照抄卡面数字）。
+  - 变异自证四靶各 RED→GREEN、还原后 sha256 逐字节一致，且失败信息要指到具体文件与串：
+    ① `目录结构.md` 的 head 改回 `0021_pomodoro_sessions` → 红；
+    ② `wengu-api/README.md:22` 改成裸数字 `0026` → 红；
+    ③ §5.2 的 `23 张业务表` 改回 22 → 红；
+    ④ 把 `CHANGELOG.md` 任一条 `head 仍 \`0020_recitation\`` "顺手更新成 0026" → 被反向
+    历史留痕断言钉住红。
+  - 派生有牙的负向验证：临时往 `migrations/versions/` 放一个 `revision="0027_probe"` /
+    `down_revision="0026_recitation_source"` 的空迁移 → 守卫必须红（文档没跟上），
+    删除后 → 绿。**临时文件当场删除并 `git status` 复核为空，严禁提交**。
+  - 本票零 schema 影响：`alembic upgrade head` 前后 `recitation_items` 的 `sqlite_master`
+    dump 一字不变（贴比对输出）。
+  - `ruff check --no-cache .` 全仓绿；`tests/unit/test_repo_eol.py` 5 绿；新测试文件 LF + UTF-8 无 BOM。
+- **必改清单**：`wengu-api/tests/unit/test_docs_current_state.py`（新增）/ `wengu-api/README.md` /
+  `docs/STATUS.md`（§4.8、§5.2、§1 头部、交付区、所有「当前待审」指针句）/ `目录结构.md`
+  （锚点措辞若变）/ `CHANGELOG.md`。
+- **禁止**：不改任何迁移 / 模型 / 服务代码 / `seeds/**` / `wengu-web/**`；不动历史留痕文件的旧
+  head 串；不引入新依赖；不调 git / alembic 子进程；不把 `TICKETS.md:341`、build-plan 各票正文里
+  "票内历史描述"的旧 head 当缺陷去改；守卫里不得出现写死的当前 revision 串或表数。
+- **残留风险（交付时如实报告）**：守卫只覆盖白名单锚点句，新写的"当前态"句子若不走这些锚点
+  格式仍会漏网；将来加迁移时 `docs/STATUS.md` 头部与 §5.2 必须同改两处（守卫会红并指名文件），
+  这是**刻意摩擦**、不是缺陷；多 head 分叉会让派生断言炸，属预期报警。
+
+---
+
 ## Phase 6 —— 背单词数据层（2026-11-25 决策轮登记；草稿源自工作区 `vocab-drafts/` 四份文档 + 联网核实）
 
 > 本轮只覆盖**数据层**，不含背单词前端页。依赖图：`P6-1 ∥ P6-2 → P6-3(需 P6-1) → P6-4(需 P6-2+P6-3)`。

@@ -3942,3 +3942,119 @@ B) `wengu-api/app/models/recitation.py`：`RecitationItem` 追加
 FK 检查、DoD 5-7 的测试输出、三处变异 RED→GREEN（含 sha256 还原核对）、
 全量 pytest/ruff/行尾守卫尾部统计；单列「审核方需复核的点」；
 卡面与盘上不符时以盘上为准并上报，不要硬凑。
+
+---
+
+## P5-20 —— 文档"当前态"自述与盘上事实对齐 + 字面守卫（纯文档订正 + 一条单测；零生产改动、零迁移；基线 = P6-2 / PR #76 合并后的 main）
+
+你在 wengu 仓库工作。开工前先读仓库根 AGENTS.md（顶部 v2.5 横幅 + §8 提交纪律）、
+`docs/STATUS.md` 头部快照与 §4.8 / §5.2、`目录结构.md`、`wengu-api/README.md` 的目录树段。
+本票是**纯文档订正 + 一条字面守卫单测**，零生产改动、零迁移、零新依赖。
+基线 = P6-2（PR #76）合并后的 main；开工时先 `git fetch` 再以当时 `origin/main` 实况为准，
+下面给的行号是审核方 2026-11-25 实读位置，**会漂，只认锚点子串**。
+
+【本票要根治的问题】
+"文档自述的 alembic head / 业务表数"与盘上事实长期不一致，已第三次复发：
+P3-4 翻过一次、P6-2 又翻一次（`目录结构.md` 0021→0026），但**全仓普查从没做过**。
+止血不改根治 = 每票都要重新发现一遍。本票既翻正现存三处，又留一条会红的守卫。
+
+【盘上事实（我实跑核对，施工方须自己复核一遍再动手）】
+- alembic 单一 head = `0026_recitation_source`（`alembic heads` 输出，且 `migrations/versions`
+  共 26 个 revision 串成一条线，无分叉）。
+- 业务表 23 张（`app.core.database.Base.metadata.tables` 23 项，与
+  `tests/integration/test_migrations.py` 的 `EXPECTED_TABLES` 逐字同集）。
+- 22→23 的唯一原因是 `0024_dictation_sheets` 新建了一张表；0025 与 0026 都是加列不加表。
+- 仍写旧值、且是"当前事实"口吻的三处（本票要改）：
+  ① `wengu-api/README.md:22` 锚点 `# Alembic（head = 0021_pomodoro_sessions）`
+  ② `docs/STATUS.md:644`（§4.8 基础设施）锚点 `- SQLite WAL + Alembic（head 0023）`
+  ③ `docs/STATUS.md:1127`（§5.2 数据库与 seed）锚点
+     `- Alembic head \`0023_learning_events_occurred_at\`；**22 张业务表**`
+- 已经正确、本票要"钉住别退回"的一处：`目录结构.md:88`（P6-2 已翻正为 0026）。
+
+【任务一：翻正三处当前态自述】
+①②③ 的 head 串一律写全名 `0026_recitation_source`，不要只写 `0026`（裸数字分不清是
+revision 还是年份）。③ 还要把 `22 张业务表` 改 `23`，并在该句既有括号里照现有写法
+补三条来历：0024 新增 `dictation_sheets`（表数 22→23 的唯一来源）、0025 给它加
+`audio_ref` 列、0026 给 `recitation_items` 加 `source` 列（后两条不加表）。
+
+【任务二：新增字面守卫 `wengu-api/tests/unit/test_docs_current_state.py`】
+风格逐字照 `tests/unit/test_template_gate_literals.py`（`REPO_ROOT = Path(__file__).resolve().parents[3]`
++ 纯 `read_text(encoding="utf-8")`，**绝不调 subprocess 跑 git 或 alembic**——沙箱里
+`git ls-tree` 会以 dubious ownership 假红，本仓已复发四次）。
+
+真源必须是盘上代码，**不许把 head 或表数写成测试里的字面常量**（那样每加一条迁移就得改守卫，
+是把债换个地方欠）：
+- `alembic_head()`：扫 `REPO_ROOT/"wengu-api"/"migrations"/"versions"/*.py`，正则取
+  `^revision` 与 `^down_revision`，返回"没有被任何 down_revision 引用"的那个 revision；
+  命中数 != 1 直接 assert 失败（分叉或多 head 要炸，不许取第一个）。
+- `business_table_count()`：`len(Base.metadata.tables)`。
+
+断言（四组，A/B 组右侧都来自上面两个派生值）：
+A. 扫描集合仅限下列**当前态文档锚点**：`目录结构.md` 的 `migrations/` 行、
+   `wengu-api/README.md` 的 `├─ migrations/` 行、`docs/STATUS.md` 头部 `^> Alembic head：` 行
+   + §4.8 与 §5.2 两条锚点句。从中正则抓所有形如 `00xx_[a-z0-9_]+` 的 revision 串，
+   凡出现必须 == `alembic_head()`；抓 `N 张业务表` / `业务表 **N 张**` 的数字，
+   凡出现必须 == `business_table_count()`。**禁止全文扫描 `docs/STATUS.md`**——
+   §7 里有 `业务表 **19 张**`、`业务表 19 → **21**` 等历史证据句，全文扫必假红。
+B. 派生值自证：`alembic_head()` 必须能在盘上找到同名迁移文件，且
+   `business_table_count() == len(EXPECTED_TABLES)`（从 `tests/integration/test_migrations.py`
+   导入常量比对，两个独立真源相互制约）。
+C. 反过度约束：`docs/STATUS.md` §5.2 句里必须同时含 `dictation_sheets`、`audio_ref`、
+   `source` 三个字面串（防只改数字不留来历）。
+D. **反向钉住历史留痕**：以下字面串必须在原位、不得被"顺手翻正"——
+   `CHANGELOG.md` 内 `head 仍 \`0020_recitation\`` 命中数 == 4、
+   `head 保持 \`0021_pomodoro_sessions\`` == 1、`head 推进到 \`0022_correction_notes\`` == 1、
+   `head 推进到 \`0023_learning_events_occurred_at\`` == 1（四个数我 grep 实取，开工先复核再抄进测试）；
+   `docs/deploy/upgrade-v0.5.0.md` 的表行
+   `| alembic head | \`0018_practice_dedup\` | **\`0020_recitation\`** |` 原样在场。
+
+【DoD（要运行态证据，不接受"测试通过"空话）】
+1. 全量 `pytest -q` 全绿，条数 = 开工基线 + 本票新增条数（基线用
+   `venv/Scripts/python.exe -m pytest --collect-only -q` **实取**写进 PR，不许照抄本卡给的数）。
+2. 四条变异各贴 RED→GREEN 两次输出，失败信息要指到具体文件与串：
+   变异一 `目录结构.md` 的 head 改回 `0021_pomodoro_sessions` → 红；
+   变异二 `wengu-api/README.md:22` 改成只写 `0026`（裸数字）→ 红；
+   变异三 §5.2 的 `23 张业务表` 改回 22 → 红；
+   变异四 把 CHANGELOG 里任一条 `head 仍 \`0020_recitation\`` "顺手更新成 0026" → 被 D 组钉住红。
+   还原后逐文件 sha256 与本分支 blob 一致，交付 diff 里不得有变异残留。
+3. **派生有牙的验证**：临时往 `migrations/versions/` 放一个
+   `revision = "0027_probe"` / `down_revision = "0026_recitation_source"` 的空迁移文件 →
+   守卫必须红（文档没跟上），删除后 → 绿。这条同时证明守卫对"未来新增迁移"有报警能力，
+   是本票存在的意义。⚠️ 临时文件必须当场删除并 `git status` 复核为空，**严禁提交**。
+4. 本票零 schema 影响：`alembic upgrade head` 前后 `recitation_items` 的 `sqlite_master`
+   dump 一字不变（贴比对输出）。
+5. `ruff check --no-cache .` 全仓绿；`tests/unit/test_repo_eol.py` 5 绿；新测试文件 LF、UTF-8、无 BOM。
+
+【必改清单】
+- `wengu-api/tests/unit/test_docs_current_state.py`（新增）。
+- `wengu-api/README.md` / `docs/STATUS.md`（§4.8、§5.2，必要时 §1 头部）/ `目录结构.md`（锚点措辞若变）。
+- `CHANGELOG.md` 新增本票条目。
+- `docs/STATUS.md`：交付区新增本票条目 + 头部快照日期/基线同步 + **§1 内所有「当前待审」
+  指针句一并翻转**（第 33 次卡面缺陷教训：漏一句就是又一次自述≠事实）。
+  注意：本票合并时机若在 P6-2 留痕之前，指针句现值是"P6-2 待审"；在其之后则是"P5-20 待审"——
+  落笔前先读当时的 §1 实况，**别照抄本卡**。
+
+【禁止】
+- 不改 `CHANGELOG.md` / `TICKETS.md` / `docs/tooling/qoder-build-plan.md` / `docs/deploy/*.md` /
+  `docs/specs/**` 里的旧 head 串——那是**当时的事实记录**，翻正它等于篡改审计链（D 组断言会红）。
+  真需要口径说明，用仓库既有惯例加括注：`README.md` 的 P3-8 / P5-10 条目尾部
+  「（2026-11-18 P5-15 括注：本条为当时的事实记录……）」就是先例。
+- 不把 `TICKETS.md:341`、build-plan 各票正文里的"票内历史描述"当缺陷去改。
+- 不改任何迁移、模型、服务代码；不新增表/列；不碰 `seeds/**`、`wengu-web/**`、判分器与 AST 沙箱。
+- 守卫里不许出现写死的 `0026_recitation_source` 字面串或写死的 `23`。
+- 不引入新依赖；不调 git / alembic 子进程。
+
+【残留风险（交付时如实报告）】
+- `docs/STATUS.md` 头部快照块与 §5.2 现在同写一个 head，将来加迁移必须同时改两处
+  （守卫会红并指名文件），这是刻意的摩擦，不是缺陷。
+- 历史工单正文（TICKETS.md / build-plan）里的旧 head 永远不动，因此本守卫只覆盖"当前态"
+  三类文档，读者仍需自行区分历史条目。
+- 若某天出现多 head 分支（并行迁移），派生断言会炸，属预期报警。
+
+【投单纪律】`git fetch origin; git switch -c feat/p5-20-doc-state-guard origin/main`；
+一票一 PR 分支冻结；中文 commit 用 `git commit -F <仓库外 UTF-8 文件>`；
+提交前 `git diff --name-only` 核对并贴清单（本票白名单五个文件，越界即停）；
+交付贴四组断言的测试输出、四处变异 RED→GREEN（含 sha256 还原核对）、
+临时 0027 探针的"加→红 / 删→绿 / git status 空"三步、DDL 零变化比对、
+全量 pytest/ruff/行尾守卫尾部统计；单列「审核方需复核的点」；
+卡面与盘上不符时以盘上为准并上报，不要硬凑。
