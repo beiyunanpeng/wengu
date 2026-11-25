@@ -40,6 +40,12 @@ class RecitationItem(Base):
     )
     created_by: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    source: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="manual",
+        server_default=text("'manual'"),
+    )
 
     __table_args__ = (
         CheckConstraint(
@@ -48,6 +54,10 @@ class RecitationItem(Base):
         ),
         UniqueConstraint(
             "subject", "prompt", name="uq_recitation_items_subject_prompt"
+        ),
+        CheckConstraint(
+            "source IN ('seed','manual','candidate')",
+            name="ck_recitation_items_source",
         ),
     )
 

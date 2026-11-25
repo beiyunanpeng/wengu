@@ -26,3 +26,12 @@
   降级 `downgrade -1` 按 0004/0005/0006 原定义重建三张空表（列/UNIQUE/FK/级联/索引齐全），
   **不承诺找回历史照片/切图/提取数据**；`uploads/` 里的旧文件不动。
   up/down/up 已实测可重入（`tests/integration/test_migrations.py` 覆盖）。
+- `0026_recitation_source`（P6-2 背诵条目来源标记）：给 `recitation_items` 加
+  `source TEXT NOT NULL DEFAULT 'manual'` + `ck_recitation_items_source`
+  （`source IN ('seed','manual','candidate')`）；SQLite 加 CHECK 走
+  `batch_alter_table(recreate="always")` 反射重建，既有 CHECK/UNIQUE 与
+  `recitation_reviews` 两条 FK（CASCADE/RESTRICT）原样保留，既有行自动回填 `manual`。
+  `source` 不进任何唯一键。升级前复制 `wengu-api/data/wengu.db` 到仓库外；
+  降级 `downgrade -1` 删该列与该 CHECK，**既有行其余字段内容零变化**，
+  但 source 标记随列丢失、不可找回——需要保留时先备份。
+  up/down/up 与 stamp 重跑幂等已实测（`tests/integration/test_migrations.py` 覆盖）。
