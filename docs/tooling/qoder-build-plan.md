@@ -3659,104 +3659,6 @@ M1 绿是审核方靶子设计失误：`conftest.py:33-35` 模块级导入已注
 「状态类票的必改清单」，本票留痕即按该规则执行（头部三行 + 交付区条目 + 队列指针三处同翻）。
 遗留不变：全仓 23 表约 30 处"迁移有 server_default 而 ORM 未声明"的历史差异，仍未处置、未立项。
 
-## P6-2 —— recitation_items 加 source 列（迁移 0026 + 模型 + 迁移测试；Phase 6 唯一完整卡，可投）
-
-你在 wengu 仓库工作。开工前先完整读三处并以其为准：仓库根 AGENTS.md（顶部 v2.5 横幅 + §8 提交/迁移纪律
-+ §8「状态类票的必改清单」+「边界常量必须字面钉死」）、
-`docs/specs/architecture/StudyDesk-设计说明文档-v2.md` §14（seed 数据不进 SQLite）与 **§19-M**、
-TICKETS.md 的 **Phase 6 区**（范围定案 + 五条口径裁定 + 复用现网核实结论 + **P6-2 完整卡**）。
-再读现网代码校准，**别按草稿旧描述**：
-- `wengu-api/app/models/recitation.py`（`RecitationItem` 现有列与两个约束：`ck_recitation_items_status`、
-  `uq_recitation_items_subject_prompt`；`RecitationReview` 的两条 FK——`item_id` 是 **CASCADE**、
-  `event_id` 是 **RESTRICT**，两条都要保住）
-- `wengu-api/migrations/versions/0025_dictation_sheet_audio_ref.py`（最新迁移；`down_revision` 取它的
-  revision 串 `0025_dictation_sheet_audio_ref`）
-- `wengu-api/migrations/versions/0018_practice_dedup.py`（`batch_alter_table(recreate="always")`
-  加/删列的标准写法）
-- `wengu-api/tests/integration/test_migrations.py`（head 断言 + DDL before/after 逐字比对模式）
-- `wengu-api/migrations/README.md`（备份/回退段格式）
-
-【现状·按盘上事实】
-- Alembic 盘上 head = `0025_dictation_sheet_audio_ref`；`目录结构.md:88` 写的 `head = 0021_pomodoro_sessions`
-  是**过时文档自述**，本票留痕翻正到 0026。
-- 本票是**加法式 schema 增量**：只给 `recitation_items` 加一列 `source` + 一个 CHECK，
-  不碰其它表、不碰判分/复习/背诵服务逻辑（`create_item` 加 `source` 参数是 **P6-4** 的事，本票不做）。
-
-【任务】
-A) 新增 `wengu-api/migrations/versions/0026_recitation_source.py`：
-   - `revision = "0026_recitation_source"`，`down_revision = "0025_dictation_sheet_audio_ref"`；
-   - 模块 docstring 记 Revision ID / Revises / Create Date / 用途 / 备份回退（照 0025、0018 风格）；
-   - SQLite 加 CHECK 必须重建表：
-     `with op.batch_alter_table("recitation_items", recreate="always") as batch:` 内
-     `batch.add_column(sa.Column("source", sa.Text(), nullable=False, server_default=sa.text("'manual'")))`
-     + `batch.create_check_constraint("ck_recitation_items_source", "source IN ('seed','manual','candidate')")`；
-     既有行经 `server_default` 自动回填 `'manual'`；
-   - **幂等**：先 `sa.inspect(op.get_bind())` 探测——`get_columns` 无 `source`、
-     `get_check_constraints` 无 `ck_recitation_items_source` 才执行；重复 upgrade 不报错；
-   - **downgrade**：batch recreate 删该列 + 删该约束；**必须保住** `ck_recitation_items_status`、
-     `uq_recitation_items_subject_prompt`、`fk_recitation_reviews_item_id`(CASCADE)、
-     `fk_recitation_reviews_event_id`(RESTRICT)；卡里写明"downgrade 删列不可逆丢 source 标记，
-     但既有行 subject/prompt/answer/unit/status 内容零变化"。
-B) `wengu-api/app/models/recitation.py`：`RecitationItem` 追加
-   `source: Mapped[str] = mapped_column(Text, nullable=False, default="manual", server_default=text("'manual'"))`，
-   `__table_args__` 追加 `CheckConstraint("source IN ('seed','manual','candidate')", name="ck_recitation_items_source")`，
-   与迁移逐字一致（列类型 / NOT NULL / `server_default` / 约束名）。
-
-【DoD——逐项贴运行态证据，不接受"测试通过"空话】
-1. `cd wengu-api && alembic upgrade head` 到 0026 成功；`alembic downgrade -1` 回 0025 干净；
-   再 `upgrade head` 可重复执行不报错（幂等证明）。
-2. **DDL before/after 逐字比对**：升级前存档 `recitation_items` 完整建表语句（含两个既有约束与索引），
-   到 0026 后必须 = 原语句 + `source` 列 + `ck_recitation_items_source`，**既有 CHECK/UNIQUE 一字不差仍在**；
-   downgrade 回 0025 后与升级前逐字相等。差异必须为空，贴 diff 输出。
-3. **唯一约束未被改动**：断言 `uq_recitation_items_subject_prompt` 列集合仍是 `(subject, prompt)`，
-   **`source` 不在任何唯一键内**。
-4. **FK 完整性**：upgrade 后 `PRAGMA foreign_key_check` 为空；插一条 `recitation_reviews` 指向某 item
-   成功且 `ON DELETE CASCADE` 仍生效（删 item 带走 review）；`event_id` 的 RESTRICT 未被降级。
-5. 最小单测：建 `source='seed'` 能读回；塞 `source='bogus'` → CHECK 红；不传 source → 默认 `'manual'`。
-6. 既有 recitation 单测/集成测全绿（默认 manual 不破坏历史行为）。
-7. `test_migrations.py` 的 head 断言从 0025 推到 **0026**（字面 revision 串），
-   并加 `source` 列 + `ck_recitation_items_source` 存在断言。
-8. `migrations/README.md` 备份/回退段补一行（照 0025 风格）。
-9. 全量 `pytest -q` 绿（基线以 `--collect-only` 实取，当前 **984**，如实报新数）；
-   `ruff check --no-cache .` 全仓绿；行尾守卫 `test_repo_eol.py` 5 passed。
-10. **可证伪变异自证（三处，RED→GREEN，还原 sha256 一致）**：
-    ① 故意把 `server_default` 写成 `'seed'` → DoD 2 的逐字 diff 必红；
-    ② 故意在 downgrade 里漏掉恢复 `uq_recitation_items_subject_prompt` → DoD 2/3 必红；
-    ③ 故意把 `source` 塞进唯一键 → DoD 3 必红。三次 RED 输出与还原后 GREEN 都贴 PR。
-
-【允许改动的文件】`wengu-api/migrations/versions/0026_recitation_source.py`（新）、
-`wengu-api/app/models/recitation.py`、`wengu-api/tests/integration/test_migrations.py`、
-`wengu-api/migrations/README.md`、`目录结构.md`、`CHANGELOG.md`、`docs/STATUS.md`。
-（`test_migrations.py` 与 `目录结构.md` 是**预先列入**的连带必改项，不是让你临时越界——
-新列必炸 head 断言，这是 P3-4 第 28 次卡面缺陷的同类场景。）
-
-【禁止】新建 `vocab_reviews` 表（裁定=复用背诵引擎）；把 `source` 纳入唯一键、或让同词出现两行
-（破坏"一词一条记忆轨"）；用 id 前缀识别来源（判据**只读 `source` 列**，沿用 P5-15 §19-G-3）；
-改 `create_item`/`decide`/`due_items`/`candidate_words` 等任何服务逻辑（那是 P6-4）；
-手改生产 SQLite 文件；丢任一既有 CHECK/UNIQUE/FK；downgrade 静默改既有行内容；
-动 `seeds/**`、`wengu-web/**`、判分器与 AST 沙箱；`--skip`/`xfail`。
-
-【状态类票必改（AGENTS §8 纪律，本票自我执行）】`docs/STATUS.md` 头部三行（快照日期/基线/全量测试数）+
-交付区新增本票条目（含 PR 号→squash SHA 锚点，实查 `git log --oneline` /
-`gh pr view --json number,mergeCommit`，**严禁凭记忆填 SHA**）+ **所有「当前待审」指针句一并翻转**；
-`目录结构.md:88` head 翻正；`CHANGELOG.md` 新增条目。
-
-【残留风险（交付时如实报告，不要藏）】
-- `batch_alter_table(recreate="always")` 靠反射重建约束/索引/FK；若某约束名未被反射保留，
-  DoD 2 的逐字 diff 会暴露——**必须按 DoD 2/3/4 兜住，不能只断"表存在/列存在"**。
-- 若本环境 alembic batch 对"加列 + 加 CHECK"一次 recreate 有边界问题，可拆成两步同迁移，
-  但仍必须保住两条 FK 与两个既有约束，DoD 2/3/4 不变。
-- 本票不产生任何用户可见行为变化（`source` 只是标记位）；真实入库路径在 P6-4，
-  交付时不得声称"背单词已可用"。
-
-【投单纪律】git fetch origin; git switch -c feat/p6-2-recitation-source origin/main；
-一票一 PR 分支冻结；中文 commit 用 `git commit -F <仓库外 UTF-8 文件>`；
-提交前 `git diff --name-only` 核对并贴清单；交付贴 alembic 三段输出、DDL 逐字 diff、
-FK 检查、DoD 5-7 的测试输出、三处变异 RED→GREEN（含 sha256 还原核对）、
-全量 pytest/ruff/行尾守卫尾部统计；单列「审核方需复核的点」；
-卡面与盘上不符时以盘上为准并上报，不要硬凑。
-
-
 ## P3-4b —— 听写音频线（卷级挂接 + 目录扫描 + index 化播放端点 + 听写卷面隐藏提示；零新依赖、零联网；基线 = 开工时 `origin/main` 实况，pytest 基线以 `--collect-only` 实取）
 
 你在 wengu 仓库工作。开工前先完整读：AGENTS.md §5（外部数据分发与净化、配置热加载）、§8（一票一 PR、
@@ -3944,6 +3846,99 @@ M-D 前缀枚举加 cnc_ → 绿（未被锚定，v4 零风险）。
 （设计文档第 152、1009 行；STATUS 第 421、1357 行），历史条目一律不得改写
 （CHANGELOG 旧行、STATUS 第 1383 行 P5-8、模板"v2 内收口未升版"句）。
 
+## P6-2 —— recitation_items 加 source 列（迁移 0026 + 模型 + 迁移测试；Phase 6 唯一完整卡，可投）
 
+你在 wengu 仓库工作。开工前先完整读三处并以其为准：仓库根 AGENTS.md（顶部 v2.5 横幅 + §8 提交/迁移纪律
++ §8「状态类票的必改清单」+「边界常量必须字面钉死」）、
+`docs/specs/architecture/StudyDesk-设计说明文档-v2.md` §14（seed 数据不进 SQLite）与 **§19-M**、
+TICKETS.md 的 **Phase 6 区**（范围定案 + 五条口径裁定 + 复用现网核实结论 + **P6-2 完整卡**）。
+再读现网代码校准，**别按草稿旧描述**：
+- `wengu-api/app/models/recitation.py`（`RecitationItem` 现有列与两个约束：`ck_recitation_items_status`、
+  `uq_recitation_items_subject_prompt`；`RecitationReview` 的两条 FK——`item_id` 是 **CASCADE**、
+  `event_id` 是 **RESTRICT**，两条都要保住）
+- `wengu-api/migrations/versions/0025_dictation_sheet_audio_ref.py`（最新迁移；`down_revision` 取它的
+  revision 串 `0025_dictation_sheet_audio_ref`）
+- `wengu-api/migrations/versions/0018_practice_dedup.py`（`batch_alter_table(recreate="always")`
+  加/删列的标准写法）
+- `wengu-api/tests/integration/test_migrations.py`（head 断言 + DDL before/after 逐字比对模式）
+- `wengu-api/migrations/README.md`（备份/回退段格式）
 
+【现状·按盘上事实】
+- Alembic 盘上 head = `0025_dictation_sheet_audio_ref`；`目录结构.md:88` 写的 `head = 0021_pomodoro_sessions`
+  是**过时文档自述**，本票留痕翻正到 0026。
+- 本票是**加法式 schema 增量**：只给 `recitation_items` 加一列 `source` + 一个 CHECK，
+  不碰其它表、不碰判分/复习/背诵服务逻辑（`create_item` 加 `source` 参数是 **P6-4** 的事，本票不做）。
 
+【任务】
+A) 新增 `wengu-api/migrations/versions/0026_recitation_source.py`：
+   - `revision = "0026_recitation_source"`，`down_revision = "0025_dictation_sheet_audio_ref"`；
+   - 模块 docstring 记 Revision ID / Revises / Create Date / 用途 / 备份回退（照 0025、0018 风格）；
+   - SQLite 加 CHECK 必须重建表：
+     `with op.batch_alter_table("recitation_items", recreate="always") as batch:` 内
+     `batch.add_column(sa.Column("source", sa.Text(), nullable=False, server_default=sa.text("'manual'")))`
+     + `batch.create_check_constraint("ck_recitation_items_source", "source IN ('seed','manual','candidate')")`；
+     既有行经 `server_default` 自动回填 `'manual'`；
+   - **幂等**：先 `sa.inspect(op.get_bind())` 探测——`get_columns` 无 `source`、
+     `get_check_constraints` 无 `ck_recitation_items_source` 才执行；重复 upgrade 不报错；
+   - **downgrade**：batch recreate 删该列 + 删该约束；**必须保住** `ck_recitation_items_status`、
+     `uq_recitation_items_subject_prompt`、`fk_recitation_reviews_item_id`(CASCADE)、
+     `fk_recitation_reviews_event_id`(RESTRICT)；卡里写明"downgrade 删列不可逆丢 source 标记，
+     但既有行 subject/prompt/answer/unit/status 内容零变化"。
+B) `wengu-api/app/models/recitation.py`：`RecitationItem` 追加
+   `source: Mapped[str] = mapped_column(Text, nullable=False, default="manual", server_default=text("'manual'"))`，
+   `__table_args__` 追加 `CheckConstraint("source IN ('seed','manual','candidate')", name="ck_recitation_items_source")`，
+   与迁移逐字一致（列类型 / NOT NULL / `server_default` / 约束名）。
+
+【DoD——逐项贴运行态证据，不接受"测试通过"空话】
+1. `cd wengu-api && alembic upgrade head` 到 0026 成功；`alembic downgrade -1` 回 0025 干净；
+   再 `upgrade head` 可重复执行不报错（幂等证明）。
+2. **DDL before/after 逐字比对**：升级前存档 `recitation_items` 完整建表语句（含两个既有约束与索引），
+   到 0026 后必须 = 原语句 + `source` 列 + `ck_recitation_items_source`，**既有 CHECK/UNIQUE 一字不差仍在**；
+   downgrade 回 0025 后与升级前逐字相等。差异必须为空，贴 diff 输出。
+3. **唯一约束未被改动**：断言 `uq_recitation_items_subject_prompt` 列集合仍是 `(subject, prompt)`，
+   **`source` 不在任何唯一键内**。
+4. **FK 完整性**：upgrade 后 `PRAGMA foreign_key_check` 为空；插一条 `recitation_reviews` 指向某 item
+   成功且 `ON DELETE CASCADE` 仍生效（删 item 带走 review）；`event_id` 的 RESTRICT 未被降级。
+5. 最小单测：建 `source='seed'` 能读回；塞 `source='bogus'` → CHECK 红；不传 source → 默认 `'manual'`。
+6. 既有 recitation 单测/集成测全绿（默认 manual 不破坏历史行为）。
+7. `test_migrations.py` 的 head 断言从 0025 推到 **0026**（字面 revision 串），
+   并加 `source` 列 + `ck_recitation_items_source` 存在断言。
+8. `migrations/README.md` 备份/回退段补一行（照 0025 风格）。
+9. 全量 `pytest -q` 绿（基线以 `--collect-only` 实取，当前 **984**，如实报新数）；
+   `ruff check --no-cache .` 全仓绿；行尾守卫 `test_repo_eol.py` 5 passed。
+10. **可证伪变异自证（三处，RED→GREEN，还原 sha256 一致）**：
+    ① 故意把 `server_default` 写成 `'seed'` → DoD 2 的逐字 diff 必红；
+    ② 故意在 downgrade 里漏掉恢复 `uq_recitation_items_subject_prompt` → DoD 2/3 必红；
+    ③ 故意把 `source` 塞进唯一键 → DoD 3 必红。三次 RED 输出与还原后 GREEN 都贴 PR。
+
+【允许改动的文件】`wengu-api/migrations/versions/0026_recitation_source.py`（新）、
+`wengu-api/app/models/recitation.py`、`wengu-api/tests/integration/test_migrations.py`、
+`wengu-api/migrations/README.md`、`目录结构.md`、`CHANGELOG.md`、`docs/STATUS.md`。
+（`test_migrations.py` 与 `目录结构.md` 是**预先列入**的连带必改项，不是让你临时越界——
+新列必炸 head 断言，这是 P3-4 第 28 次卡面缺陷的同类场景。）
+
+【禁止】新建 `vocab_reviews` 表（裁定=复用背诵引擎）；把 `source` 纳入唯一键、或让同词出现两行
+（破坏"一词一条记忆轨"）；用 id 前缀识别来源（判据**只读 `source` 列**，沿用 P5-15 §19-G-3）；
+改 `create_item`/`decide`/`due_items`/`candidate_words` 等任何服务逻辑（那是 P6-4）；
+手改生产 SQLite 文件；丢任一既有 CHECK/UNIQUE/FK；downgrade 静默改既有行内容；
+动 `seeds/**`、`wengu-web/**`、判分器与 AST 沙箱；`--skip`/`xfail`。
+
+【状态类票必改（AGENTS §8 纪律，本票自我执行）】`docs/STATUS.md` 头部三行（快照日期/基线/全量测试数）+
+交付区新增本票条目（含 PR 号→squash SHA 锚点，实查 `git log --oneline` /
+`gh pr view --json number,mergeCommit`，**严禁凭记忆填 SHA**）+ **所有「当前待审」指针句一并翻转**；
+`目录结构.md:88` head 翻正；`CHANGELOG.md` 新增条目。
+
+【残留风险（交付时如实报告，不要藏）】
+- `batch_alter_table(recreate="always")` 靠反射重建约束/索引/FK；若某约束名未被反射保留，
+  DoD 2 的逐字 diff 会暴露——**必须按 DoD 2/3/4 兜住，不能只断"表存在/列存在"**。
+- 若本环境 alembic batch 对"加列 + 加 CHECK"一次 recreate 有边界问题，可拆成两步同迁移，
+  但仍必须保住两条 FK 与两个既有约束，DoD 2/3/4 不变。
+- 本票不产生任何用户可见行为变化（`source` 只是标记位）；真实入库路径在 P6-4，
+  交付时不得声称"背单词已可用"。
+
+【投单纪律】git fetch origin; git switch -c feat/p6-2-recitation-source origin/main；
+一票一 PR 分支冻结；中文 commit 用 `git commit -F <仓库外 UTF-8 文件>`；
+提交前 `git diff --name-only` 核对并贴清单；交付贴 alembic 三段输出、DDL 逐字 diff、
+FK 检查、DoD 5-7 的测试输出、三处变异 RED→GREEN（含 sha256 还原核对）、
+全量 pytest/ruff/行尾守卫尾部统计；单列「审核方需复核的点」；
+卡面与盘上不符时以盘上为准并上报，不要硬凑。
