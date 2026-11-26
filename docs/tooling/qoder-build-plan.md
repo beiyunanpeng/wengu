@@ -4417,14 +4417,15 @@ C) 授权四节：`THIRD-PARTY-NOTICES.md` 新增 ECDICT / engra / **vickysy** /
 
 【残留风险（交付时如实报告）】
 - 初中正文永远不可能由本票升级到 verbatim（官方 PDF 零文字层）；要升级只能重做 OCR + 人工复核 1600 条。
-- 补充块维持 unaudited；22 条 ECDICT 无详情 → 词卡详情留空，UI 须透传"专有名词、释义自明/待补"。
+- 补充块维持 unaudited；按裁定 7 两级查找后真缺口 **17 条**（草稿原写 22 条）ECDICT 无详情
+  → 词卡详情留空，UI 须透传"专有名词、释义自明/待补"。
 - `roots.json` 本票只保证 sha256 与条数一致，不保证词根家族↔单词的映射质量（归 P6-3 join 断言与试用反馈）。
 - 背单词在本票交付后**仍不可用**：灌库在 P6-4、前端页另票。交付时不得声称"背单词已可用"。
 
 【投单纪律】`git fetch origin; git switch -c feat/p6-1-vocab-seed origin/main`；
 一票一 PR 分支冻结；中文 commit 用 `git commit -F <仓库外 UTF-8 文件>`；
 提交前 `git diff --name-only` 核对并贴清单（越界即停）；
-交付贴八条 DoD 的运行态输出、上表八个蕴含靶各 RED→GREEN（含 sha256 还原核对）、
+交付贴八条 DoD 的运行态输出、上表**十条**蕴含靶各 RED→GREEN（含 sha256 还原核对）、
 上游 sha256/commit 的**自行复核结果**（与卡面值不一致时以盘上为准并上报）、
 全量 pytest/ruff/行尾守卫尾部统计；单列「审核方需复核的点」；
 卡面与盘上不符时以盘上为准并上报，不要硬凑。
