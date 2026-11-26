@@ -9,6 +9,31 @@
 
 ### Added
 
+- **P6-1 背单词 seed 数据 + 构建期抽取器 + 授权署名（Phase 6 数据层；零运行时、零 schema、零新依赖）**（2026-11-26，基线 `main` `4d49c0a`）：
+  新增 `seeds/vocab/` 五份分发真源：`levels.json`（小学/初中/高中/附录补充块合并范围）、
+  `words.json`（ECDICT 两级精确 join 详情）、`roots.json`（engra 词根家族）、
+  `wordroot_meaning.json`（ECDICT 词根含义）、`_source_vocab.json`（人工策展的 commit/哈希/verbatim/交集与缺口证据）。
+  `_upstream/` 只 vendored 四个小件；ECDICT CSV、engra/vickysy 整仓、官方 PDF、转录缓存件与 OCR 交叉验证件均不进 git。
+  新增 `scripts/import_vocab.py` 与 `scripts/vocab_extract/` 五个构建期抽取器；严格校验上游 commit、
+  vendored 字节与 sha256，生成四份派生 JSON，**绝不覆盖人工策展的 `_source_vocab.json`**。
+  Windows 保留名 `con.yml` 用 `git ls-tree` + `git cat-file --batch` 读取，不 checkout/archive；
+  所有文本生成侧写死 LF，PDF/OCR 依赖仅延迟导入，构建脚本不进 requirements、镜像或 CI 主链。
+  修复初中官方形态：先去 `*` 再 `strip_glue`，保留撇号/括号/斜杠/逗号/句点，`word` 不再取最短子形；
+  `o'clock`、`a/an`、`actor / actress` 等原样保留，`miss`/`Miss` 两行并存。详情查找为整串精确 →
+  等价子形逐形精确，不模糊匹配；高中按行解析，10 个多词短语不被单词正则拆开。
+  数据实测：union 3318（primary 501 / junior 1751 / senior 3066 / supplement 150）、matched 3301、
+  非 block 未命中 0、no_detail 17（集合相等守卫）；engra 2233 家族 / 23982 词节点，wordroot 611 条。
+  初中重发射件由卡面旧值 196,595 B / `c7da5e5e…` 修正为 **202,717 B /
+  `4bc41a2b55ee2e3b7dece9d0a1ddfcb5c5b7ef6440f5ab90a5dde0d74c152b2e`**，受影响 84 条；
+  初中正文保持 `derived-from-transcription`，附录补充块保持 `ocr` + 全部 `unaudited=true`。
+  授权分层：ECDICT / engra / vickysy 三家 MIT 数据可商用，课标词表按政府公开文件标注；
+  `seeds/vocab/` 不继承 `seeds/data/` 的 CC BY-NC 限制，wengu 整体仍不称 OSI 开源软件。
+  新增数据/构建边界/EOL 守卫共 12 条（定向 17 passed），十条蕴含靶全部 RED→GREEN 且还原 sha256 一致；
+  仓库外 scratch 重跑四份生成 JSON 与初中重发射件均逐字节一致。
+  全量 **1002 passed in 432.25s**（开工基线 990 + 12；unit 701 / e2e 11 / integration 290）、
+  `ruff check --no-cache .` 全仓绿、`test_repo_eol.py` 6 passed；六个构建 CLI 的 `--help` 全部可启动。
+  **本票只交付数据与构建脚本：不碰 `app/**`、迁移与 `recitation_items`，不做 API/前端；背单词仍不可用。**
+  残留：初中正文无法由零文字层 PDF 升级 verbatim；17 条补充块专名 ECDICT 无详情；词根映射质量归 P6-3 与试用反馈。
 - **P5-20 文档当前态自述对齐 + 字面守卫（纯文档订正 + 一条守卫单测；零生产改动、零迁移、零新依赖）**（2026-11-26）：
   翻正三处"当前事实"口吻的旧自述（head 一律写全名 `0026_recitation_source`）——
   `wengu-api/README.md` 目录树 migrations/ 行（0021→全名）、`docs/STATUS.md` §4.8（0023→全名）、

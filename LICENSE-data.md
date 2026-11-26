@@ -1,9 +1,10 @@
 # 数据许可（LICENSE-data）
 
 > 本文件只约束 **seed 数据**，不约束代码。代码许可见 [`LICENSE`](./LICENSE)（纯 MIT 规范文本）。
-> 分层授权 = 分文件表达：**MIT 代码 + CC BY-NC 数据**；因数据限非商用，**wengu 整体不称 OSI 开源软件**。
+> 分层授权 = 分目录表达：**MIT 代码 + `seeds/data/` CC BY-NC 数据 + `seeds/vocab/` MIT 数据层**；
+> 因 `seeds/data/` 限非商用，**wengu 整体不称 OSI 开源软件**，但背单词 vocab 子集不继承该非商用限制。
 > 第三方归属总表见 [`THIRD-PARTY-NOTICES.md`](./THIRD-PARTY-NOTICES.md)；机器可读署名见
-> `seeds/data/_source.json` 与 `seeds/data/questions_source.json`（含 `commit_evidence` 取证链）。
+> `seeds/data/_source.json`、`seeds/data/questions_source.json` 与 `seeds/vocab/_source_vocab.json`（含取证链）。
 
 ## 1. 适用对象
 
@@ -15,6 +16,7 @@
 
 以及它们的署名文件 `_source.json` / `questions_source.json`。家长自建数据（`seeds/local/`、
 `<data_dir>/seeds_local/`）是家长自己的内容，**不属于本文件约束的第三方数据**。
+`seeds/vocab/` 是另一套许可分层，见 §8；**其 MIT 数据层不受 `seeds/data/` 的 CC BY-NC 限制**。
 
 ## 2. 上游与署名（依 CC BY-NC 4.0 §3(a)）
 
@@ -56,8 +58,8 @@
 ## 5. 非商用声明
 
 **限个人非商用**（CC BY-NC 4.0 §3(a)）：署名 + 非商业使用。wengu 的定位是"每个家庭自托管、
-家庭非商用"，与之一致。**学校 / 培训机构 / 家教 / SaaS 托管等商业用途不得直接使用本数据**——
-请自行向上游评估授权，或替换/移除 `seeds/data/` 后再商用（代码本身 MIT 可商用）。
+家庭非商用"，与之一致。**学校 / 培训机构 / 家教 / SaaS 托管等商业用途不得直接使用 `seeds/data/` 本数据**——
+请自行向上游评估授权，或替换/移除 `seeds/data/` 后再商用（代码与 `seeds/vocab/` 的 MIT 层可商用）。
 
 ## 6. 免责转述（上游自述，诚实标注继承）
 
@@ -75,3 +77,18 @@ seed metadata 保留 `unaudited: true`，UI 透传"知识点体系（社区数�
 - 镜像 / 打包 / About 页必须显式署名 `cn-math-taxonomy` + 作者 + CC BY-NC 4.0 + 原仓库链接 + "限个人非商用"。
 - 换上游快照重新生成 `seeds/data/` 时，须按设计文档 §19-F-1 重新取证钉死 `upstream_commit`
   并更新 `modified` 文案；探测不到 commit 就写 null + 警告，**严禁按日期猜 SHA**。
+
+## 8. `seeds/vocab/`：MIT 数据层与课标词表
+
+- **ECDICT**（skywind3000/ECDICT，MIT）：详情与词根含义；钉版 commit
+  `39cfb9672c0906b63569e0453c2e6abfb9ab182a`。
+- **engra**（bonaysoft/engra，MIT，Copyright (c) 2023 Ambor）：词根家族与中文助记；钉版 commit
+  `798d54beb0deae476b856719cb8d5ad33d0baab2`。
+- **vickysy/kebiao-english**（MIT，Copyright (c) 2026 木妈AIdea (vickysy)）：小学二级范围源；
+  钉版 commit `470117814a09d5bdd37a95ec22acc0ee9de1e9b5`。
+- **英语课程标准词表**：政府公开文件，事实性词汇集合不受著作权保护；官方 URL、PDF sha256、
+  初中转录溯源、OCR 交叉验证与各源 verbatim 等级见 `seeds/vocab/_source_vocab.json`。
+- **可商用边界**：上述三家 MIT 数据与课标词表**可商用**，不继承 `seeds/data/` 的 CC BY-NC 4.0 限制；
+  分发时仍须保留 `THIRD-PARTY-NOTICES.md` 的署名与 MIT 许可声明。
+- **质量标注**：初中正文是 `derived-from-transcription`，未做逐字比对；补充块是 `ocr` 且全部
+  `unaudited: true`；ECDICT 无详情条目保持 null，不编造。构建期 OCR/PDF 工具不是运行时依赖。
