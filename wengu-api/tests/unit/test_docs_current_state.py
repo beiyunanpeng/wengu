@@ -3,6 +3,7 @@
 守四件事：
 A. 当前态锚点（目录结构.md / wengu-api/README.md 的 migrations/ 行、STATUS 头部快照行 + §4.8 / §5.2 锚点句）
    里出现的 revision 全名一律 == 盘上唯一 head，业务表数一律 == len(Base.metadata.tables)；
+   §5.2 只取首行、且只扫首个「（」前的当前态声明（括注为历史来历，写旧 revision 全名属合法）；
 B. 派生值自证：head 有同名迁移文件、表数与 test_migrations.EXPECTED_TABLES 互等（两个独立真源相互制约）；
 C. §5.2 锚点句必须留 dictation_sheets / audio_ref / source 三条来历字面（防只改数字不留来历）；
 D. 历史留痕反向钉住：CHANGELOG 旧 head 串计数与 deploy 升级表行不得被"顺手翻正"。
@@ -71,12 +72,11 @@ def _status_line(prefix: str) -> str:
 
 
 def _status_52_sentence() -> str:
-    text = _read("docs/STATUS.md")
-    start = text.index("- Alembic head `")
-    end = text.index("）。", start) + 2
-    sentence = text[start:end]
-    assert "张业务表" in sentence, "§5.2 锚点句漂移：句内未找到业务表数"
-    return sentence
+    lines = [line for line in _read("docs/STATUS.md").splitlines() if line.startswith("- Alembic head `")]
+    assert len(lines) == 1, f"docs/STATUS.md §5.2 锚点行必须唯一：{lines}"
+    line = lines[0]
+    assert "张业务表" in line, "§5.2 锚点句漂移：行内未找到业务表数"
+    return line
 
 
 def test_current_state_anchors_match_disk() -> None:
@@ -87,7 +87,8 @@ def test_current_state_anchors_match_disk() -> None:
         "wengu-api/README.md migrations/ 行": _migrations_line("wengu-api/README.md"),
         "docs/STATUS.md 头部快照行": _status_line("> Alembic head："),
         "docs/STATUS.md §4.8": _status_line("- SQLite WAL + Alembic（head"),
-        "docs/STATUS.md §5.2": _status_52_sentence(),
+        # §5.2 只扫首个「（」前的当前态声明；括注是历史来历，允许写旧 revision 全名（P5-20 折入）
+        "docs/STATUS.md §5.2": _status_52_sentence().split("（", 1)[0],
     }
     for label, text in anchors.items():
         tokens = _HEAD_TOKEN_RE.findall(text)
