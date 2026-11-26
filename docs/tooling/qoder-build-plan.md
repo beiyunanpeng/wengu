@@ -4429,3 +4429,37 @@ C) 授权四节：`THIRD-PARTY-NOTICES.md` 新增 ECDICT / engra / **vickysy** /
 上游 sha256/commit 的**自行复核结果**（与卡面值不一致时以盘上为准并上报）、
 全量 pytest/ruff/行尾守卫尾部统计；单列「审核方需复核的点」；
 卡面与盘上不符时以盘上为准并上报，不要硬凑。
+
+---
+
+## P6-1 交付后补记（2026-11-26，PR #78 → main `118c7e8`）
+
+单 commit `ca6b4ca`（25 文件恰为白名单，+484,383/−26；`app/**` / 迁移 / requirements / CI / 前端 /
+transcribe 零改动）。PR CI 三作业全绿（`api` 4m59s / `web` 25s / `transcribe` 8s）。
+合并后 main 复跑 **1002 passed / 0 failed**（unit+e2e 712 + integration 分三批 65+154+71=290）、
+ruff 全仓绿。远端分支假删（第十一次），手工补删后 `ls-remote` 只剩 `main`，main 线性到 `118c7e8`。
+
+**审核方复验要点**：
+- **可复现性最强证据**：用审核方自己的 ECDICT / engra 克隆（同 commit 39cfb967… / 798d54be…）
+  端到端重跑编排器 → 四份衍生 JSON 与提交版**逐字节相同**（levels `7fd7bbef` / words `e09a9eb4` /
+  roots `8a6f7981` / wordroot_meaning `3d8ad443`）。编排器同时校验 vendored 四件哈希/字节数、
+  两家上游 commit 漂移、verbatim 字面、unaudited 全真、非 block 未命中空集、no_detail/counts 相等，
+  全部 fail-fast。
+- **自主 15 靶 + 4 补测**：`no_detail` 少记、junior verbatim 冒充、小学档数字被改、`o'clock` 回潮、
+  requirements 删依赖、CI 加 `import_vocab` 均红；补充块 meta/行级 unaudited 篡改被 sha256 闸门先拦；
+  CI 加 `build_levels`（非 import_vocab）绿 = 施工方披露的字面口径局限。
+  **一个正面性质**：篡改派生件 `levels.json`（清 unaudited）为**绿**——编排器从 vendored 重算自愈，
+  衍生文件不受信任、策展件只认 `_source_vocab.json`。
+- 卡面与盘上唯一实质差异（施工方主动上报）：初中重发射件 202,717 B / `4bc41a2b…`
+  （卡面旧值 196,595 B / `c7da5e5e…`），新旧双 sha256 已记 `_source_vocab.json.regenerated_from_transcript`。
+- 审核方复验自身两笔脚本失误（basetemp 父目录未建致 170 假 error；subprocess PATH 砍系统目录致
+  pytest 网络栈崩）已修正重跑，均记审核方、不记施工方。
+
+**残留（施工方自行申报，已登 `docs/STATUS.md` §7 第 21 条）**：`forms()` 括号子形不完整
+（`be (am, is, are)` 不展开单条、`maths` 不单独产出 math）——官方 `word` 未受损，当前闭环不消费；
+P6-3 细化时先定 `forms` 消费用途。其余残留与裁定同（verbatim 停在 derived-from-transcription、
+17 条缺口词卡留空、词根映射质量未审、背单词仍不可用）。
+
+**下一张可投**：P6-3（内存索引 loader）——卡内两个 ⚠️ 已于取证轮解除（`seed_grade_ceiling()` 实读
+`app/core/runtime_config.py:338`、join 判据沿用裁定 10 集合相等），依赖 P6-1 产物已就绪；
+细化成完整卡另走一次文档票。

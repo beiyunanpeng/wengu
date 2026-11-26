@@ -3017,10 +3017,14 @@ seeds/vocab/
   若某约束名未被反射保留，DoD 2 的逐字 diff 会暴露——**必须按 DoD 2/3/4 兜住，不能只断"列存在"**。
   若一次 recreate 对"加列+加 CHECK"有边界问题，可拆两步同迁移，但 DoD 2/3/4 不变。
 
-### P6-1 背单词 seed 数据 + 构建期抽取器 + 授权署名【完整卡，可投】
+### P6-1 背单词 seed 数据 + 构建期抽取器 + 授权署名【完整卡，已合并】
 
-- **状态**：**可投**（取证轮 2026-11-26 已完成前置：上游全部真实探测到 commit/sha256，
-  见上方"取证轮实测上游"；五条 + 六条裁定已定）。
+- **状态**：**已合并（PR #78 → main `118c7e8`，2026-11-26）**。交付 = `seeds/vocab/` 五件产物 +
+  `_upstream/` 四个 vendored 件（初中正文按裁定 6/8 **重发射**，旧/新 sha256 双记）+
+  `wengu-api/scripts/vocab_extract/` 五个抽取器 + `import_vocab.py` 编排器 + 12 条守卫 +
+  授权四节（ECDICT / engra / **vickysy** / 课标）。实测 union 3318 / matched 3301 / no_detail 17 /
+  roots 2233 家族 23,982 词节点 / wordroot 611；重发射受影响 84 条，正文 verbatim =
+  `derived-from-transcription`，补充块全 unaudited。
 - **依赖**：无（与 P6-2 平行；P6-3 需本票产物）。
 - **本票性质**：**零运行时、零 schema**。数据文件随仓库分发、脚本只在开发期/构建期跑，
   不进 `requirements.txt`、不进镜像、不进 CI 主链的执行步骤。
