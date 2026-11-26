@@ -1,12 +1,12 @@
 # STATUS.md — 开发计划与完成情况
 
-> 快照日期：2026-11-25（**P6-2 `recitation_items` source 列已合并 PR #76 → `10f731b`**；P5-19 已合并 PR #75、P3-5 已合并 PR #74）
-> 基线：`main` = `10f731b`（P6-2 / PR #76 已合并；其**父**提交 `d5eb28c` = P5-20 文档票登记，零代码）；P5-19 / PR #75 → `e951e80`、P3-5 / PR #74 → `1478476` 已合并
-> 全量测试：**985 passed**（2026-11-25 **审核方在合并后 `main` 复跑 453.46s、0 failed**；施工方分支 473.79s、合并前审核方复跑 422.36s 同数；= 基线 984 + P6-2 迁移守卫 1；
+> 快照日期：2026-11-26（**P5-20 文档当前态自述对齐 + 字面守卫待审**；P6-2 已合并 PR #76 → `10f731b`；P5-19 已合并 PR #75、P3-5 已合并 PR #74）
+> 基线：`main` = `464c081`（P6-2 / PR #76 → `10f731b` + P6-2 留痕 `a1de261` + P5-20 卡面修订 `464c081`）；P5-19 / PR #75 → `e951e80`、P3-5 / PR #74 → `1478476` 已合并
+> 全量测试：**989 passed**（2026-11-26 P5-20 分支实跑 523.04s、0 failed、EXIT=0；= 基线 `--collect-only` 实取 985 + P5-20 守卫 4；
 > unit / integration / e2e 分项本轮未重取，旧口径 742（2026-11-13）已过期）；`ruff check --no-cache .` 全仓绿；
 > `wengu-api/tests/unit/test_repo_eol.py` 5 passed；前端 lint / 61 tests / build 由 CI `web` 作业绿（PR #76 三作业全绿：`api` 5m23s / `web` 22s / `transcribe` 9s；审核方本地 `npm` 不可用，沙箱内命中的是 WSL 未安装分发版占位程序）；
 > `requirements.txt` 零变化（P6-2 零新依赖、零联网，不动 `seeds/**`、`wengu-web/**`、判分器与 AST 沙箱）
-> Alembic head：`0026_recitation_source`（P6-2 新增，up/down/up + stamp 重跑幂等与 DDL 自一致测试绿）；业务表 **23 张**（加列不加表；`wengu-api/README.md` 目录树与本文 §4.8 / §5.2 三处仍是合并前的旧自述，归 **P5-20** 翻正，本留痕不越票动手，也不在此重复那些旧值以免多一处会漂的字面）
+> Alembic head：`0026_recitation_source`（P6-2 新增，up/down/up + stamp 重跑幂等与 DDL 自一致测试绿）；业务表 **23 张**（加列不加表；`wengu-api/README.md` 目录树与本文 §4.8 / §5.2 三处旧自述已由 **P5-20** 翻正，当前态由 `wengu-api/tests/unit/test_docs_current_state.py` 字面守卫钉住）
 
 本文件是**状态快照**，不替代以下事实源；冲突时以它们为准：
 
@@ -491,6 +491,24 @@
   同族根因（第 28 / 30 / 33 次）是白名单与基线**从旧描述反推、没从盘上读**，已固化为
   `AGENTS.md §8`「卡面引用盘上现状必须实读」；欠账本身另立 **P5-20**（文档当前态自述对齐 +
   字面守卫，登记于 `d5eb28c`），本票不留尾巴、也不在留痕里越票改那三处。
+- **P5-20 文档当前态自述对齐 + 字面守卫已交付待审（2026-11-26，分支 `feat/p5-20-doc-state-guard`；
+  PR→SHA 锚点待合并留痕补）**：纯文档订正 + 一条守卫单测，零生产改动、零迁移、零新依赖。
+  翻正三处当前态自述（head 一律写全名 `0026_recitation_source`）：`wengu-api/README.md` 目录树
+  （0021→全名）、本文 §4.8（0023→全名）、§5.2（0023→全名 + 业务表 22→**23**，括号照既有写法补
+  0024 新建 `dictation_sheets`（22→23 唯一来源）/ 0025 加 `audio_ref` 列 / 0026 加 `source` 列三条来历）；
+  §1 头部快照行"三处仍是旧自述"连带过实句一并翻正。
+  新增 `wengu-api/tests/unit/test_docs_current_state.py`（unit 4 条，纯文本 + ORM 元数据，
+  不调 git/alembic 子进程，守卫内不写死 head 与表数）：head 扫 `migrations/versions/*.py` 正则派生
+  （唯一未被 down_revision 引用者，多 head 即炸）、表数取 `len(Base.metadata.tables)`；
+  A 组钉五处当前态锚点（不全文扫 STATUS，免 §7 历史证据句假红）、B 组派生值自证
+  （同名迁移文件 + 与 `EXPECTED_TABLES` 互等）、C 组钉 §5.2 三条来历字面、
+  D 组反向钉 CHANGELOG 历史串计数 4/1/1/1 + deploy 升级表行原样。
+  四靶变异（目录结构 head 回退 0021 / README 裸数字 0026 / §5.2 表数回退 22 / CHANGELOG 历史串
+  顺手翻正）均 RED→GREEN，还原 sha256 逐字节一致；临时 0027 探针迁移加→红 / 删→绿 /
+  git status 无残留（对未来新增迁移有报警能力）；scratch 库 `alembic upgrade head` 前后
+  `recitation_items` 的 sqlite_master dump 逐字节一致（本票零 schema 影响）。
+  全量 **989 passed in 523.04s**（基线 `--collect-only` 实取 985 + 4）、ruff 全仓绿、行尾守卫 5 绿。
+  历史工单正文（TICKETS / build-plan / deploy / specs）旧 head 串一律不动。
 - **下一步（v2.6 决策轮定的顺序）**：① ~~P5-6 口径清理~~、~~P0-3 端到端回归~~、
   ~~P3-3a 手填背诵~~、~~P3-3b 词表导入~~、~~P3-3c 从错题抽词~~、~~P5-1a 配置持久化修复~~、
   ~~P5-1b 首次运行向导 UI~~、~~P1-3e 移动端投递~~、~~P1-3f BOM 剥离~~、
@@ -511,7 +529,7 @@
   **PWA 已砍**（设计文档 §17-A / §12 反清单）。
   扩科同步已随 P5-16 完成（PR#69 → `7ca7014`，10 学科 / 3557 点 / 5132 边 / 14375 题）；
   P5-17 行尾根治已合并（PR#70 → `2daa331`）；P5-18 对照审计脚本已合并（PR#71 → `2b8b033`）；
-  **当前待审 = 无**（P6-2 已合并 PR#76 → `10f731b`；P5-19 已合并 PR#75 → `e951e80`、P3-5 已合并 PR#74）；**已登记待投 = P5-20**（文档当前态自述对齐 + 字面守卫，登记于 `d5eb28c`；卡内行号基线取 #76 合并后的 main，故必须先投于此之后）；P3-4b 已合并，按 §19-G-3 定案三处置 B：化学 2 环 + 15 条缺失/反向边
+  **当前待审 = P5-20**（文档当前态自述对齐 + 字面守卫，分支 `feat/p5-20-doc-state-guard`；P6-2 已合并 PR#76 → `10f731b`；P5-19 已合并 PR#75 → `e951e80`、P3-5 已合并 PR#74）；P3-4b 已合并，按 §19-G-3 定案三处置 B：化学 2 环 + 15 条缺失/反向边
   攒批提上游 issue（另票人工决定），本地补（C）与兜底（A）不预先动手。
 
 ## 2. 总体路线图状态
@@ -526,7 +544,7 @@
 **P3-5 语文客观并入已合并（2026-11-21，PR#74 → main `1478476`）**；工程欠账 P5-19 结构等价守卫已合并（PR#75 → `e951e80`）；信奥（P3-6）、长期计划（P3-7）按 §19-M 定案押后，
 各自触发条件已写死 |
 | Phase 4 | 基础设施演进 | 进行中 | **P4-1 Tailscale 可达性 + 默认只绑回环已合并**（PR#39；两项待试用机实测：`tailscale serve` CLI 形式、sidecar 路径 A 运行时验证）；**P4-1b 部署面命令体检已合并**（PR#40 → `6f6c4cf`；死 `make backup`/`.PHONY restore` 删除、`make dev-api` 默认回环、`make lint --no-cache`、`seeds/README.md --src` 层级、`docs/manuals` 空骨架清理）；P4-1c 命令行备份入口已合并（PR#41 → `8bbef94`；CLI 只调 `create_backup`，与 UI 同目录同命名同 10 份轮转、无 PIN、Windows 计划任务示例已实测）；**P4-4 后端健壮性与可观测性小修已合并**（2026-11-13，PR#51 → `cb6ab4c`；seed 显式降级 + 迁移 0023 `occurred_at` 索引 + `save_config` 改 `to_thread` + 0013/0019 回退说明）；**P4-6 公式题判分已合并**（2026-11-13，PR#53 → `6a4346a`；受限 LaTeX 子集 + `sympy` 等值、不可判降级自评标 `formula_fallback`、不引入 antlr、`requirements.txt` 零变化）；P4-2 可移植部署、P4-3 可选本地模型未开始 |
-| Phase 5 | 开源分发与打包 | 部分完成 | LICENSE / README / CHANGELOG / `.env.example` / 第三方署名已就位；**P5-5 开源基线收口已合并**（2026-11-16，PR#61 → `0928104`；LICENSE 恢复纯 MIT + 数据许可另置 `LICENSE-data.md` + 独立隐私声明 `PRIVACY.md` + seed 快照 provenance 钉死 `d58785ce`（P5-16 起已换 `8b57f2e`，见 §1 P5-16 条） + `--upstream-commit` 显式探测；英文 README 已合并（PR#67 → `847bc03`），仓库元数据/首个 Release 属审核方侧 GitHub 动作：v0.7.0 已发布（2026-11-17，tag→`9bbcb6b`）、description/topics 已设；homepage 留空、Discussions 未做）；P5-2 备份 v1（导出一致性快照 + 停机恢复脚本）已交付；**P5-1b 首次运行向导已合并（PR#33 → `285fba7`）**；**P5-16 全量同步扩科已交付待评审（2026-11-19，10 学科 / 快照 `8b57f2e`）**；工程欠账 **P5-20 文档当前态自述对齐 + 字面守卫已登记待投（`d5eb28c`）**——治的是 `wengu-api/README.md` / §4.8 / §5.2 三处过实的 head 与业务表数自述（第 34 次卡面缺陷的欠账面）；在线恢复、云备份 / 清空级联、鉴权开关、教材包安装器未做 |
+| Phase 5 | 开源分发与打包 | 部分完成 | LICENSE / README / CHANGELOG / `.env.example` / 第三方署名已就位；**P5-5 开源基线收口已合并**（2026-11-16，PR#61 → `0928104`；LICENSE 恢复纯 MIT + 数据许可另置 `LICENSE-data.md` + 独立隐私声明 `PRIVACY.md` + seed 快照 provenance 钉死 `d58785ce`（P5-16 起已换 `8b57f2e`，见 §1 P5-16 条） + `--upstream-commit` 显式探测；英文 README 已合并（PR#67 → `847bc03`），仓库元数据/首个 Release 属审核方侧 GitHub 动作：v0.7.0 已发布（2026-11-17，tag→`9bbcb6b`）、description/topics 已设；homepage 留空、Discussions 未做）；P5-2 备份 v1（导出一致性快照 + 停机恢复脚本）已交付；**P5-1b 首次运行向导已合并（PR#33 → `285fba7`）**；**P5-16 全量同步扩科已交付待评审（2026-11-19，10 学科 / 快照 `8b57f2e`）**；工程欠账 **P5-20 文档当前态自述对齐 + 字面守卫已交付待审（2026-11-26，分支 `feat/p5-20-doc-state-guard`）**——治的是 `wengu-api/README.md` / §4.8 / §5.2 三处过实的 head 与业务表数自述（第 34 次卡面缺陷的欠账面）；在线恢复、云备份 / 清空级联、鉴权开关、教材包安装器未做 |
 | Phase 6 | 背单词数据层（不含前端页） | 进行中 | 2026-11-25 决策轮登记；依赖 `P6-1 ∥ P6-2 → P6-3(需 P6-1) → P6-4(需 P6-2+P6-3)`；**P6-2 已合并**（PR#76 → `10f731b`，迁移 0026，head 推至 `0026_recitation_source`，审核方合并后 main 复跑 985 passed）；P6-1 课标词表 seed + 抽取器 / P6-3 内存索引 loader / P6-4 灌库服务均为骨架待细化（P6-1 开工前置 = 重拉 ECDICT/engra/官方 PDF 并真实探测 commit/sha256，草稿里全是 `<待补>` 占位） |
 
 ## 3. Phase 1 工单完成情况（v2.5 收口后）
@@ -667,7 +685,7 @@
 
 - `learning_events` 只追加 + UNIQUE 幂等键 + UPDATE/DELETE 触发器。
 - 掌握度 / 毕业 / 统计由事实确定性重算；同源改判只取最高版本。
-- SQLite WAL + Alembic（head 0023）；迁移含备份/回退说明与迁移测试。
+- SQLite WAL + Alembic（head 0026_recitation_source）；迁移含备份/回退说明与迁移测试。
 - 日志/事件 payload 不落题目全文、答案、文件 URL、PII；`attempts.answer_text` 恒 NULL。
 
 ### 4.9 课表 / 日历约束层（P2-3）
@@ -1150,7 +1168,7 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
 
 ### 5.2 数据库与 seed
 
-- Alembic head `0023_learning_events_occurred_at`；**22 张业务表**（0023 加 `learning_events.occurred_at` 索引、0022 加 `mistake_versions.correction_notes` 列，均不新增表；0021 新增 `pomodoro_sessions`，
+- Alembic head `0026_recitation_source`；**23 张业务表**（0026 给 `recitation_items` 加 `source` 列、0025 给 `dictation_sheets` 加 `audio_ref` 列，均不新增表；0024 新增 `dictation_sheets`（表数 22→23 的唯一来源）；0023 加 `learning_events.occurred_at` 索引、0022 加 `mistake_versions.correction_notes` 列，均不新增表；0021 新增 `pomodoro_sessions`，
   可逆迁移；0020 新增 `recitation_items` /
   `recitation_reviews`，可逆迁移；0016 新增 `bank_drafts`，
   `problem_bank` 补 `topic_id` FK + `question_type/difficulty/choices_json/figure/hide_choice_text/percent`；
