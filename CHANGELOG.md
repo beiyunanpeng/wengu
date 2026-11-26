@@ -9,6 +9,24 @@
 
 ### Added
 
+- **P5-20 文档当前态自述对齐 + 字面守卫（纯文档订正 + 一条守卫单测；零生产改动、零迁移、零新依赖）**（2026-11-26）：
+  翻正三处"当前事实"口吻的旧自述（head 一律写全名 `0026_recitation_source`）——
+  `wengu-api/README.md` 目录树 migrations/ 行（0021→全名）、`docs/STATUS.md` §4.8（0023→全名）、
+  §5.2（0023→全名 + 业务表 22→**23**，括号照既有写法补 0024 新建 `dictation_sheets`（22→23 唯一来源）/
+  0025 加 `audio_ref` 列 / 0026 加 `source` 列三条来历）；§1 头部快照行"三处仍是旧自述"连带过实句一并翻正。
+  新增 `wengu-api/tests/unit/test_docs_current_state.py`（unit 4 条，纯文本 + ORM 元数据，
+  不调 git/alembic 子进程，守卫内不写死 head 与表数）：head 从 `migrations/versions/*.py` 正则派生
+  （唯一未被 down_revision 引用者，分叉/多 head 即炸）、表数取 `len(Base.metadata.tables)`；
+  A 组钉五处当前态锚点（目录结构/README 的 migrations/ 行 + STATUS 头部快照行/§4.8/§5.2 锚点句，
+  不全文扫 STATUS 以免 §7 历史证据句假红）、B 组派生值自证（同名迁移文件 + 与 `EXPECTED_TABLES` 互等）、
+  C 组钉 §5.2 三条来历字面（`dictation_sheets`/`audio_ref`/`source`）、
+  D 组反向钉 CHANGELOG 历史串计数（4/1/1/1）与 deploy 升级表行原样。
+  四靶变异（目录结构 head 回退 0021 / README 裸数字 0026 / §5.2 表数回退 22 / CHANGELOG 历史串
+  顺手翻正）均 RED→GREEN，还原 sha256 逐字节一致；临时 0027 探针迁移加→红 / 删→绿 /
+  git status 无残留（证明对未来新增迁移有报警能力）；scratch 库 `alembic upgrade head` 前后
+  `recitation_items` 的 sqlite_master dump 逐字节一致（本票零 schema 影响）。
+  全量 **989 passed in 523.04s**（基线 `--collect-only` 实取 985 + 4）、ruff 全仓绿、行尾守卫 5 绿；
+  历史工单正文（TICKETS / build-plan / deploy / specs）旧 head 串一律不动。
 - **P6-2 `recitation_items` 加 `source` 列（Phase 6 背单词数据层第一票；迁移 0026 + 模型 + 迁移测试）**（2026-11-25）：
   新增迁移 `0026_recitation_source`——`source TEXT NOT NULL DEFAULT 'manual'` +
   `ck_recitation_items_source`（`source IN ('seed','manual','candidate')`），既有行经
