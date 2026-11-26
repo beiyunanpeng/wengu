@@ -1,12 +1,14 @@
 """P5-20 文档当前态守卫：head / 业务表数自述必须等于盘上派生值（纯文本 + ORM 元数据，不建库、不联网、不调子进程）。
 
-守四件事：
+守五件事：
 A. 当前态锚点（目录结构.md / wengu-api/README.md 的 migrations/ 行、STATUS 头部快照行 + §4.8 / §5.2 锚点句）
    里出现的 revision 全名一律 == 盘上唯一 head，业务表数一律 == len(Base.metadata.tables)；
-   §5.2 只取首行、且只扫首个「（」前的当前态声明（括注为历史来历，写旧 revision 全名属合法）；
+   §5.2 只取首行、且只扫首个「（」前的当前态声明（括注为历史来历，写旧 revision 全名属合法），
+   表数的存在性与数值判定都作用在前缀上（数字挪进括注即炸）；
 B. 派生值自证：head 有同名迁移文件、表数与 test_migrations.EXPECTED_TABLES 互等（两个独立真源相互制约）；
 C. §5.2 锚点句必须留 dictation_sheets / audio_ref / source 三条来历字面（防只改数字不留来历）；
-D. 历史留痕反向钉住：CHANGELOG 旧 head 串计数与 deploy 升级表行不得被"顺手翻正"。
+D. 历史留痕反向钉住：CHANGELOG 旧 head 串计数与 deploy 升级表行不得被"顺手翻正"；
+E. §5.2 括注里的 revision 全名必须 ∈ 盘上 revision 集合（历史写法合法，凭空伪造的迁移名即炸）。
 """
 
 from __future__ import annotations
@@ -21,20 +23,31 @@ VERSIONS_DIR = REPO_ROOT / "wengu-api" / "migrations" / "versions"
 _REVISION_RE = re.compile(r"^revision(?::\s*str)?\s*=\s*[\"']([^\"']+)[\"']", re.M)
 _DOWN_REVISION_RE = re.compile(r"^down_revision(?::[^=]+)?\s*=\s*(?:[\"']([^\"']+)[\"']|None)", re.M)
 _HEAD_TOKEN_RE = re.compile(r"00\d{2}_[a-z0-9_]+")
+# 括注伪造名探针是 9999_bogus_probe（99 开头），00 前缀正则抓不到，故括注用四位数字全口径
+_HISTORY_TOKEN_RE = re.compile(r"\d{4}_[a-z0-9_]+")
 
 
-def alembic_head() -> str:
-    revisions: set[str] = set()
-    referenced: set[str] = set()
+def _parse_revisions() -> dict[str, str | None]:
+    """扫 migrations/versions/*.py，返回 revision -> down_revision（None = 无父）。"""
+
+    revisions: dict[str, str | None] = {}
     for path in sorted(VERSIONS_DIR.glob("*.py")):
         text = path.read_text(encoding="utf-8")
         revision_match = _REVISION_RE.search(text)
         assert revision_match, f"迁移文件缺 revision 字面：{path.name}"
-        revisions.add(revision_match.group(1))
         down_match = _DOWN_REVISION_RE.search(text)
-        if down_match and down_match.group(1):
-            referenced.add(down_match.group(1))
-    heads = sorted(revisions - referenced)
+        revisions[revision_match.group(1)] = down_match.group(1) if down_match else None
+    return revisions
+
+
+def all_revisions() -> set[str]:
+    return set(_parse_revisions())
+
+
+def alembic_head() -> str:
+    revisions = _parse_revisions()
+    referenced = {down for down in revisions.values() if down}
+    heads = sorted(set(revisions) - referenced)
     assert len(heads) == 1, f"alembic head 必须唯一（分叉/多 head 即炸）：{heads}"
     return heads[0]
 
@@ -75,7 +88,7 @@ def _status_52_sentence() -> str:
     lines = [line for line in _read("docs/STATUS.md").splitlines() if line.startswith("- Alembic head `")]
     assert len(lines) == 1, f"docs/STATUS.md §5.2 锚点行必须唯一：{lines}"
     line = lines[0]
-    assert "张业务表" in line, "§5.2 锚点句漂移：行内未找到业务表数"
+    assert "张业务表" in line.split("（", 1)[0], "§5.2 锚点句漂移：前缀未找到业务表数"
     return line
 
 
@@ -99,6 +112,24 @@ def test_current_state_anchors_match_disk() -> None:
         for pattern in (r"(\d+) 张业务表", r"业务表 \*\*(\d+) 张\*\*"):
             for value in re.findall(pattern, text):
                 assert int(value) == count, f"{label} 自述业务表 {value} 张 != 盘上 {count} 张"
+    # §5.2 表数必须在前缀里抓得到数字：只留「张业务表」字样、数字挪进括注也要炸（P5-20 折入Ⅱ 洞一）
+    s52_prefix = anchors["docs/STATUS.md §5.2"]
+    s52_values = re.findall(r"(\d+) 张业务表", s52_prefix) + re.findall(r"业务表 \*\*(\d+) 张\*\*", s52_prefix)
+    assert s52_values, "docs/STATUS.md §5.2 前缀未抓到业务表数字（表数挪进括注即炸）"
+
+
+def test_section_52_history_tokens_exist() -> None:
+    """§5.2 括注（首个「（」之后）里的 revision 全名必须是盘上真实存在的迁移（P5-20 折入Ⅱ 洞二）。
+
+    括注是历史来历，不要求等于 head；但凭空伪造的迁移名（如 9999_bogus_probe）必须报警。
+    """
+
+    parts = _status_52_sentence().split("（", 1)
+    if len(parts) < 2:
+        return
+    known = all_revisions()
+    for token in _HISTORY_TOKEN_RE.findall(parts[1]):
+        assert token in known, f"docs/STATUS.md §5.2 括注出现盘上不存在的迁移名 `{token}`"
 
 
 def test_derived_values_self_check() -> None:
