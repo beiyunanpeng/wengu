@@ -4241,6 +4241,190 @@ PR CI 三作业全绿（`api` 3m49s / `web` 14s / `transcribe` 6s）。远端分
 且 E 组在 `len(parts) < 2` 时静默 `return`，审核方 R3b 实测"删全角括号 + 写非 00 开头伪造名"
 可绕过。两处补法各一行，单开一票不符合反过度工程，故记账不返工。
 
-**下一张可投状态**：当前无可投完整卡。Phase 6 的 P6-1 / P6-3 / P6-4 仍是骨架，
+**下一张可投状态**：~~当前无可投完整卡。Phase 6 的 P6-1 / P6-3 / P6-4 仍是骨架，
 P6-1 的前置是先重拉 ECDICT / engra / 官方 PDF 并真实探测 commit 与 sha256（草稿里全是 `<待补>`），
-细化成完整卡要另走一次文档票。
+细化成完整卡要另走一次文档票。~~
+——2026-11-26 取证轮已完成该前置并走完文档票：**P6-1 现为可投完整卡**（见下一节），
+P6-3 / P6-4 仍是骨架，等 P6-1 交付后按其产物形态细化。
+
+---
+
+## P6-1 —— 背单词 seed 数据 + 构建期抽取器 + 授权署名（Phase 6 数据层；零运行时、零 schema；基线 = P5-20 合并后的 main）
+
+你在 wengu 仓库工作。开工前先完整读三处并以其为准：仓库根 AGENTS.md（顶部 v2.5 横幅 + §8 提交纪律
+与三条卡面纪律）、`docs/specs/architecture/StudyDesk-设计说明文档-v2.md` §14 与 §19、
+`TICKETS.md` 的 **Phase 6 全段**（范围与来源定案 / 十一条口径裁定 / 复用现网引擎的核实结论 /
+**取证轮实测上游** / 产物清单 / 本票完整卡）。再读现网代码校准，别按文档旧描述：
+- `wengu-api/scripts/import_seed.py` 与 `import_questions.py`（脚本风格真源：argparse +
+  `upstream_commit()` + `_write_json` 钉 `newline="\n"` + `SeedConvertError` + `main(argv)->int`）；
+- `wengu-api/tests/unit/test_repo_eol.py`（行尾守卫的扫描面怎么扩）；
+- `wengu-api/tests/unit/test_docs_current_state.py`（P5-20 刚落的字面守卫写法，本票第 7 条 DoD 仿它）；
+- `wengu-api/app/seed/bank.py`（P6-3 才用，本票不碰 `app/**`，读它只为确认产物字段够用）。
+
+【全局纪律】一条 ticket = 一个可跑增量 = 一个 PR；交付附运行态证据（实跑输出、变异 RED→GREEN、
+两次输出贴 PR），不接受"测试通过"空话。禁止引入新依赖/框架。**本票零运行时、零 schema**：
+数据文件随仓库分发、脚本只在开发期/构建期跑，不进 `requirements.txt`、不进镜像、
+不进 CI 主链执行步骤；不碰 `wengu-api/app/**`、不碰任何迁移、不碰 `recitation_items`（灌库归 P6-4）。
+
+【取证轮实测上游（审核方 2026-11-26 本机实跑，你须自己复核一遍再动手；严禁按日期猜 SHA）】
+- ECDICT `skywind3000/ECDICT` @ `39cfb9672c0906b63569e0453c2e6abfb9ab182a`（2026-11-02，master）。
+  `ecdict.csv` 66,009,548 B / sha256 `d1ecbdf9ee2b920afb6f430ca6b6bb9f559588cf0dff86e04bd255f9390843cc`
+  / **770,611 条记录**（原始 770,612 行含表头）/ 13 列
+  `word,phonetic,definition,translation,pos,collins,oxford,tag,bnc,frq,exchange,detail,audio`；
+  `wordroot.txt` 370,702 B / sha256 `4b400dc5980e4a362fa12c7a49b326bb621c4e6bebd5f37146fbdcbe9db6bb6e`
+  / **单一 JSON 对象、611 条**（不是 JSONL）。取数 `git clone --depth 1 --single-branch --branch master`。
+- engra `bonaysoft/engra` @ `798d54beb0deae476b856719cb8d5ad33d0baab2`（2023-05-14，master），MIT © 2023 Ambor。
+  `dict/roots/*.yml` **2233** 棵；`dict/glossaries/*.json` 14 档（CEFR/CET/GMAT/GRE/IELTS/KaoYan/SAT/TOEFL，
+  **不对口 K-12，不作范围源**）。⚠️ `dict/roots/con.yml` 是 Windows 保留名，checkout 必失败——
+  **必须** `git clone --depth 1 --single-branch --branch master --no-checkout` 后用
+  `git ls-tree -r --name-only HEAD` + `git show HEAD:<path>` 取数。
+- vickysy `vickysy/kebiao-english` @ `470117814a09d5bdd37a95ec22acc0ee9de1e9b5`（2026-09-20，main），
+  **MIT © 2026 木妈AIdea (vickysy)**。`data/vocab-level2.json` 14,464 B /
+  sha256 `4d0bb341ee06e0388a476c153f1824f40086427049fe4dbf30d7a67a55bc4b01`；`count` 与 `words` 实数均 **501**；
+  单独列出段 numbers 30 / ordinals 28 / months 12 / weekdays 7 / countries 47 / festivals_culture 35 /
+  irregular_verbs 109（去重 159）。其 `note` 自述"官方 505 词，扫描识别 + 人工校对恢复 501，4 词丢失"。
+  实测现网草稿 `levels.json` 的小学档 501 条**全部**包含于该文件（小学独有 0 条）。
+- 义务教育英语课程标准 2022 PDF：31,502,213 B / sha256
+  `59ec3971e0dbd6ca487c4e4972cbc80effaf2fd62418d07e5f62c6698fa222fb` / 201 页 / 内嵌图像 201 /
+  **PyMuPDF 逐页 `get_text()` 全部 0 字符**。
+  ⚠️ **禁止**用"zlib 解压全部流再抓 ASCII 串"判可抽字符——那样会报出 81 万"词元"，全是 JPEG 字节
+  与字体子集乱码（审核方第一版就栽在这里）。
+- 普通高中英语课程标准 2017版2020修订 PDF：7,750,611 B / sha256
+  `8ebd6bb12e9eb1c58e422ee01b540a4a71d2e681a4c4a764a36ee3a34b21c1be` / 220 页 / 全文可抽 160,464 字符；
+  词表区间（页 125-190）可抽 35,206 字符。**3066 条已验证逐字可复现**（3056 单词直接命中 +
+  10 个短语成串命中）。2025 修订版是纯扫描图，**不采用**。
+- vendored 输入件（进仓、记 sha256）：`kebiao-level3-1600.json` 196,595 B /
+  `c7da5e5e663f83176cc3101bf9ba4e0a16f3c3959f2ef286861a4d442e621db0`；
+  `kebiao-junior-supplement.json` 11,170 B /
+  `ba72372a6ff6896c6153691e0bd2f5782b175c225a36a284cc729e8c8538c400`；
+  `gsenior-2020-OFFICIAL.json` 335,838 B /
+  `bf2bcfee927355b63451917d62f15212ebdd8d6e145abe27345c7a754d84d490`；
+  `vocab-level2.json`（vickysy）14,464 B / `4d0bb341ee06e0388a476c153f1824f40086427049fe4dbf30d7a67a55bc4b01`。
+  `kebiao-level3-OCR.json`（162,541 B / `089cd09181b0467d34376b1da75a976e5f594b7cd57c13a0a8a3515ec3070bc8`）
+  **只作交叉验证，不进仓、不作范围源**。
+
+【必须遵守的口径裁定（TICKETS.md Phase 6 已定案，不要重开、不要"顺手改好"）】
+1. 小学档 counts 记三数只断言一个：`words`（实收 501）为唯一相等基准；
+   `official_level2_claim: 505`、`transcription_level2_marked: 503` 只署名不参与断言。
+2. `miss` / `Miss` 是官方表两行（865. miss 无星 / 866. Miss* 带星），非脏数据；官方末号 1601. zoo
+   而说明写 1600，差因即此。`_source_vocab.json` 同时记 `rows: 1601` 与 `official_word_count: 1600`。
+3. 初中正文 verbatim = **`derived-from-transcription`**（裁定 6：转录原件**仍在**本机缓存、
+   sha256 已记入 TICKETS 裁定 6，但它是 web-search 抓取输出、夹带无关第三方网页正文，
+   **不 vendored 进仓**，只记 URL + sha256 作溯源；vendored 的是 `kebiao-level3-1600.json` 本体。
+   **不得**宣称做过逐字比对——官方 PDF 实测 201 页零文字层，比不了）。
+4. "OCR 95.4% 印证"这句**作废**，改为可复现陈述：两版去重词集 1600 / 1547、交集 1507，
+   交集/转录 94.1875%、交集/OCR 97.4144%；OCR 实测含错字 `affter`/`doup`/`gif`/`gir`
+   与整批短词漏读（`a` `at` `am` `by` `bye`）。
+5. 补充块与 vickysy"单独列出"段重叠 **143/150（95.3%）**，但组织类 6 条
+   （CPC/PLA/PRC/UN/UNESCO/WTO）vickysy 没有 → **补充块不换源**，维持 OCR + `unaudited: true`。
+6. **三档统一保留官方标注形态**（裁定 8）：`a/an`、`be (am, is, are)`、`actor / actress`、
+   `centre (AmE center)`、`child (pl. children)`、`o'clock` 这类官方括号/斜杠/撇号形态
+   **原样进 `word` / `prompt`**，不得清洗、不得取"最短子形"。
+   现网 `extract_junior.py` 的 `forms()` 用 `re.sub(r"[^A-Za-z0-9 \-]", " ", …)` 把
+   `'` `(` `)` `/` 全部吃掉，再取最短子形当 `word` → 产物里含撇号 0 条、含括号 0 条、含斜杠 0 条，
+   `o'clock` 变成 `o clock`。**这是本票要修的核心缺陷，不是上游的错**：
+   转录源里 `o'clock` 出现 2 次、`o clock` 出现 **0 次**。
+7. **详情查找走两级："整串查 ECDICT → 不中则拆等价子形逐形查"**（裁定 8 的后半）。
+   实测这样之后：小学 501 / 初中正文 1601 / 高中 3066 三档**未命中 0 条、命中率 100%**；
+   只整串查则初中会有 70 条假缺口。真缺口只剩补充块 **17 条**（不是草稿说的 22 条——
+   5 条组织缩写拆子形后能命中）。
+8. **修 `extract_junior.py` 时顺序必须照原脚本：先去 `*` 再 `strip_glue`**。
+   顺序写反会造出 `by C` / `cute D` 这类假粘连（审核方 v11 试修时写反过，v12 改对后粘连残留 0 条）。
+9. 高中词表含 **10 个多词短语**（`according to` `bean curd` `due to` `mobile phone` `ought to`
+   `new zealand` `new zealander` `south africa` `south african` `viet nam`）→
+   **抽取必须按行/条目解析、保留短语**，禁止按单词正则切（否则条目数虚增）。
+10. ECDICT join 判据 = **集合相等**，**不写 0.99**（实测全集 99.2528%、余量仅 9 词，会漂）：
+    ① 非 block 三档按两级查找后的未命中集合 **`== set()`**（要求空集，方向与"空集恒真"相反，是安全侧）；
+    ② `words.json` 详情全 null 的条目集合 `== _source_vocab.json.no_detail`（实测 17 条）。
+
+【任务】
+A) `seeds/vocab/` 五件产物：`levels.json`（范围 base，旧口径 union 3212、**按裁定 6 重发射后会长**
+   ——审核方新口径合并去重估得 3318，仅作预期、不得当断言基准；word/forms/stages[]/senior_tier/block）、
+   `words.json`（ECDICT join 详情，走裁定 7 的两级查找；无详情条目字段留 null、不编造、不另找源）、
+   `roots.json`（engra 2233 棵展平的词根家族 + 中文助记）、`wordroot_meaning.json`（611 条）、
+   `_source_vocab.json`（分源 verbatim 署名 + 上述真实探测值 + `counts` + `no_detail` 集合 +
+   `regenerated_from_transcript` 段）。
+   `_upstream/` 放四个 vendored 输入件（其中 `kebiao-level3-1600.json` 是**重发射后的新产物**，
+   另三件原样字节不改一个字符）。
+B) `wengu-api/scripts/vocab_extract/{build_levels,vocab_join,extract_gsenior,extract_junior_supp,extract_junior}.py`
+   + `wengu-api/scripts/import_vocab.py`（编排；风格逐字对齐 `import_seed.py`）。
+   ⚠️ **`extract_junior.py` 要带进本票并修两处**（裁定 6/8）：字符白名单保留 `' ( ) / , .`、
+   `word` 取官方原样而非最短子形；顺序保持"先去 `*` 再 `strip_glue`"。
+   ⚠️ 它的输入不能是"读已失效路径"——审核方曾断称该路径失效，**那是错的**（第 40 次卡面缺陷），
+   路径实测可用；但按裁定 3 该缓存件不入库，所以脚本必须改成
+   **读仓库内 vendored 件 / 或接受 `--transcript` 显式入参**，
+   并让"从缓存重抽"只在开发期人工提供源时可行，**不得进 CI**。
+   重发射记入 `_source_vocab.json.regenerated_from_transcript`（旧/新 sha256、
+   受影响 84 条、修的这两处）；**不设 `errata` 段**（原勘误表方案已被裁定 6 撤销）。
+C) 授权四节：`THIRD-PARTY-NOTICES.md` 新增 ECDICT / engra / **vickysy** / 课标词表 四节（节号顺延）；
+   `LICENSE-data.md` 把三家 **MIT 可商用**与 cn-math-taxonomy 的 CC BY-NC 非商用红线明确分开
+   （wengu 整体仍因 cn-math-taxonomy 不称 OSI 开源）；`seeds/README.md` 加 `vocab/` 节 + 重新生成命令。
+
+【DoD（要运行态证据；每条都要有"因不 X 而红"的测试；不写会漂的计数）】
+1. LF：`test_repo_eol.py` 扫描面扩到 `seeds/vocab/`；塞一个 CRLF → 红，还原 → 绿。
+2. 计数用两数相等：`levels.json` 实收条目数 == `_source_vocab.json.counts.union`；
+   `block` 非空数 == `counts.supplement`；各源 counts 与 `_source_vocab.json` 逐字一致。
+   **测试里不得出现 3212 / 150 / 501 / 3066 这类写死数字**。
+3. join 集合相等（裁定 10）：非 block 三档两级查找后未命中集合 `== set()`；
+   `words.json` 详情全 null 集合 `== _source_vocab.json.no_detail`（实测 17 条）。
+4. **抽取器修复有牙**（取代原"勘误表"靶）：
+   ① 断言初中正文含 `o'clock` 且**不含** `o clock`；
+   ② 断言初中正文含撇号条目数 ≥ 1、含括号与含斜杠条目数与"从转录源重算"的结果相等
+   （审核方 v12 实测为括号 61 / 斜杠 10，但**测试里写重算比对、不写死这两个数**）；
+   ③ 把 `forms()` 的字符白名单改回吞 `'` → 必须红；把 `word` 改回取最短子形 → 必须红。
+5. vendored 哈希自证：sha256 与盘上实算不符时必须 `SeedConvertError` fail-fast（不许静默用错版）；
+   临时改一个 vendored 件的一个字节 → 必须红。
+6. verbatim 等级字面：ecdict/engra/vickysy = `official-repo`、高中 = `official-pdf-verbatim`、
+   初中正文 = `derived-from-transcription`、补充块 = `ocr` 且 150 条**全部** `unaudited: true`。
+7. **CI 边界两条字面守卫**（新增 `wengu-api/tests/unit/test_vocab_build_boundaries.py`，
+   写法仿 `test_docs_current_state.py` / `test_template_gate_literals.py`，纯文件读取、不调子进程）：
+   ① 读 `.github/workflows/*.yml`，断言其中**不含** `import_vocab` 字面串；
+   ② 读 `wengu-api/requirements.txt`，断言其依赖集合 == 手写字面集合（新增任何依赖即红）。
+8. 全量 `pytest -q` = 开工基线 + 本票新增条数（基线 `--collect-only` 实取，现值 990）；
+   `ruff check --no-cache .` 全仓绿；`tests/unit/test_repo_eol.py` 全绿。
+
+【蕴含自检（审核方已纸面推演，你须复跑确认；有推不出的立刻停下上报，别硬凑）】
+| DoD 靶 | 期望 | 由哪条规则推出 |
+|---|---|---|
+| 清空某条 ECDICT 释义且不记入 `no_detail` | 红 | DoD 3② 两侧集合不等 |
+| 把 `forms()` 白名单改回吞 `'` | 红 | DoD 4① 找不到 `o'clock`；4② 含撇号条目数归 0 |
+| 把 `word` 改回取最短子形 | 红 | DoD 4② 括号/斜杠条目数与转录源重算不等 |
+| 把 `a/an` 从词表"清洗"成 `a` | 红 | DoD 4② 与转录源重算不等；且裁定 2 的 `miss`/`Miss` 并存断言也会炸 |
+| 只整串查、不做拆子形两级查找 | 红 | DoD 3① 初中出现 70 条未命中 ≠ 空集 |
+| 改 `_source_vocab.json` 里某个 sha256 | 红 | DoD 5 fail-fast |
+| 把 `import_vocab.py` 加进 CI 工作流 | 红 | DoD 7① 字面断言 |
+| 往 `requirements.txt` 加 `rapidocr-onnxruntime` | 红 | DoD 7② 依赖集合字面断言 |
+| 往 `seeds/vocab/` 塞一个 CRLF 文件 | 红 | DoD 1 |
+| 按单词正则切高中词表 | 红 | DoD 2（`counts.union` 与实收不等，条目数虚增） |
+
+【必改清单】`seeds/vocab/**`（新增）/ `seeds/vocab/_upstream/**`（新增）/
+`wengu-api/scripts/vocab_extract/**` 与 `wengu-api/scripts/import_vocab.py`（新增）/
+`wengu-api/tests/unit/test_repo_eol.py`（扩扫描面）/
+`wengu-api/tests/unit/test_vocab_build_boundaries.py`（新增）/ `THIRD-PARTY-NOTICES.md` /
+`LICENSE-data.md` / `seeds/README.md` / `CHANGELOG.md` /
+`docs/STATUS.md`（交付区新增本票 + 头部快照日期/基线/全量数 + **§1 内所有「当前待审」指针句一并翻转** +
+§2 路线表 Phase 6 行）/ `目录结构.md`（`seeds/` 节加 `vocab/`）。
+
+【禁止】
+- ECDICT csv / engra clone / vickysy 整仓 / 官方 PDF 进 git（只 vendored 那四个小件）。
+- `import_vocab.py` 或 `rapidocr-onnxruntime` 进 `requirements.txt` / 镜像 / 运行时（AGENTS §2.3）。
+- **重跑覆盖 `_source_vocab.json` 的人工策展取证键**（`commit_evidence` / `sha256` / `verbatim_note` /
+  `regenerated_from_transcript` / `no_detail`）——换快照一律仓库外 scratch 重取证 + 人工重新策展（第 27 次卡面缺陷形态）。
+- 硬编码词数当断言；写 0.99 这类会漂的阈值。
+- 把 `a/an` 当脏数据清洗；把 `o clock` 直接改进 vendored 文件；按单词正则切多词短语。
+- 碰 `wengu-api/app/**`、任何迁移、`recitation_items`；做前端页或 API 端点（各另票）。
+- 在测试里调 subprocess 跑 git/alembic（沙箱内 dubious ownership 会假红，本仓已复发四次）。
+
+【残留风险（交付时如实报告）】
+- 初中正文永远不可能由本票升级到 verbatim（官方 PDF 零文字层）；要升级只能重做 OCR + 人工复核 1600 条。
+- 补充块维持 unaudited；22 条 ECDICT 无详情 → 词卡详情留空，UI 须透传"专有名词、释义自明/待补"。
+- `roots.json` 本票只保证 sha256 与条数一致，不保证词根家族↔单词的映射质量（归 P6-3 join 断言与试用反馈）。
+- 背单词在本票交付后**仍不可用**：灌库在 P6-4、前端页另票。交付时不得声称"背单词已可用"。
+
+【投单纪律】`git fetch origin; git switch -c feat/p6-1-vocab-seed origin/main`；
+一票一 PR 分支冻结；中文 commit 用 `git commit -F <仓库外 UTF-8 文件>`；
+提交前 `git diff --name-only` 核对并贴清单（越界即停）；
+交付贴八条 DoD 的运行态输出、上表八个蕴含靶各 RED→GREEN（含 sha256 还原核对）、
+上游 sha256/commit 的**自行复核结果**（与卡面值不一致时以盘上为准并上报）、
+全量 pytest/ruff/行尾守卫尾部统计；单列「审核方需复核的点」；
+卡面与盘上不符时以盘上为准并上报，不要硬凑。

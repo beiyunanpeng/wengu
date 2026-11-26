@@ -2723,9 +2723,10 @@
 ## Phase 6 —— 背单词数据层（2026-11-25 决策轮登记；草稿源自工作区 `vocab-drafts/` 四份文档 + 联网核实）
 
 > 本轮只覆盖**数据层**，不含背单词前端页。依赖图：`P6-1 ∥ P6-2 → P6-3(需 P6-1) → P6-4(需 P6-2+P6-3)`。
-> **本次只把 P6-2 落成可投的完整卡**；P6-1 / P6-3 / P6-4 落骨架 + 已定口径——
-> P6-1 的完整卡面依赖重新拉取 ECDICT/engra/官方 PDF 后的真实探测值（当前草稿里
-> 所有 `commit` / `sha256` 仍是 `<待补>` 占位），现在写成完整卡就又是一次"盘上的卡投不出去"。
+> ~~本次只把 P6-2 落成可投的完整卡；P6-1 / P6-3 / P6-4 落骨架 + 已定口径~~
+> （2026-11-26 取证轮更新：**P6-2 已合并 PR#76 → `10f731b`；P6-1 已细化为可投完整卡**——
+> 上游全部重新拉取并真实探测到 commit/sha256（见下方"取证轮实测"），前置条件已消除。
+> P6-3 / P6-4 仍是骨架，等 P6-1 交付后按其产物形态细化。）
 
 ### 范围与来源定案（全部实测，别再走回头路）
 - 范围源 = **官方课标三档**：小学二级 / 初中三级正文 + 附录3 补充块 / 高中 3066。
@@ -2734,11 +2735,18 @@
   最多当"真题高频拓展包"并标 `unaudited`，**不能当 base**。
 - 详情层 = **ECDICT**（skywind3000，MIT）：音标/释义/词性/变形 `exchange`/词频 `frq`/`tag`；
   词根助记层 = **engra**（bonaysoft，MIT）：`dict/roots/*.yml` 2233 棵递归树，节点 `mnemonic` 为中文词根拆解。
-  join 键 = `word`，实测命中 99%+。**只需 `sw`(strip-word) 模糊键兜底，不需要英式/美式变体生成器**
-  （ECDICT 已同时收录 colour/color，原"必须双轨"判断被实测推翻）。
-- ⚠️ **许可分层**：ECDICT/engra 是 **MIT 可商用**，与 `seeds/data/`(cn-math-taxonomy **CC BY-NC 4.0**)
-  的"限个人非商用"红线**性质不同**，须在 `LICENSE-data.md` / `THIRD-PARTY-NOTICES.md` 显式分开，
-  不得让 vocab 子集继承非商用限制（wengu 整体仍因 cn-math-taxonomy 不称 OSI 开源）。
+  join 键 = `word`。~~实测命中 99%+~~（2026-11-26 取证轮改为分桶实测：非 block **99.9347%**、
+  block 专名 **85.3333%**、全集 **99.2528%**；`sw`(strip-word) 兜底只多救回 2 条 → 99.3151%）。
+  **只需 `sw` 模糊键兜底，不需要英式/美式变体生成器**（ECDICT 已同时收录 colour/color，
+  原"必须双轨"判断被实测推翻）。
+- 小学二级档 = **vickysy/kebiao-english**（MIT © 2026 木妈AIdea）——2026-11-26 取证轮**新确认的第四家上游**：
+  `data/vocab-level2.json` 的 `count` 与 `words` 实数均为 **501**，其 `note` 自述"官方 505 词，
+  扫描识别 + 人工校对后恢复 501，另有 4 词识别丢失"；实测现网 `levels.json` 的小学档 501 条
+  **全部**包含于该文件（levels 独有 0 条）→ 小学档从"不可重跑残留"升级为**可钉版、可重跑、MIT 可商用**。
+- ⚠️ **许可分层**：ECDICT / engra / **vickysy** 三家均 **MIT 可商用**，与 `seeds/data/`(cn-math-taxonomy
+  **CC BY-NC 4.0**) 的"限个人非商用"红线**性质不同**，须在 `LICENSE-data.md` / `THIRD-PARTY-NOTICES.md`
+  显式分开，不得让 vocab 子集继承非商用限制（wengu 整体仍因 cn-math-taxonomy 不称 OSI 开源）。
+  `THIRD-PARTY-NOTICES.md` 因此从三节变**四节**（ECDICT / engra / vickysy / 课标词表）。
 - ⚠️ **engra 含 Windows 保留名文件**（`dict/roots/con.yml`），本机 `git checkout` 必失败——
   构建期取数一律 `git -C <repo> show HEAD:<path>` 或 Linux CI。
 - 高中锁 **2017版2020修订（3066，官方 PDF 逐字抽取）**；2025修订(3122) 是纯扫描图抽不出，不采用。
@@ -2756,25 +2764,104 @@
    对 OCR 侧为 **97.41%**，无一种算法得 95.4%。改为可复现陈述：
    "两版交集 1507 / 正文 1600（94.19%），OCR 侧匹配率 97.41%；OCR 漏短词且二级 `*` 标记大量丢失
    （其 level2 计数仅 213），故 OCR 不作 verbatim 升级依据，仅作交叉印证"。
+   （2026-11-26 取证轮把这句再精确一次，后续以本条为准：按**去重词集**算，转录 1600 词、
+   OCR 1547 词、交集 1507 → 交集/转录 **94.1875%**、交集/OCR **97.4144%**；
+   且 OCR 侧实测含**错字** `affter` / `doup` / `gif` / `gir` 与整批**短词漏读**
+   （`a` `at` `am` `by` `bye` 都在"转录独有"的 93 词里）——OCR 质量比本条原描述更差。）
 4. **初中正文 verbatim 等级降级**：`transcription+ocr-confirmed` → **`transcription+ocr-crosschecked`**。
    理由：转录源自身 meta 标 `verbatim: false` / `draft: true` / "落盘前须逐字比对官方PDF"，
    而我们**没做逐字比对**（官方 PDF 是 201 页扫描图）。宁可标注不足，不可宣称过度——
    与当年 `unaudited` 标签同一条纪律。升级到 verbatim 另票。
+   （2026-11-26 取证轮再降一级：转录**原件本身已不可得**（随工作区 `_research` 清理丢失，
+   `extract_junior.py` 读的是失效临时路径），故 verbatim 等级定为
+   **`derived-from-transcription`** —— 见裁定 6。"升级到 verbatim 另票"这句不变。）
 5. **大小写口径 = 保留官方原样（决策人选 A）**：seed 导入**不做 `lower()` 归一**，
    `miss` 与 `Miss` 作为两条独立词条并存。现网 `uq_recitation_items_subject_prompt` 是
    `(subject, prompt)` 上的 TEXT 唯一约束，SQLite 默认**区分大小写**，故两行天然共存、**无需改约束**。
    错题候选词路径继续 `strip().lower()` 不动（`recitation_import.py:281`）。
    ⚠️ 归一与去重是**两套并存规则**，出卡必须写明，别混：入库归一 `strip().lower()`（候选路径）
    vs 去重比对 `prompt.strip().casefold()`（`recitation.py:239`）。
+   （2026-11-26 取证轮实测坐实：`prompt` 列 `PRAGMA table_info` = `TEXT NOT NULL`、
+   全仓迁移与模型**无任何 `COLLATE NOCASE`**；临时库实跑 `miss` + `Miss` 两行插入成功，
+   查回 `('Miss','miss')` 两行 → 裁定 A 在盘上成立，不是纸面推断。）
+
+### 取证轮新增裁定（2026-11-26，决策人逐项拍板；与上方五条同属定案，不要重开）
+
+6. **初中正文的可复现输入（决策人选 B 形态 + 2026-11-26 取证更正）**：
+   ⚠️ 本条第一版写"转录原件不可得"——**该前提是错的**（第 40 次卡面缺陷：审核方从交接备忘
+   推断、未实读路径就写进卡面，决策人据该假前提拍了 B）。实测原件仍在：
+   `…/.harness/flash-cli/qwenwork/tool-output/tool_210a58bf70011YMed52Er8Sm7T`，
+   62,885 B / sha256 `752a2ee2311c323a4c5ea9beeb7b41dc02fe4926b340cc9be5cadcfb51ee8395`，
+   内含完整 `1. a/an` … `1601. zoo` 编号序列与二级星。
+   **定案**：原件虽是转录源，但它是 web-search 抓取输出、夹带大量与词表无关的第三方网页正文
+   （热搜标题等），**不 vendored 进公开仓库**；只在 `_source_vocab.json` 记来源 URL
+   （知乎专栏 `p/1957531179063415195`）+ 上述 sha256 作溯源。
+   vendored 输入仍是 **`kebiao-level3-1600.json` 本体**，但**必须先修 `extract_junior.py`
+   再重发射**（修什么见裁定 8）；重发射后 sha256 变更，旧值 `c7da5e5e…` 在 `_source_vocab.json`
+   里记为"重发射前"。verbatim 等级 = **`derived-from-transcription`**（未做逐字比对，官方 PDF 零文字层）。
+7. **小学档改钉 MIT 上游（决策人选"只把小学档改钉 vickysy"）**：
+   `vickysy/kebiao-english` @ `470117814a09d5bdd37a95ec22acc0ee9de1e9b5`（2026-09-20），
+   `data/vocab-level2.json` 14,464 B / sha256 `4d0bb341ee06e0388a476c153f1824f40086427049fe4dbf30d7a67a55bc4b01`。
+   **补充块不换源**——它与 vickysy"单独列出"段重叠 **143/150（95.3%）**，但组织类 6 条
+   （CPC / PLA / PRC / UN / UNESCO / WTO）vickysy 完全没有，换源会丢数据；
+   补充块维持 OCR 来源 + `unaudited: true`，并把那句复现不出的"95.4% 印证"
+   换成本条这个可复现的 143/150 交叉验证数。
+8. **三档统一保留官方标注形态 + 详情走"整串→拆子形"两级查找（决策人选 A）**：
+   官方表用括号/斜杠并列标注等价形式（官方说明第 4 条：`child (pl. children)`、`be (am, is, are)`、
+   `PE (=physical education)`；`a/an` 就是官方二级表原样第 1 条，**不是**畸形条目——
+   审核方上一轮把它判成脏数据是误判，撤回）。
+   现网 `extract_junior.py` 的 `forms()` 用 `re.sub(r"[^A-Za-z0-9 \-]", " ", …)` 清洗，
+   把撇号/括号/斜杠**全部吃掉**，再取"最短子形"当 `word` → 产物里含撇号 0 条、含括号 0 条、
+   含斜杠 0 条，`o'clock` 变成 `o clock`。
+   ⚠️ 修的时候顺序必须照原脚本：**先去 `*` 再 `strip_glue`**——审核方 v11 试修时顺序写反，
+   造出 `by C` / `cute D` 这种假粘连，v12 按对顺序重做后粘连残留 **0 条**。
+   **定案口径**：`word` / `prompt` 保留官方原样；ECDICT 详情查找**先整串查、不中则拆等价子形逐形查**
+   （去括号内容、按 `/` 与 `,` 切）。实测效果：小学 501 / 初中正文 1601 / 高中 3066 三档
+   拆子形后**未命中 0 条、命中率 100%**；只整串查则初中会有 70 条假缺口
+   → "保留原样"不牺牲详情质量，这个代价审核方上一轮高估过。
+   重发射后初中正文与旧产物**文本不同 84 条**（`a`→`a/an`、`actor`→`actor / actress`、
+   `be`→`be (am, is, are)`、`china`→`China`、`center`→`centre (AmE center)`、`o clock`→`o'clock` …）。
+9. **~~`o clock` 走 ERRATA 勘误表~~ 撤销（被裁定 8 取代）**：转录源里 `o'clock` 出现 2 次、
+   `o clock` 出现 **0 次** → 缺陷是**我们的抽取器**造的，不是上游带来的。
+   打一张只修一条的补丁表会掩盖"撇号/括号/斜杠是一批受损"这个事实，故改为**修抽取器 + 重发射**，
+   `_source_vocab.json` 不设 `errata` 段，改设 `regenerated_from_transcript` 段记这次重发射
+   （含旧/新 sha256、受影响 84 条、修的两处：字符白名单 + 顺序）。
+10. **ECDICT join 判据 = 集合相等，且①是"要求空集"（2026-11-26 实测重写；
+    第一版写的 `== {"a/an"}` 在新口径下已不成立，作废）**：
+    ① 非 block 三档（小学 / 初中正文 / 高中）按"整串 → 拆子形"两级查找后的未命中集合 **`== set()`**；
+    ② 全库真缺口集合 `== _source_vocab.json.no_detail`，实测 **17 条、全部来自补充块**：
+    `beijing opera` `beijing roast duck` `children's day` `double ninth festival` `mount huangshan`
+    `mount qomolangma` `mount taishan` `pla day` `spring festival couplets` `the atlantic ocean`
+    `the changjiang river` `the great wall` `the pacific ocean` `the palace museum`
+    `the yellow river` `tian'anmen square` `women's day`。
+    ⚠️ 草稿原写"22 个专有名词无详情"——拆子形后 5 条组织缩写能命中，真缺口是 **17** 条。
+    不写 0.99 阈值（实测全集 99.2528%、余量仅 9 词，会漂）；① 要求空集，
+    与第 36 / 39 次那个"空集恒真"方向相反，是安全侧。
+11. **高中 verbatim 结论从"断言"升级为"已验证"**：官方 PDF 文字层实测可逐字复现全部 3066 条
+    ——3056 个单词直接命中，另 **10 个多词短语**（`according to` `bean curd` `due to` `mobile phone`
+    `ought to` `new zealand` `new zealander` `south africa` `south african` `viet nam`）
+    在 PDF 词表区间**成串存在**（PyMuPDF 全文归一后逐条命中），且这 10 条 ECDICT 也全部命中。
+    ⚠️ 由此得一条硬约束：**抽取器必须按行/条目解析、保留多词短语**，
+    不得按单词正则切——否则条目数虚增、短语被拆散。
+12. **第 40 次卡面缺陷（登记，归审核方）**：第 6 条划掉的那句"转录原件不可得"，
+    是我从交接备忘推断、没实读路径就写成卡面事实，决策人据该假前提拍了 B。
+    性质比第 36–39 次更重：那四次是"规则推不出 DoD"，这次是**把未核实的事实当决策依据**。
+    根因同 `AGENTS.md §8`「卡面引用盘上现状必须实读」，但这次发生在**取证轮/决策草稿**上，
+    说明该纪律的作用域要从"施工卡面"扩到"给决策人的选项文本"。
 
 ### 复用现网引擎的核实结论（逐条 grep 过，以本条为准、别按草稿旧描述）
-- 盘上迁移 head = **`0025_dictation_sheet_audio_ref`**（`down_revision = 0024_dictation_sheets`）；
-  `目录结构.md:88` 仍写 `head = 0021_pomodoro_sessions`——**过时**，P6-2 留痕翻正到 0026。
+- 盘上迁移 head = **`0026_recitation_source`**（P6-2 已合并 PR#76 → `10f731b`，
+  `down_revision = 0025_dictation_sheet_audio_ref`）。
+  ~~本条原写"head = 0025、`目录结构.md:88` 仍写 0021 待 P6-2 留痕翻正"~~
+  ——2026-11-26 取证轮按盘上实况更新：`目录结构.md` 与 `wengu-api/README.md` 均已由
+  P6-2 / **P5-20**（PR#77 → `da2a718`）翻正，并被 `tests/unit/test_docs_current_state.py`
+  从盘上派生钉住，以后再加迁移时该守卫会红并指名文件。
 - `recitation_items` 现有约束：`ck_recitation_items_status`（status IN active/retired）+
-  `uq_recitation_items_subject_prompt`（subject, prompt）✅ 逐字对上。
+  `uq_recitation_items_subject_prompt`（subject, prompt）✅ 逐字对上；
+  P6-2 已加 `ck_recitation_items_source`（seed/manual/candidate）。
 - `recitation_reviews` 两条 FK：`fk_recitation_reviews_item_id` → `recitation_items` **ON DELETE CASCADE**；
   `fk_recitation_reviews_event_id` → `learning_events` **ON DELETE RESTRICT**。
-  **重建表时两条都要保住**，不是一条。
+  **重建表时两条都要保住**，不是一条（P6-2 迁移测试已逐字钉死，审核方 M3 靶另证）。
 - 阶梯：`recitation.py:38` 直接 `from app.services.review_policy import MEMORY_LADDER`，
   值为 `(1, 3, 7, 14, 30)`；**不走** `SUBJECT_LADDERS` 分科字典 → 英语词表排期语义与现有背诵一致，
   **无分科坑**（审核方曾疑此，实测证伪）。
@@ -2784,25 +2871,87 @@
 - 内存索引样板：`app/seed/bank.py` 的 `load_bank(seeds_dir)` + frozen dataclass + `BankStats` ✅ 可仿。
 - 作用域复用现成 `runtime_config.seed_grade_ceiling()`（`SEED_GRADE_CEILINGS = frozenset({6, 9, 16})`，
   默认 16），**不新造配置键**。band 映射：6→仅 primary、9→+junior、16→+senior。
+  ✅ 2026-11-26 实读坐实：函数在 **`app/core/runtime_config.py:338`**（草稿曾写 `services/runtime_config.py`，
+  文件不存在），docstring 明写"6=只小学 / 9=小学+初中 / 16=全部、缺失非法回退 16、
+  只收窄能主动选什么、不管复习与诊断回溯" → **P6-3 的 band 映射与之一致，⚠️ 解除**。
+- **P6-4 相关三条实测（2026-11-26，草稿留的 ⚠️ 全部落地）**：
+  ① `create_item` 现签名 `(session, *, subject, prompt, answer=None, unit=None, created_by="parent", now=None)`
+  ——**无 `source` 参数**，P6-4 必须加（默认 `'manual'` 向后兼容）；
+  ② `due_items(session, today, *, limit=None, daily_limit=None)` **不含任何 source 过滤**
+  → seed 词与候选词**天然共用同一到期队列**，P6-4 那条 DoD 不需要改代码、只需要测试证明；
+  ③ `_normalize_text` 只做 `strip()`（不 lower），而候选路径 `recitation.py:217` 与
+  `recitation_import.py:281` 都 `.strip().lower()` → **候选词永远小写、永远不含空格**；
+  实测 seed 侧在新口径下有 **113 条首字母大写 + 124 条含空格**（分档：小学 11 大写；
+  初中正文重发射后 17 大写 / 71 含空格 / 61 含括号 / 10 含斜杠；高中 0 大写 / 10 含空格短语；
+  补充块 91 大写 / 43 含空格），其中**小写化后与自身不同的条目 133 条**——
+  这才是与候选词路径可能撞轨的真实分母（旧产物上只有 3 条含空格、0 条大写，
+  因为官方形态被抽取器拆掉了）。`China`(seed) 与 `china`(candidate) **会两行并存**，
+  这条不再是"概率极低"的口头判断；含空格的短语条目只有 seed 一个来源，不会与 candidate 撞轨。
+  P6-4 卡面必须给出可断言的边界（见该票"专名 casefold 边界"项）。
 - P6 编号在 TICKETS 中此前未被占用 ✅（`grep -c 'P6-' = 0`）。
-- 上游输入现状：本机 `_research/` 已清理、工作区无 ECDICT/engra/PDF 残留 →
-  **P6-1 开工第一件事是重新拉取并真实探测 sha256/commit**，不一致即中止上报。
+- ~~上游输入现状：本机 `_research/` 已清理、工作区无 ECDICT/engra/PDF 残留 →
+  P6-1 开工第一件事是重新拉取并真实探测 sha256/commit~~
+  ——2026-11-26 取证轮**已完成这件事**，全部实测值见下方"取证轮实测上游"。
+
+### 取证轮实测上游（2026-11-26，全部本机实跑探测，禁止按日期猜 SHA；复现方法随附）
+
+| 上游 | commit / sha256 / 规模 | 取数与复现方法 |
+|---|---|---|
+| skywind3000/ECDICT | commit `39cfb9672c0906b63569e0453c2e6abfb9ab182a`（2026-11-02）；`ecdict.csv` 66,009,548 B / sha256 `d1ecbdf9ee2b920afb6f430ca6b6bb9f559588cf0dff86e04bd255f9390843cc` / **770,611 条记录**（原始 770,612 行含表头）/ 13 列；`wordroot.txt` 370,702 B / sha256 `4b400dc5980e4a362fa12c7a49b326bb621c4e6bebd5f37146fbdcbe9db6bb6e` / **单一 JSON 对象、611 条** | `git clone --depth 1 --single-branch --branch master`；列名 `word,phonetic,definition,translation,pos,collins,oxford,tag,bnc,frq,exchange,detail,audio` |
+| bonaysoft/engra | commit `798d54beb0deae476b856719cb8d5ad33d0baab2`（2023-05-14）；`dict/roots/*.yml` **2233** 棵；`dict/glossaries/*.json` 14 档（CEFR-A1…C2 / CET4 / CET6 / GMAT / GRE / IELTS / KaoYan / SAT / TOEFL）；LICENSE = MIT © 2023 Ambor | ⚠️ `dict/roots/con.yml` 实测存在（Windows 保留名）→ **必须** `git clone --depth 1 --single-branch --branch master --no-checkout` 后用 `git ls-tree -r --name-only HEAD` + `git show HEAD:<path>` 取数 |
+| vickysy/kebiao-english | commit `470117814a09d5bdd37a95ec22acc0ee9de1e9b5`（2026-09-20，branch `main`）；`data/vocab-level2.json` 14,464 B / sha256 `4d0bb341ee06e0388a476c153f1824f40086427049fe4dbf30d7a67a55bc4b01`；`words` 501 + 单独列出段（numbers 30 / ordinals 28 / months 12 / weekdays 7 / countries 47 / festivals_culture 35 / irregular_verbs 109，去重 159）；LICENSE = **MIT © 2026 木妈AIdea (vickysy)** | `git clone --depth 1 --single-branch --branch main`；其 `note` 自述"官方 505 词，扫描识别 + 人工校对恢复 501，4 词识别丢失" |
+| 义务教育英语课程标准 2022 PDF | 31,502,213 B / sha256 `59ec3971e0dbd6ca487c4e4972cbc80effaf2fd62418d07e5f62c6698fa222fb`；201 页、内嵌图像对象 201；**PyMuPDF 逐页 `get_text()` 全部 0 字符** | `http://www.moe.gov.cn/srcsite/A26/s8001/202204/W020220420582349487953.pdf`（HEAD Etag `"647d8336-1e0af85"` 与字节数一致）。⚠️ **不得**用"zlib 解压全部流再抓 ASCII 串"判可抽字符——实测那样会报出 81 万"词元"，全是 JPEG 字节与字体子集乱码 |
+| 普通高中英语课程标准 2017版2020修订 PDF | 7,750,611 B / sha256 `8ebd6bb12e9eb1c58e422ee01b540a4a71d2e681a4c4a764a36ee3a34b21c1be`；220 页、内嵌图像 10；全文可抽 160,464 字符；词表区间（页 125-190）可抽 35,206 字符 | `https://www.pep.com.cn/xw/zt/rjwy/gzkb2020/202205/P020220517522153664167.pdf`（HEAD Content-Length 一致）。**3066 条逐字复现已验证**（裁定 11） |
+
+- 转录源（**不入库**，只记溯源，见裁定 6）：
+  `…/.harness/flash-cli/qwenwork/tool-output/tool_210a58bf70011YMed52Er8Sm7T` 62,885 B /
+  sha256 `752a2ee2311c323a4c5ea9beeb7b41dc02fe4926b340cc9be5cadcfb51ee8395`，
+  为知乎专栏 `p/1957531179063415195` 的 web-search 抓取输出，含完整 `1. a/an` … `1601. zoo`
+  编号序列与二级星；因夹带大量与词表无关的第三方网页正文，不 vendored 进公开仓库。
+- vendored 输入件（进仓，全部记 sha256）：`kebiao-level3-1600.json` **须按裁定 8 重发射**，
+  重发射后记新 sha256、旧值 `c7da5e5e663f83176cc3101bf9ba4e0a16f3c3959f2ef286861a4d442e621db0`
+  （196,595 B）记为"重发射前"；
+  `kebiao-junior-supplement.json` 11,170 B / `ba72372a6ff6896c6153691e0bd2f5782b175c225a36a284cc729e8c8538c400`；
+  `gsenior-2020-OFFICIAL.json` 335,838 B / `bf2bcfee927355b63451917d62f15212ebdd8d6e145abe27345c7a754d84d490`；
+  `vocab-level2.json`（vickysy）14,464 B / `4d0bb341ee06e0388a476c153f1824f40086427049fe4dbf30d7a67a55bc4b01`。
+  `kebiao-level3-OCR.json` 162,541 B / `089cd09181b0467d34376b1da75a976e5f594b7cd57c13a0a8a3515ec3070bc8`
+  **只作交叉验证、不进仓、不作范围源**。
+- 现网 `levels.json`（工作区草稿，**旧口径**）实测：并集 3212 条去重后仍 3212；`block` 非空 150；
+  各档出现次数 primary 501 / junior 1750 / senior 3066；`senior_tier` 1581 + 495 + 990 + null 146。
+  ⚠️ **裁定 8 重发射后这个数会长**：初中正文新增的括号/斜杠官方形态在旧产物里被拆成子形、
+  与其它条目合并掉了。审核方按新口径把四档合并去重估得 **3318（+106）**——
+  该数只作预期提示，**不得当断言基准**（P6-1 一律用"两数相等"判据，见 DoD 2）。
+  ⚠️ 其 `meta.sources.junior` 那句里**仍留着"官方PDF-OCR 95.4%印证"**——P6-1 重发射时必须替换，
+  否则过期口径会随产物一起进仓。
 
 ### 产物清单（统一口径，取消草稿间的冲突）
 ```
 seeds/vocab/
-├─ levels.json              # 范围 base（union 3212；word/forms/stages[]/senior_tier/block）
+├─ levels.json              # 范围 base（旧口径 union 3212，重发射后会长，见裁定 8；word/forms/stages[]/senior_tier/block）
 ├─ words.json               # ECDICT join 详情（音标/释义/词性/变形/徽章/frq）
 ├─ roots.json               # engra 词根家族 + 中文助记
-├─ wordroot_meaning.json    # ECDICT wordroot.txt 转出的词根含义/语源/类别
-├─ _source_vocab.json       # 分源 verbatim 署名与取证（真实探测，禁猜 SHA）
-└─ _upstream/junior_body_transcript.txt   # 三级正文转录（vendored，记 sha256）
+├─ wordroot_meaning.json    # ECDICT wordroot.txt 转出的词根含义/语源/类别（611 条）
+├─ _source_vocab.json       # 分源 verbatim 署名与取证（真实探测，禁猜 SHA）+ regenerated_from_transcript 段
+└─ _upstream/               # vendored 输入件（裁定 6/7）：
+   ├─ kebiao-level3-1600.json        # 初中三级正文（1601 条，转录的结构化产物）
+   ├─ kebiao-junior-supplement.json  # 附录3 补充块（150 条，OCR，unaudited）
+   ├─ gsenior-2020-OFFICIAL.json     # 高中 3066 条（官方 PDF 逐字）
+   └─ vocab-level2.json              # 小学 501 条（vickysy，MIT，可钉 commit）
 ```
+- ⚠️ ~~`_upstream/junior_body_transcript.txt`（三级正文转录文本，记 sha256）~~
+  ——2026-11-26 裁定 6：**取消这一层**，改 vendored `kebiao-level3-1600.json` 本体。
+  原因**不是**"转录原件不可得"（那是第 40 次卡面缺陷的错误前提，原件实测仍在、
+  sha256 已记入裁定 6），而是该原件为 web-search 抓取输出、夹带大量与词表无关的第三方网页正文，
+  不宜 vendored 进公开仓库；只记 URL + sha256 作溯源。
 - ⚠️ **取消 `junior_supplement.json` 独立文件**（工单草稿列了它、落地清单文件树没有）——
   补充块 150 条已由 `levels.json` 的 `block` 字段承载（实测 block 非空恰 150：
   专有名词 67 / 数词 40 / 其他 19 / 月份 11 / 星期 7 …）。
 - 官方 PDF（义务教育 31.5MB / 高中 7.7MB）**不进 git**，只在 `_source_vocab.json` 记 URL + sha256。
-- 补充块 22 个专有名词/文化词 ECDICT 无详情 → **详情字段留 null，不编造、不另找源**。
+- ⚠️ ECDICT csv / engra clone / vickysy 整仓 clone 同样**不进 git**，只 vendored 上面四个小件。
+- ~~补充块 22 个专有名词/文化词 ECDICT 无详情 → 详情字段留 null，不编造、不另找源。~~
+  2026-11-26 实测更正：按裁定 8 的"整串 → 拆子形"两级查找后，真缺口是 **17 条**、全部来自补充块
+  （清单见裁定 10）→ 这 17 条详情字段留 null，不编造、不另找源；
+  原写"22 条"是只按整串查的结果，其中 5 条组织缩写拆子形后可命中。
 
 ### P6-2 recitation_items 加 source 列（迁移 0026 + 模型 + 迁移测试）【完整卡，已合并】
 - **状态**：**已合并（PR #76 → main `10f731b`，2026-11-25）**。
@@ -2868,29 +3017,94 @@ seeds/vocab/
   若某约束名未被反射保留，DoD 2 的逐字 diff 会暴露——**必须按 DoD 2/3/4 兜住，不能只断"列存在"**。
   若一次 recreate 对"加列+加 CHECK"有边界问题，可拆两步同迁移，但 DoD 2/3/4 不变。
 
-### P6-1 背单词 seed 数据 + 构建期抽取器 + 授权署名【骨架，待细化】
-- **状态**：骨架。**细化前置**：① 重新拉取 ECDICT/engra/官方 PDF 并真实探测 commit/sha256；
-  ② 五条口径裁定已定（本文件上方），填数即定稿。
-- **交付轮廓**：`seeds/vocab/*`（见产物清单）；`wengu-api/scripts/import_vocab.py`（编排，
-  风格逐字对齐 `import_seed.py`：argparse + `upstream_commit()` 真实探测 + `_write_json` 钉
-  `newline="\n"` + `ensure_ascii=False, indent=1` + `SeedConvertError` + `main(argv)->int`）；
-  `wengu-api/scripts/vocab_extract/{extract_junior,extract_junior_supp,extract_gsenior,build_levels,vocab_join}.py`；
-  授权三节（`THIRD-PARTY-NOTICES.md` ECDICT/engra/课标；`LICENSE-data.md` MIT 与非商用红线分开；
-  `seeds/README.md` vocab 节 + 重新生成命令）。
-- **DoD 要点（细化时补全）**：`seeds/vocab/*.json` 全 LF（`test_repo_eol.py` 覆盖面扩到 `seeds/vocab/`，
-  塞 CRLF 必红）；`counts.words` 与 `levels.json` 实收相等（**判据是两数相等，不写死词数**）；
-  `words.json` 对 `levels.json` 的 ECDICT join 命中 ≥ 阈值（阈值手写字面）；补充块全部 `unaudited: true`；
-  各源 `verbatim` 等级 = 裁定 4 的口径；**CI 不运行 `import_vocab.py`**（依赖外部数据/OCR），
-  CI 只校验已提交 JSON 的 schema/计数/LF。
-- **禁止**：ECDICT csv / engra clone / 官方 PDF 进 git；`import_vocab.py` 或
-  `rapidocr-onnxruntime` 进 `requirements.txt`/镜像/运行时；**重跑覆盖 `_source_vocab.json` 的
-  人工策展取证键**（`commit_evidence`/`sha256`/`verbatim_note`——换快照一律仓库外 scratch 重取证 +
-  人工重新策展，P5-17 第 27 次卡面缺陷形态）；硬编码词数当断言。
+### P6-1 背单词 seed 数据 + 构建期抽取器 + 授权署名【完整卡，可投】
+
+- **状态**：**可投**（取证轮 2026-11-26 已完成前置：上游全部真实探测到 commit/sha256，
+  见上方"取证轮实测上游"；五条 + 六条裁定已定）。
+- **依赖**：无（与 P6-2 平行；P6-3 需本票产物）。
+- **本票性质**：**零运行时、零 schema**。数据文件随仓库分发、脚本只在开发期/构建期跑，
+  不进 `requirements.txt`、不进镜像、不进 CI 主链的执行步骤。
+- **交付**：
+  1. 数据 `seeds/vocab/`：`levels.json`、`words.json`、`roots.json`、`wordroot_meaning.json`、
+     `_source_vocab.json`，以及 `_upstream/` 四个 vendored 输入件（见产物清单）。
+  2. 脚本（开发/构建期，**不进运行时**）：
+     `wengu-api/scripts/vocab_extract/{build_levels,vocab_join,extract_gsenior,extract_junior_supp,extract_junior}.py`
+     + `wengu-api/scripts/import_vocab.py`（编排，风格逐字对齐 `import_seed.py`：argparse +
+     `upstream_commit()` 真实探测 + `_write_json` 写死 `newline="\n"` + `ensure_ascii=False, indent=1` +
+     `SeedConvertError` + `main(argv)->int`）。
+     ⚠️ **`extract_junior.py` 要带进本票并修两处**（裁定 8）：
+     ① `forms()` 的字符白名单 `[^A-Za-z0-9 \-]` 吞掉了 `'`、`(`、`)`、`/`，
+     导致官方并列形态整体丢失、`o'clock` 变 `o clock`；
+     ② 取 `word` 用"最短子形"，把官方原样降级成子词。
+     修后 `word` 必须是官方原样，且**顺序保持"先去 `*` 再 `strip_glue`"**（顺序写反会造出
+     `by C` / `cute D` 假粘连，审核方 v11 就写反过）。
+     ⚠️ 它的输入路径仍是本机 tool-output 缓存——本票**不 vendored 该缓存件**（裁定 6），
+     所以 `extract_junior.py` 必须改成**读仓库内 `seeds/vocab/_upstream/` 的转录结构化产物**，
+     并把"从缓存重抽"这条路径标注为**仅开发期、需人工提供转录源**，不得进 CI。
+     重发射后 `_source_vocab.json` 记 `regenerated_from_transcript` 段
+     （旧/新 sha256、受影响 84 条、修的这两处），**不设 `errata` 段**（裁定 9 已撤销）。
+  3. 授权四节：`THIRD-PARTY-NOTICES.md` 新增 **ECDICT / engra / vickysy / 课标词表** 四节
+     （节号顺延）；`LICENSE-data.md` 把三家 MIT 与 cn-math-taxonomy 的 CC BY-NC 非商用红线
+     **明确分开**；`seeds/README.md` 新增 `vocab/` 目录节 + 重新生成命令。
+- **DoD（每条都要有"因不 X 而红"的测试；边界常量右侧手写字面；不写会漂的计数）**：
+  1. **LF**：`tests/unit/test_repo_eol.py` 的扫描面扩到 `seeds/vocab/`；塞一个 CRLF → 红。
+  2. **计数用"两数相等"判据**：各 `counts` 与 `_source_vocab.json` 逐字一致；
+     `levels.json` 实收条目数 == `_source_vocab.json.counts.union`；`block` 非空数 ==
+     `counts.supplement`。**测试里不写死 3212 / 150 / 501 这类数字**（写判定规则）。
+  3. **join 判据 = 集合相等，不写 0.99**（裁定 10，两级查找"整串 → 拆子形"）：
+     ① 非 block 三档（小学 / 初中正文 / 高中）未命中集合 **`== set()`**；
+     ② `words.json` 中详情全为 null 的条目集合 `== _source_vocab.json` 记录的 `no_detail` 集合
+     （实测 17 条，全部来自补充块）。
+  4. **抽取器修复有牙**（取代原"勘误表"靶）：
+     ① 断言初中正文里 `o'clock` 存在且 `o clock` **不存在**；
+     ② 断言初中正文含撇号条目数 ≥ 1、含括号/斜杠官方形态条目数 == 实测值
+     （审核方 v12 实测：含斜杠 10、含括号 61，写判定规则不写死数字，用与转录源重算比对的方式）；
+     ③ 把 `forms()` 的字符白名单改回原样（重新吞 `'`）→ 必须红。
+  5. **vendored 件哈希自证**：`_source_vocab.json` 里每个 vendored 件的 sha256 必须与盘上文件实算一致，
+     不一致 **fail-fast 抛 `SeedConvertError`**，不静默用错版。
+  6. **verbatim 等级 = 裁定口径**：ecdict/engra/vickysy = `official-repo`、
+     高中 = `official-pdf-verbatim`、初中正文 = `derived-from-transcription`、
+     补充块 = `ocr` + `unaudited: true`；补充块 150 条**全部**带 `unaudited`。
+  7. **CI 不运行 `import_vocab.py`**，且要有**两条字面守卫**把这句钉住（原卡只写在【禁止】里，
+     没有任何断言能因违反而红——这是蕴含自检逼出来的两条新增，必须实装为任务）：
+     ① `tests/unit/test_vocab_build_boundaries.py` 读 `.github/workflows/*.yml`，
+     断言其中**不含** `import_vocab` 字面串（把 `import_vocab` 加进 CI → 红）；
+     ② 同文件读 `wengu-api/requirements.txt`，断言其内容集合 == 手写字面依赖集合
+     （新增 `rapidocr-onnxruntime` 或任何依赖 → 红）。
+  8. **既有测试全绿**：全量 `pytest -q` 条数 = 开工基线 + 本票新增条数（基线 `--collect-only` 实取）；
+     `ruff check --no-cache .` 全仓绿。
+- **必改清单**：`seeds/vocab/**`（新增）、`wengu-api/scripts/vocab_extract/**` 与
+  `wengu-api/scripts/import_vocab.py`（新增）、`wengu-api/tests/unit/test_repo_eol.py`（扩扫描面）、
+  `wengu-api/tests/unit/test_vocab_build_boundaries.py`（新增）、`THIRD-PARTY-NOTICES.md`、
+  `LICENSE-data.md`、`seeds/README.md`、`CHANGELOG.md`、
+  `docs/STATUS.md`（交付区新增本票 + 头部快照/基线 + **§1 内所有「当前待审」指针句一并翻转** +
+  §2 路线表 Phase 6 行）、`目录结构.md`（`seeds/` 节加 `vocab/`）。
+- **禁止**：
+  - ECDICT csv / engra clone / vickysy 整仓 / 官方 PDF / 转录缓存件进 git（只 vendored 那四个小件）。
+  - `import_vocab.py` 或 `rapidocr-onnxruntime` 进 `requirements.txt` / 镜像 / 运行时（守 AGENTS §2.3）。
+  - **重跑覆盖 `_source_vocab.json` 的人工策展取证键**（`commit_evidence` / `sha256` / `verbatim_note` /
+    `regenerated_from_transcript` / `no_detail`）——换快照一律仓库外 scratch 重取证 +
+    人工重新策展（第 27 次卡面缺陷形态）。
+  - 硬编码词数当断言；写 0.99 这类会漂的阈值。
+  - 把 `a/an` 当脏数据"清洗"掉（裁定 8：它是官方原样条目）。
+  - 按**单词正则**切高中词表条目（裁定 11：10 个多词短语会被拆散，条目数虚增）。
+  - 在本票碰 `wengu-api/app/**`、任何迁移、`recitation_items`（灌库是 P6-4）。
+- **残留风险（交付时如实报告）**：
+  - 初中正文是 `derived-from-transcription`，**永远不可能**由本票升级到 verbatim（官方 PDF 零文字层）；
+    要升级只能重做 OCR 并人工复核 1600 条，另票人工决定。
+  - 补充块维持 unaudited；其 22 条 ECDICT 无详情 → 词卡详情留空，UI 须透传"专有名词、释义自明/待补"。
+  - `roots.json` 依赖 engra 2233 棵树的展平口径，本票只保证 sha256 与条数一致，不保证词根家族
+    与单词的映射质量（质量归 P6-3 的 join 断言与后续试用反馈）。
 
 ### P6-3 背单词内存索引 loader（`app/seed/vocab.py`，零 SQLite 写入）【骨架】
 - **依赖**：P6-1。**交付**：`load_vocab(seeds_dir)` + frozen `VocabWord` dataclass，
   运行时按 `word` join `levels/words/roots/wordroot_meaning`；band 过滤按 `seed_grade_ceiling`。
-- **DoD 要点**：缺文件/空数组 → 空索引不阻塞服务（仿 `seed/bank.py`）；join 命中 ≥ 阈值（字面）；
+- **⚠️ 已解除（2026-11-26 实读）**：`seed_grade_ceiling()` 在 **`app/core/runtime_config.py:338`**，
+  docstring 明写"6=只小学 / 9=小学+初中 / 16=全部，缺失/非法回退 16，只收窄能主动选什么、
+  不管复习与诊断回溯" → band 映射 6→仅 primary、9→+junior、16→+senior **与现网语义一致，不新造配置键**。
+  注意 `grade` 是 TEXT 列，过滤要 `func.cast(KnowledgeSeed.grade, Integer)`（现网 `api/seed.py:26` 同款写法）。
+- **DoD 要点**：缺文件/空数组 → 空索引不阻塞服务（仿 `seed/bank.py`）；
+  **join 判据沿用 P6-1 的集合相等口径**（裁定 10），不写 0.99 阈值；
   band 映射 6/9/16 三档**写判定规则不写词数**；**不写 SQLite**（装载后零写入断言，守 §14）；
   顶层结构非法 fail-fast，不静默空库。
 - **禁止**：把词表灌进 SQLite；运行时调 OCR/网络；在本票自造复习调度。
@@ -2899,14 +3113,34 @@ seeds/vocab/
 - **依赖**：P6-2 + P6-3。**交付**：家长触发的 service 函数（API 端点与前端另票）——
   按 band 选词批量入库 `recitation_items(subject='英语', prompt=word, answer=<ECDICT 中文释义>, source='seed')`；
   与错题候选词、家长手填并列；`create_item` 加 `source` 参数（默认 `'manual'` 向后兼容）。
-- **DoD 要点**：同 `word` 幂等（二次调用 created=0）；seed 词与候选词**共用同一 `due_items()` 队列**；
+- **⚠️ 已解除（2026-11-26 实测）**：`create_item` 现签名
+  `(session, *, subject, prompt, answer=None, unit=None, created_by="parent", now=None)` **确无 `source`**
+  → 本票必须加参数且默认 `'manual'` 保持向后兼容；
+  `due_items(session, today, *, limit=None, daily_limit=None)` **不含 source 过滤**
+  → seed 词与候选词**天然共用同一到期队列**，这条 DoD 不需要改代码，只需要测试证明；
+  `_normalize_text` 只 `strip()` 不 `lower()`，而候选路径（`recitation.py:217`、
+  `recitation_import.py:281`）都 `.strip().lower()` → **候选词永远小写、永远不含空格**。
+- **裁定 5 的落地断言（本票新增，P6-2 不含）**：`miss` 与 `Miss` **两行并存**——
+  已实测坐实（`prompt` 列无 `COLLATE NOCASE`，临时库两行插入成功）。
+  seed 导入路径**不做 `lower()` 归一**，须各入一条、各排一轨；候选词路径仍 `strip().lower()`。
+  测试要同时覆盖这两条路径的大小写行为差异。
+- **裁定 11 的落地断言（本票新增）**：10 个高中多词短语（`according to` 等）作为 `prompt` **原样入库**；
+  因候选路径产不出含空格条目，须断言"含空格 prompt 的条目其 `source` 只能是 `seed`"，
+  防止将来有人给候选路径加短语切分时把空格条目误标。
+- **专名 casefold 边界（原"概率极低"已升级为可断言的实测规模）**：seed 侧在裁定 8 新口径下实测
+  **113 条首字母大写 / 124 条含空格 / 小写化后与自身不同 133 条**
+  （旧产物上只有 3 条含空格、0 条大写，因为官方形态被抽取器拆掉了——
+  所以这条边界的分母**因 P6-1 而变大**，两票必须连着看）；
+  `China`(seed) 与 `china`(candidate) **会两行并存**，破坏"一词一条记忆轨"。
+  本票必须二选一并写成断言：
+  (a) seed 普通词入库前也 `strip().lower()`、仅 vendored 补充块专名保留原样；
+  (b) 保持两行并存，但断言"同一词的大小写变体至多一条参与 due 队列"。
+  细化本票时由决策人拍板，**不在 P6-1 里顺手定**。
+- **DoD 要点**：同 `word` 幂等（二次调用 created=0）；
   不新建 mistake；补充块专名无释义 → `answer` 留 null 不编造；
   **去重语义复用现网**：已存在 `(subject='英语', prompt=word)` 行——无论 manual/candidate、
   无论 active/retired——一律走 `create_item` 抛 `RecitationDuplicate` → 只报告、跳过、
   **不改 source、不覆盖 answer、不复活 retired**（与 `import_items`/`add_candidate_words` 逐字一致）。
-- **裁定 5 的落地断言（本票新增，P6-2 不含）**：`miss` 与 `Miss` **两行并存**——
-  seed 导入路径**不做 `lower()` 归一**，须各入一条、各排一轨；
-  而候选词路径仍 `strip().lower()`。测试要同时覆盖这两条路径的大小写行为差异。
 - **禁止**：把音标/词根家族/变形塞进 `answer`；在本票做前端；无家长确认的自动入库；
   把 `source` 纳入唯一键。
 
