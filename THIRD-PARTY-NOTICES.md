@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-本项目代码本身遵循 `LICENSE` 中的 MIT 协议；**本文件列出所有非 MIT 的第三方数据、算法与代码归属**。任何下游分发必须一并保留此文件。
+本项目代码本身遵循 `LICENSE` 中的 MIT 协议；**本文件列出所有第三方数据、算法与代码归属（含 MIT 与 CC BY-NC 数据）**。任何下游分发必须一并保留此文件。
 
 ---
 
@@ -46,11 +46,62 @@
   7. `ReviewSchedule` 行式独立表（wrong-notebook `schema.prisma`）
 - 均为**模式借鉴、Python 重写**，非源码复制；即使 MIT 允许直接搬，也保持独立实现以便审查。
 
-## 5. 内置/依赖库（自动汇总）
+## 5. `skywind3000/ECDICT`（背单词详情与词根含义）
+
+- **来源**：<https://github.com/skywind3000/ECDICT>
+- **许可**：**MIT**（可商用；使用时保留上游版权与许可声明）
+- **所用快照 commit**：`39cfb9672c0906b63569e0453c2e6abfb9ab182a`
+- **使用范围**：`seeds/vocab/words.json` 的音标、释义、词性、变形、词频与考试徽章，以及
+  `seeds/vocab/wordroot_meaning.json`。只 vendored 派生 JSON；`ecdict.csv` / `wordroot.txt` 本体不进仓库。
+- **构建期处理**：详情 join 走“整串精确 → 拆等价子形逐形精确”，不做模糊匹配；无详情字段留 `null`。
+  文件字节数、sha256、commit 与集合判据见 `seeds/vocab/_source_vocab.json`。
+
+## 6. `bonaysoft/engra`（词根家族与中文助记）
+
+- **来源**：<https://github.com/bonaysoft/engra>
+- **作者 / 版权**：**Ambor，Copyright (c) 2023 Ambor**
+- **许可**：**MIT**（可商用；使用时保留上游版权与许可声明）
+- **所用快照 commit**：`798d54beb0deae476b856719cb8d5ad33d0baab2`
+- **使用范围**：`seeds/vocab/roots.json`，只展平 `dict/roots/*.yml` 的家族树、词节点与中文助记；
+  `dict/glossaries/*.json` 的 14 档 CEFR/CET/考研/托福/GRE 词表**不对口 K-12，不作范围源**。
+- **Windows 兼容取证**：`dict/roots/con.yml` 是 Windows 保留名，构建脚本用
+  `git ls-tree` + `git cat-file --batch` 读取全部 blob，不 checkout、不 archive。
+- **质量边界**：本票只保证快照清单 sha256 与条数一致，不保证家族到单词的映射质量；该质量归 P6-3 与试用反馈。
+
+## 7. `vickysy/kebiao-english`（小学二级词表）
+
+- **来源**：<https://github.com/vickysy/kebiao-english>
+- **作者 / 版权**：**木妈AIdea (vickysy)，Copyright (c) 2026**
+- **许可**：**MIT**（可商用；使用时保留上游版权与许可声明）
+- **所用快照 commit**：`470117814a09d5bdd37a95ec22acc0ee9de1e9b5`（branch `main`）
+- **使用范围**：`seeds/vocab/_upstream/vocab-level2.json` 原字节 vendored，作为小学二级范围源；
+  整仓不进仓库。上游 `note` 自述官方 505 词、转录标记 503、人工校对恢复实收 501；
+  **只有 `count` 与 `words` 实收数参与相等断言**，505 / 503 仅作来源声明。
+- **补充块不换源**：初中附录3补充块与 vickysy 单独列出段重叠 143/150，但 CPC / PLA / PRC /
+  UN / UNESCO / WTO 六条组织词缺失，故补充块维持课标 PDF OCR + `unaudited: true`。
+
+## 8. 英语课程标准词表（小学 / 初中 / 高中范围）
+
+- **官方来源**：
+  - 义务教育英语课程标准（2022年版）：<http://www.moe.gov.cn/srcsite/A26/s8001/202204/W020220420582349487953.pdf>
+  - 普通高中英语课程标准（2017年版2020年修订）：<https://www.pep.com.cn/xw/zt/rjwy/gzkb2020/202205/P020220517522153664167.pdf>
+- **许可说明**：政府公开文件；词表本身作为事实性词汇集合不受著作权保护。派生 JSON 与构建脚本沿用仓库代码 MIT；
+  **`seeds/vocab/` 不继承 `seeds/data/` 的 CC BY-NC 4.0 非商用限制**。
+- **来源等级**：
+  - 小学二级 = vickysy 官方仓库快照（`official-repo`，MIT）；
+  - 初中三级正文 = 第三方转录的结构化产物（`derived-from-transcription`），未与官方扫描 PDF 逐字比对；
+  - 初中附录3补充块 = 官方扫描 PDF OCR（`ocr`），全部 `unaudited: true`；
+  - 高中 = 官方 PDF 文字层逐字抽取（`official-pdf-verbatim`），保留多词短语。
+- **不入库材料**：两份官方 PDF、初中转录缓存件、OCR 交叉验证件均不进 git；只在
+  `seeds/vocab/_source_vocab.json` 记 URL、字节数与 sha256。转录缓存件夹带无关第三方网页正文，故不 vendored。
+- **诚实边界**：义务教育 PDF 的 201 页文字层全部为 0 字符，初中正文不能在本票升级为 verbatim；
+  要升级只能重做 OCR 并人工复核。补充块 OCR 偶发错字，保持 unaudited。
+
+## 9. 内置/依赖库（自动汇总）
 
 生产依赖的具体版本与许可证以 `wengu-api/requirements.txt` 与 `wengu-web/package.json` 为准。CI 应加 `pip-licenses` / `license-checker` 汇总，本文件人工维护顶层归属。
 
-### 5.1 OCR 运行时（已退役）
+### 9.1 OCR 运行时（已退役）
 
 P1-3b 曾在本地 CPU 运行 RapidOCR（`rapidocr-onnxruntime` / `onnxruntime` / `opencv-python-headless` /
 `Pillow` / `numpy` 等）做切片预处理。**v2.5 / P1-12 起系统内视觉栈整体删除**，上述依赖已从
@@ -61,5 +112,6 @@ P1-3b 曾在本地 CPU 运行 RapidOCR（`rapidocr-onnxruntime` / `onnxruntime` 
 ## 分发义务（给下游打包者）
 
 - **保留本文件与 `LICENSE`、`LICENSE-data.md`**，与所有代码一起分发；涉及学生数据的部署另须保留 `PRIVACY.md` 与 `transcribe/README.md` §0 合规 checklist。
-- 若打包发布 seed 数据（如 Docker 镜像内嵌 `seeds/cn-math-taxonomy/`），**镜像 README 与 About 页必须显式署名 `cn-math-taxonomy` + CC BY-NC 4.0 + 附原仓库链接**，并声明"限个人非商用"。
-- 若你打算用 wengu 做**商业用途**（培训、School 部署、SaaS 托管等），请**替换或移除 `cn-math-taxonomy` seed 数据**，因为上游 CC **BY-NC** 不允许商用；wengu 代码本身（MIT）可商用。
+- 若打包发布 `seeds/data/`（如 Docker 镜像内嵌 `seeds/cn-math-taxonomy/`），**镜像 README 与 About 页必须显式署名 `cn-math-taxonomy` + CC BY-NC 4.0 + 附原仓库链接**，并声明"限个人非商用"。
+- 若打包发布 `seeds/vocab/`，须保留 ECDICT / engra / vickysy 三家 MIT 署名与许可声明；课标词表按第 8 节标注来源等级。`seeds/vocab/` 本身不继承 CC BY-NC 限制。
+- 若你打算用 wengu 做**商业用途**（培训、School 部署、SaaS 托管等），请**替换或移除 `seeds/data/` 的 `cn-math-taxonomy` seed 数据**，因为上游 CC **BY-NC** 不允许商用；wengu 代码与 `seeds/vocab/` 的 MIT 数据层可商用。

@@ -1,6 +1,6 @@
-# seeds · 知识点树 seed 数据
+# seeds · 知识点树与背单词 seed 数据
 
-本目录存放 wengu 的**知识点 seed 包**（JSON 文件形态 = 分发真源）与**家长自建数据**。
+本目录存放 wengu 的**知识点 seed 包**与**背单词词表 seed**（JSON 文件形态 = 分发真源），以及**家长自建数据**。
 运行时装载器（`wengu-api/app/seed/loader.py`）把 `data/` 装载进 SQLite 作为装载副本 + FK 锚点，
 并建内存索引供回溯诊断使用；**JSON 是唯一真源，装载幂等可重入**。
 
@@ -15,6 +15,13 @@ seeds/
 │  ├─ figures_sha256.json   #   640 段配图 sha256 清单（P5-16 路线 B：构建期净化、装载期验哈希）
 │  ├─ _source.json          #   知识点/先修边署名：上游 URL / License / NC 声明 / 计数 / 快照 commit 与取证
 │  └─ questions_source.json #   题库署名：同上 + 题目计数 / 配图 / verify 统计
+├─ vocab/                   # 背单词范围 base + ECDICT 详情 + engra 词根（P6-1；零运行时、零 schema）
+│  ├─ levels.json           #   小学/初中/高中官方标注形态与学段 band
+│  ├─ words.json            #   ECDICT 整串→等价子形精确 join；无详情留 null
+│  ├─ roots.json            #   engra 2233 棵词根家族展平 + 中文助记
+│  ├─ wordroot_meaning.json #   ECDICT wordroot 含义/语源/类别
+│  ├─ _source_vocab.json    #   分源 verbatim、commit/sha256、交叉验证、no_detail 与计数
+│  └─ _upstream/            #   四个 vendored 输入件（初中正文已按官方形态重发射）
 ├─ local/                   # 家长自建，不进 Git：语文/化学同契约 seed 文件（统一 loc_ 前缀，P5-15）
 ├─ mappings/                # 家长自建，不进 Git：教材包对照（<版本id>.json）
 └─ README.md
@@ -115,6 +122,56 @@ python wengu-api/scripts/check_upstream.py --pinned <sha>   # 快照一致性复
 ```bash
 make seed-questions
 ```
+
+## 背单词词表：vocab/（P6-1）
+
+- **范围源**：小学二级（vickysy，MIT）、初中三级正文与附录3补充块、高中词表（官方课标 PDF）。
+  `word` 保留官方标注形态与大小写，例如 `a/an`、`actor / actress`、`child (pl. children)`、
+  `o'clock`；`miss` 与 `Miss` 是官方两行，均保留。
+- **详情层**：ECDICT（MIT），按“整串精确 → 拆等价子形逐形精确”join，不做模糊匹配；
+  无详情字段留 `null`，集合判据见 `_source_vocab.json.no_detail`。
+- **词根层**：engra（MIT），只展平 `dict/roots/*.yml`； glossaries 不作 K-12 范围源。
+- **许可分层**：ECDICT / engra / vickysy 三家 MIT 数据**可商用**，课标词表为政府公开文件；
+  `vocab/` **不继承** `data/` 的 CC BY-NC 4.0 非商用限制。完整署名见根 `THIRD-PARTY-NOTICES.md`
+  与 `LICENSE-data.md` §8。
+- **质量等级**：小学 = `official-repo`；初中正文 = `derived-from-transcription`（官方 PDF 零文字层，
+  未做逐字比对）；补充块 = `ocr` 且全部 `unaudited: true`；高中 = `official-pdf-verbatim`。
+- **使用状态**：本票只交付数据与构建脚本；内存 loader 在 P6-3、灌库在 P6-4、前端页另票，
+  **背单词尚不可用**。
+
+重新生成（开发者，仓库根执行；脚本不进运行时、镜像、requirements 或 CI 主链）：
+
+```bash
+# ECDICT 与 engra 取钉版快照；engra 含 Windows 保留名 con.yml，构建脚本用 git blob 读取，不 checkout
+git clone https://github.com/skywind3000/ECDICT.git ../vocab-fetch/ECDICT
+git -C ../vocab-fetch/ECDICT checkout 39cfb9672c0906b63569e0453c2e6abfb9ab182a
+git clone --no-checkout https://github.com/bonaysoft/engra.git ../vocab-fetch/engra
+git -C ../vocab-fetch/engra checkout 798d54beb0deae476b856719cb8d5ad33d0baab2
+
+python wengu-api/scripts/import_vocab.py \
+  --ecdict-dir ../vocab-fetch/ECDICT \
+  --engra-dir ../vocab-fetch/engra
+```
+
+编排脚本只重写 `levels.json` / `words.json` / `roots.json` / `wordroot_meaning.json`，
+**绝不覆盖 `_source_vocab.json` 的人工策展取证键**。换快照必须在仓库外 scratch 重取证并人工重新策展；
+vendored 文件字节数或 sha256 漂移会 fail-fast。
+
+开发期重抽入口（可选依赖只允许宿主人工安装，不得进 requirements / CI）：
+
+```bash
+# 初中：默认从 vendored 结构化产物复算；只有人工提供钉版转录缓存件时才走 --transcript
+python wengu-api/scripts/vocab_extract/extract_junior.py
+python wengu-api/scripts/vocab_extract/extract_junior.py --transcript /path/to/transcription-cache
+
+# 高中官方 PDF 文字层 / 初中补充块 OCR（需宿主 pymupdf；补充块另需 rapidocr-onnxruntime）
+python wengu-api/scripts/vocab_extract/extract_gsenior.py --pdf /path/to/senior-2020.pdf
+python wengu-api/scripts/vocab_extract/extract_junior_supp.py \
+  --pdf /path/to/compulsory-2022.pdf --junior seeds/vocab/_upstream/kebiao-level3-1600.json
+```
+
+转录缓存件、官方 PDF、ECDICT csv、engra/vickysy 整仓均不进 git；只 vendored 四个小件。
+所有 JSON 生成侧写死 LF；仓库行尾守卫覆盖 `seeds/vocab/` 工作区字节。
 
 ## 家长自建：local/（统一 loc_ 前缀）
 

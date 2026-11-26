@@ -1,0 +1,250 @@
+{
+ "schema_version": 1,
+ "scope": "背单词范围 base：小学二级 + 初中三级正文与附录3补充块 + 高中词表；不含运行时灌库",
+ "sources": {
+  "ecdict": {
+   "name": "skywind3000/ECDICT",
+   "upstream_url": "https://github.com/skywind3000/ECDICT",
+   "commit": "39cfb9672c0906b63569e0453c2e6abfb9ab182a",
+   "license": "MIT",
+   "verbatim": "official-repo",
+   "verbatim_note": "ecdict.csv 与 wordroot.txt 均取钉版仓库原始文件；join 只做整串精确与等价子形精确，不做模糊匹配"
+  },
+  "engra": {
+   "name": "bonaysoft/engra",
+   "upstream_url": "https://github.com/bonaysoft/engra",
+   "commit": "798d54beb0deae476b856719cb8d5ad33d0baab2",
+   "license": "MIT",
+   "copyright": "Copyright (c) 2023 Ambor",
+   "verbatim": "official-repo",
+   "verbatim_note": "只展平 dict/roots/*.yml；14 档 glossaries 不对口 K-12，不作范围源；不保证家族到单词的映射质量"
+  },
+  "primary": {
+   "name": "vickysy/kebiao-english data/vocab-level2.json",
+   "upstream_url": "https://github.com/vickysy/kebiao-english",
+   "commit": "470117814a09d5bdd37a95ec22acc0ee9de1e9b5",
+   "branch": "main",
+   "license": "MIT",
+   "copyright": "Copyright (c) 2026 木妈AIdea (vickysy)",
+   "verbatim": "official-repo",
+   "verbatim_note": "vendored 文件保持上游原字节；count 与 words 实收数是唯一相等基准",
+   "counts": {
+    "words": 501,
+    "official_level2_claim": 505,
+    "transcription_level2_marked": 503
+   }
+  },
+  "junior": {
+   "name": "义务教育英语课程标准（2022年版）附录3词汇表·三级",
+   "official_pdf_url": "http://www.moe.gov.cn/srcsite/A26/s8001/202204/W020220420582349487953.pdf",
+   "license": "政府公开文件；词表本身不受著作权保护",
+   "verbatim": "derived-from-transcription",
+   "verbatim_note": "第三方全文转录的结构化产物；官方 PDF 201 页逐页文字层均为 0 字符，未做也不能在本票做逐字比对",
+   "counts": {
+    "rows": 1601,
+    "official_word_count": 1600,
+    "level2_marked": 503
+   }
+  },
+  "supplement": {
+   "name": "义务教育英语课程标准（2022年版）附录3补充块",
+   "official_pdf_url": "http://www.moe.gov.cn/srcsite/A26/s8001/202204/W020220420582349487953.pdf",
+   "license": "政府公开文件",
+   "verbatim": "ocr",
+   "verbatim_note": "官方扫描 PDF 第134-138页 OCR；原 vendored 元数据保留不改字节，当前态以本文件的 ocr 与 unaudited 为准",
+   "unaudited": true
+  },
+  "senior": {
+   "name": "普通高中英语课程标准（2017年版2020年修订）附录词汇表",
+   "official_pdf_url": "https://www.pep.com.cn/xw/zt/rjwy/gzkb2020/202205/P020220517522153664167.pdf",
+   "license": "政府公开文件，词表不受著作权",
+   "verbatim": "official-pdf-verbatim",
+   "verbatim_note": "官方 PDF 第125-190页文字层按行逐字抽取；3056 个单词与 10 个多词短语均逐条复现"
+  }
+ },
+ "commit_evidence": {
+  "verified_on": "2026-11-26",
+  "method": "git -C <repo> rev-parse HEAD；文件字节长度与 sha256 用本机二进制读取实算；engra 用 git ls-tree + git cat-file --batch 读取全部 roots/*.yml",
+  "rule": "禁止按导入日期猜 commit；换快照必须在仓库外 scratch 重取证并人工重新策展本文件"
+ },
+ "inputs": {
+  "ecdict": {
+   "commit": "39cfb9672c0906b63569e0453c2e6abfb9ab182a",
+   "files": {
+    "ecdict.csv": {
+     "bytes": 66009548,
+     "sha256": "d1ecbdf9ee2b920afb6f430ca6b6bb9f559588cf0dff86e04bd255f9390843cc",
+     "records": 770611,
+     "columns": [
+      "word",
+      "phonetic",
+      "definition",
+      "translation",
+      "pos",
+      "collins",
+      "oxford",
+      "tag",
+      "bnc",
+      "frq",
+      "exchange",
+      "detail",
+      "audio"
+     ]
+    },
+    "wordroot.txt": {
+     "bytes": 370702,
+     "sha256": "4b400dc5980e4a362fa12c7a49b326bb621c4e6bebd5f37146fbdcbe9db6bb6e",
+     "format": "单一 JSON object",
+     "entries": 611
+    }
+   }
+  },
+  "engra": {
+   "commit": "798d54beb0deae476b856719cb8d5ad33d0baab2",
+   "roots_files": 2233,
+   "source_manifest_sha256": "d10f1cb7a1ed4377450fc73e187816c96bac1bcd4beb7b7af5bd36d9a9d32cc7",
+   "manifest_algorithm": "按路径字典序，对 path UTF-8 + NUL + 文件 sha256 十六进制 ASCII + LF 做 sha256",
+   "glossaries": {
+    "count": 14,
+    "used_as_scope_source": false
+   }
+  }
+ },
+ "official_pdfs": {
+  "compulsory_2022": {
+   "bytes": 31502213,
+   "sha256": "59ec3971e0dbd6ca487c4e4972cbc80effaf2fd62418d07e5f62c6698fa222fb",
+   "pages": 201,
+   "embedded_images": 201,
+   "extractable_text_characters_by_page": "全部为 0",
+   "vendored": false
+  },
+  "senior_2020": {
+   "bytes": 7750611,
+   "sha256": "8ebd6bb12e9eb1c58e422ee01b540a4a71d2e681a4c4a764a36ee3a34b21c1be",
+   "pages": 220,
+   "extractable_text_characters": 160464,
+   "vocab_pages_1_based": [
+    125,
+    190
+   ],
+   "vocab_extractable_text_characters": 35206,
+   "vendored": false
+  }
+ },
+ "transcript": {
+  "url": "https://zhuanlan.zhihu.com/p/1957531179063415195",
+  "bytes": 62885,
+  "sha256": "752a2ee2311c323a4c5ea9beeb7b41dc02fe4926b340cc9be5cadcfb51ee8395",
+  "vendored": false,
+  "reason": "web-search 抓取输出夹带无关第三方网页正文，只记 URL 与 sha256 溯源"
+ },
+ "crosschecks": {
+  "junior_transcript_vs_ocr": {
+   "transcript_unique": 1600,
+   "ocr_unique": 1547,
+   "intersection": 1507,
+   "intersection_over_transcript_percent": 94.1875,
+   "intersection_over_ocr_percent": 97.4144,
+   "ocr_errors": [
+    "affter",
+    "doup",
+    "gif",
+    "gir"
+   ],
+   "ocr_missed_short_words": [
+    "a",
+    "at",
+    "am",
+    "by",
+    "bye"
+   ],
+   "note": "OCR 只作交叉验证，不作范围源或 verbatim 升级依据"
+  },
+  "supplement_vs_vickysy_lists": {
+   "supplement": 150,
+   "vickysy_list_union": 159,
+   "overlap": 143,
+   "overlap_percent": 95.3333,
+   "organization_words_absent_from_vickysy": [
+    "CPC",
+    "PLA",
+    "PRC",
+    "UN",
+    "UNESCO",
+    "WTO"
+   ],
+   "note": "重叠不构成换源理由；补充块维持 OCR + unaudited=true"
+  }
+ },
+ "vendored": {
+  "vocab-level2.json": {
+   "path": "_upstream/vocab-level2.json",
+   "bytes": 14464,
+   "sha256": "4d0bb341ee06e0388a476c153f1824f40086427049fe4dbf30d7a67a55bc4b01"
+  },
+  "kebiao-level3-1600.json": {
+   "path": "_upstream/kebiao-level3-1600.json",
+   "bytes": 202717,
+   "sha256": "4bc41a2b55ee2e3b7dece9d0a1ddfcb5c5b7ef6440f5ab90a5dde0d74c152b2e"
+  },
+  "kebiao-junior-supplement.json": {
+   "path": "_upstream/kebiao-junior-supplement.json",
+   "bytes": 11170,
+   "sha256": "ba72372a6ff6896c6153691e0bd2f5782b175c225a36a284cc729e8c8538c400"
+  },
+  "gsenior-2020-OFFICIAL.json": {
+   "path": "_upstream/gsenior-2020-OFFICIAL.json",
+   "bytes": 335838,
+   "sha256": "bf2bcfee927355b63451917d62f15212ebdd8d6e145abe27345c7a754d84d490"
+  }
+ },
+ "regenerated_from_transcript": {
+  "transcript_sha256": "752a2ee2311c323a4c5ea9beeb7b41dc02fe4926b340cc9be5cadcfb51ee8395",
+  "old_vendored_bytes": 196595,
+  "old_vendored_sha256": "c7da5e5e663f83176cc3101bf9ba4e0a16f3c3959f2ef286861a4d442e621db0",
+  "new_vendored_bytes": 202717,
+  "new_vendored_sha256": "4bc41a2b55ee2e3b7dece9d0a1ddfcb5c5b7ef6440f5ab90a5dde0d74c152b2e",
+  "affected_entries": 84,
+  "fixes": [
+   "forms() 字符白名单保留撇号、括号、斜杠、逗号与句点",
+   "word 取官方原样而非最短子形；保持先去二级星再 strip_glue 的顺序"
+  ],
+  "note": "受影响条目数按官方编号逐条比较旧/新 word 文本；未直接修改 o clock，缺陷由抽取器修复后重发射消除"
+ },
+ "no_detail": [
+  "Beijing opera",
+  "Beijing roast duck",
+  "Children's Day",
+  "Double Ninth Festival",
+  "Mount Huangshan",
+  "Mount Qomolangma",
+  "Mount Taishan",
+  "PLA Day",
+  "Spring Festival couplets",
+  "The Atlantic Ocean",
+  "The Changjiang River",
+  "The Great Wall",
+  "The Pacific Ocean",
+  "The Palace Museum",
+  "The Yellow River",
+  "Tian'anmen Square",
+  "Women's Day"
+ ],
+ "counts": {
+  "union": 3318,
+  "primary": 501,
+  "junior": 1751,
+  "senior": 3066,
+  "supplement": 150,
+  "words": 3318,
+  "matched": 3301,
+  "no_detail": 17,
+  "root_families": 2233,
+  "root_word_nodes": 23982,
+  "wordroot_entries": 611,
+  "junior_rows": 1601,
+  "junior_official_word_count": 1600,
+  "junior_level2_marked": 503
+ }
+}

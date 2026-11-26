@@ -26,6 +26,15 @@ REQUIRED_GITATTRIBUTES_RULES = (
     "*.gif binary",
     "*.ico binary",
 )
+VOCAB_BUILD_SCRIPTS = (
+    "wengu-api/scripts/import_vocab.py",
+    "wengu-api/scripts/vocab_extract/__init__.py",
+    "wengu-api/scripts/vocab_extract/build_levels.py",
+    "wengu-api/scripts/vocab_extract/vocab_join.py",
+    "wengu-api/scripts/vocab_extract/extract_gsenior.py",
+    "wengu-api/scripts/vocab_extract/extract_junior_supp.py",
+    "wengu-api/scripts/vocab_extract/extract_junior.py",
+)
 
 
 def _git(*args: str, stdin: bytes | None = None) -> bytes:
@@ -89,10 +98,20 @@ def test_worktree_text_files_have_no_crlf() -> None:
     assert offenders == CRLF_EXCEPTIONS
 
 
+def test_vocab_worktree_files_have_no_crlf() -> None:
+    paths = sorted(path for path in (REPO_ROOT / "seeds" / "vocab").rglob("*") if path.is_file())
+    assert paths, "seeds/vocab 不能为空"
+    for path in paths:
+        blob = path.read_bytes()
+        assert b"\r\n" not in blob, path.relative_to(REPO_ROOT)
+        assert not blob.startswith(b"\xef\xbb\xbf"), path.relative_to(REPO_ROOT)
+
+
 def test_import_scripts_avoid_write_text() -> None:
     for rel in (
         "wengu-api/scripts/import_seed.py",
         "wengu-api/scripts/import_questions.py",
+        *VOCAB_BUILD_SCRIPTS,
     ):
         assert "write_text(" not in (REPO_ROOT / rel).read_text(encoding="utf-8")
 
@@ -102,8 +121,11 @@ def test_text_writers_pin_explicit_newline() -> None:
     for rel in (
         "wengu-api/scripts/import_seed.py",
         "wengu-api/scripts/import_questions.py",
+        *VOCAB_BUILD_SCRIPTS,
     ):
         text = (REPO_ROOT / rel).read_text(encoding="utf-8")
+        if "_write_json" not in text:
+            continue
         assert 'newline="\\n"' in text, rel
         assert 'newline="\\r\\n"' not in text, rel
     export = (REPO_ROOT / "wengu-api/scripts/export_topics_junior.py").read_text(encoding="utf-8")

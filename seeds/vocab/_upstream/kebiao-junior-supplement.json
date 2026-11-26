@@ -1,0 +1,622 @@
+{
+  "meta": {
+    "source": "义务教育英语课程标准(2022) 附录3 额外块(数词/时间/国家/组织/节日/中国文化专有名词)",
+    "extraction": "官方扫描PDF OCR 页134-138",
+    "count": 150,
+    "categories": {
+      "数词": 40,
+      "其他": 19,
+      "星期": 7,
+      "月份": 11,
+      "专有名词": 67,
+      "组织": 6
+    },
+    "license": "政府公开文件",
+    "verbatim_official": true,
+    "method": "OCR",
+    "unaudited": true,
+    "note": "不规则动词表(139-143)未抽，ECDICT exchange 已覆盖；OCR偶发错字需人工过"
+  },
+  "words": [
+    {
+      "word": "second",
+      "category": "数词"
+    },
+    {
+      "word": "three",
+      "category": "数词"
+    },
+    {
+      "word": "third",
+      "category": "数词"
+    },
+    {
+      "word": "four",
+      "category": "数词"
+    },
+    {
+      "word": "fourth",
+      "category": "数词"
+    },
+    {
+      "word": "five",
+      "category": "数词"
+    },
+    {
+      "word": "fifth",
+      "category": "数词"
+    },
+    {
+      "word": "sixth",
+      "category": "数词"
+    },
+    {
+      "word": "seventh",
+      "category": "数词"
+    },
+    {
+      "word": "seven",
+      "category": "数词"
+    },
+    {
+      "word": "eight",
+      "category": "数词"
+    },
+    {
+      "word": "eighth",
+      "category": "数词"
+    },
+    {
+      "word": "ninth",
+      "category": "数词"
+    },
+    {
+      "word": "nine",
+      "category": "数词"
+    },
+    {
+      "word": "tenth",
+      "category": "数词"
+    },
+    {
+      "word": "eleven",
+      "category": "数词"
+    },
+    {
+      "word": "eleventh",
+      "category": "数词"
+    },
+    {
+      "word": "twelfth",
+      "category": "数词"
+    },
+    {
+      "word": "twelve",
+      "category": "数词"
+    },
+    {
+      "word": "thirteen",
+      "category": "数词"
+    },
+    {
+      "word": "thirteenth",
+      "category": "数词"
+    },
+    {
+      "word": "fourteen",
+      "category": "数词"
+    },
+    {
+      "word": "fourteenth",
+      "category": "数词"
+    },
+    {
+      "word": "fifteen",
+      "category": "数词"
+    },
+    {
+      "word": "fifteenth",
+      "category": "数词"
+    },
+    {
+      "word": "sixteenth",
+      "category": "其他"
+    },
+    {
+      "word": "sixteen",
+      "category": "数词"
+    },
+    {
+      "word": "seventeenth",
+      "category": "其他"
+    },
+    {
+      "word": "seventeen",
+      "category": "数词"
+    },
+    {
+      "word": "eighteen",
+      "category": "数词"
+    },
+    {
+      "word": "eighteenth",
+      "category": "其他"
+    },
+    {
+      "word": "nineteen",
+      "category": "数词"
+    },
+    {
+      "word": "nineteenth",
+      "category": "其他"
+    },
+    {
+      "word": "twenty",
+      "category": "数词"
+    },
+    {
+      "word": "twentieth",
+      "category": "其他"
+    },
+    {
+      "word": "thirty",
+      "category": "数词"
+    },
+    {
+      "word": "thirtieth",
+      "category": "其他"
+    },
+    {
+      "word": "forty",
+      "category": "数词"
+    },
+    {
+      "word": "fortieth",
+      "category": "其他"
+    },
+    {
+      "word": "fifty",
+      "category": "数词"
+    },
+    {
+      "word": "fiftieth",
+      "category": "其他"
+    },
+    {
+      "word": "sixty",
+      "category": "数词"
+    },
+    {
+      "word": "sixtieth",
+      "category": "其他"
+    },
+    {
+      "word": "seventieth",
+      "category": "其他"
+    },
+    {
+      "word": "seventy",
+      "category": "数词"
+    },
+    {
+      "word": "eighty",
+      "category": "数词"
+    },
+    {
+      "word": "eightieth",
+      "category": "其他"
+    },
+    {
+      "word": "ninety",
+      "category": "数词"
+    },
+    {
+      "word": "ninetieth",
+      "category": "其他"
+    },
+    {
+      "word": "hundred",
+      "category": "数词"
+    },
+    {
+      "word": "hundredth",
+      "category": "其他"
+    },
+    {
+      "word": "thousand",
+      "category": "数词"
+    },
+    {
+      "word": "million",
+      "category": "数词"
+    },
+    {
+      "word": "Monday",
+      "category": "星期"
+    },
+    {
+      "word": "January",
+      "category": "月份"
+    },
+    {
+      "word": "Tuesday",
+      "category": "星期"
+    },
+    {
+      "word": "February",
+      "category": "月份"
+    },
+    {
+      "word": "Wednesday",
+      "category": "星期"
+    },
+    {
+      "word": "March",
+      "category": "月份"
+    },
+    {
+      "word": "Thursday",
+      "category": "星期"
+    },
+    {
+      "word": "April",
+      "category": "月份"
+    },
+    {
+      "word": "Friday",
+      "category": "星期"
+    },
+    {
+      "word": "June",
+      "category": "月份"
+    },
+    {
+      "word": "Saturday",
+      "category": "星期"
+    },
+    {
+      "word": "Sunday",
+      "category": "星期"
+    },
+    {
+      "word": "July",
+      "category": "月份"
+    },
+    {
+      "word": "August",
+      "category": "月份"
+    },
+    {
+      "word": "September",
+      "category": "月份"
+    },
+    {
+      "word": "October",
+      "category": "月份"
+    },
+    {
+      "word": "November",
+      "category": "月份"
+    },
+    {
+      "word": "December",
+      "category": "月份"
+    },
+    {
+      "word": "Africa",
+      "category": "专有名词"
+    },
+    {
+      "word": "African",
+      "category": "专有名词"
+    },
+    {
+      "word": "America",
+      "category": "专有名词"
+    },
+    {
+      "word": "American",
+      "category": "专有名词"
+    },
+    {
+      "word": "Antarctica",
+      "category": "专有名词"
+    },
+    {
+      "word": "Asia",
+      "category": "专有名词"
+    },
+    {
+      "word": "Asian",
+      "category": "专有名词"
+    },
+    {
+      "word": "Australia",
+      "category": "专有名词"
+    },
+    {
+      "word": "Australian",
+      "category": "专有名词"
+    },
+    {
+      "word": "British",
+      "category": "专有名词"
+    },
+    {
+      "word": "Britain",
+      "category": "专有名词"
+    },
+    {
+      "word": "Canada",
+      "category": "专有名词"
+    },
+    {
+      "word": "Canadian",
+      "category": "专有名词"
+    },
+    {
+      "word": "England",
+      "category": "专有名词"
+    },
+    {
+      "word": "European",
+      "category": "专有名词"
+    },
+    {
+      "word": "Europe",
+      "category": "专有名词"
+    },
+    {
+      "word": "French",
+      "category": "专有名词"
+    },
+    {
+      "word": "France",
+      "category": "专有名词"
+    },
+    {
+      "word": "Germany",
+      "category": "专有名词"
+    },
+    {
+      "word": "German",
+      "category": "专有名词"
+    },
+    {
+      "word": "India",
+      "category": "专有名词"
+    },
+    {
+      "word": "Indian",
+      "category": "专有名词"
+    },
+    {
+      "word": "Italy",
+      "category": "专有名词"
+    },
+    {
+      "word": "Italian",
+      "category": "专有名词"
+    },
+    {
+      "word": "Japan",
+      "category": "专有名词"
+    },
+    {
+      "word": "Japanese",
+      "category": "专有名词"
+    },
+    {
+      "word": "London",
+      "category": "专有名词"
+    },
+    {
+      "word": "New York",
+      "category": "专有名词"
+    },
+    {
+      "word": "New Zealander",
+      "category": "专有名词"
+    },
+    {
+      "word": "New Zealand",
+      "category": "专有名词"
+    },
+    {
+      "word": "Paris",
+      "category": "专有名词"
+    },
+    {
+      "word": "Russia",
+      "category": "专有名词"
+    },
+    {
+      "word": "Russian",
+      "category": "专有名词"
+    },
+    {
+      "word": "Singapore",
+      "category": "专有名词"
+    },
+    {
+      "word": "Singaporean",
+      "category": "专有名词"
+    },
+    {
+      "word": "South African",
+      "category": "专有名词"
+    },
+    {
+      "word": "South Africa",
+      "category": "专有名词"
+    },
+    {
+      "word": "The Atlantic Ocean",
+      "category": "专有名词"
+    },
+    {
+      "word": "The Indian Ocean",
+      "category": "专有名词"
+    },
+    {
+      "word": "The Pacific Ocean",
+      "category": "专有名词"
+    },
+    {
+      "word": "The United Kingdom",
+      "category": "专有名词"
+    },
+    {
+      "word": "the United States of America",
+      "category": "其他"
+    },
+    {
+      "word": "CPC (Communist Party of China)",
+      "category": "组织"
+    },
+    {
+      "word": "PLA (People's Liberation Army)",
+      "category": "组织"
+    },
+    {
+      "word": "PRC (People's Republic of China)",
+      "category": "组织"
+    },
+    {
+      "word": "UN (United Nations)",
+      "category": "组织"
+    },
+    {
+      "word": "UNESCO",
+      "category": "组织"
+    },
+    {
+      "word": "WTO (World Trade Organization)",
+      "category": "组织"
+    },
+    {
+      "word": "Children's Day",
+      "category": "专有名词"
+    },
+    {
+      "word": "Mount Huangshan",
+      "category": "专有名词"
+    },
+    {
+      "word": "Beijing opera",
+      "category": "专有名词"
+    },
+    {
+      "word": "Mount Qomolangma",
+      "category": "专有名词"
+    },
+    {
+      "word": "Double Ninth Festival",
+      "category": "专有名词"
+    },
+    {
+      "word": "Dragon Boat Festival",
+      "category": "专有名词"
+    },
+    {
+      "word": "Beijing roast duck",
+      "category": "专有名词"
+    },
+    {
+      "word": "Mount Taishan",
+      "category": "专有名词"
+    },
+    {
+      "word": "hot pot",
+      "category": "其他"
+    },
+    {
+      "word": "Labour Day",
+      "category": "专有名词"
+    },
+    {
+      "word": "The Changjiang River",
+      "category": "专有名词"
+    },
+    {
+      "word": "Lantern Festival",
+      "category": "专有名词"
+    },
+    {
+      "word": "The Great Wall",
+      "category": "专有名词"
+    },
+    {
+      "word": "mooncake",
+      "category": "其他"
+    },
+    {
+      "word": "Mid-Autumn Festival",
+      "category": "专有名词"
+    },
+    {
+      "word": "National Day",
+      "category": "专有名词"
+    },
+    {
+      "word": "The Palace Museum",
+      "category": "专有名词"
+    },
+    {
+      "word": "paper-cut",
+      "category": "其他"
+    },
+    {
+      "word": "New Year's Day",
+      "category": "专有名词"
+    },
+    {
+      "word": "qipao",
+      "category": "其他"
+    },
+    {
+      "word": "The Yellow River",
+      "category": "专有名词"
+    },
+    {
+      "word": "PLA Day",
+      "category": "专有名词"
+    },
+    {
+      "word": "Tian'anmen Square",
+      "category": "专有名词"
+    },
+    {
+      "word": "Spring Festival couplets",
+      "category": "专有名词"
+    },
+    {
+      "word": "Spring Festival",
+      "category": "专有名词"
+    },
+    {
+      "word": "spring roll",
+      "category": "其他"
+    },
+    {
+      "word": "Teachers' Day",
+      "category": "专有名词"
+    },
+    {
+      "word": "The Silk Road",
+      "category": "专有名词"
+    },
+    {
+      "word": "Tomb-sweeping Day",
+      "category": "专有名词"
+    },
+    {
+      "word": "Traditional Chinese",
+      "category": "专有名词"
+    },
+    {
+      "word": "Women's Day",
+      "category": "专有名词"
+    }
+  ]
+}
