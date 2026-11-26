@@ -3101,18 +3101,56 @@ seeds/vocab/
   - `roots.json` 依赖 engra 2233 棵树的展平口径，本票只保证 sha256 与条数一致，不保证词根家族
     与单词的映射质量（质量归 P6-3 的 join 断言与后续试用反馈）。
 
-### P6-3 背单词内存索引 loader（`app/seed/vocab.py`，零 SQLite 写入）【骨架】
-- **依赖**：P6-1。**交付**：`load_vocab(seeds_dir)` + frozen `VocabWord` dataclass，
-  运行时按 `word` join `levels/words/roots/wordroot_meaning`；band 过滤按 `seed_grade_ceiling`。
+### P6-3 背单词内存索引 loader（`app/seed/vocab.py`，零 SQLite 写入）【完整卡，可投】
+
+- **状态**：**可投**（口径已定案：band 交集可见 / roots 聚合留在本票 / 不做服务接线，
+  决策人 2026-11-26 确认；蕴含自检 13 条全部推演通过，见投单块）。
+- **依赖**：P6-1（产物已合并 PR#78 → `118c7e8`）。**本票性质**：**零 SQLite 写入、零新依赖、
+  纯标准库**；`app/seed/vocab.py` 是本票唯一新增的 app 文件。
+- **交付**：`load_vocab(seeds_dir=None)` → `VocabIndex`（frozen `VocabWord` / `VocabStats` /
+  `VocabFormatError(ValueError)`），仿 `app/seed/bank.py`（`get_settings().seeds_dir` 默认路径）；
+  band 过滤是索引上的查询方法 `visible(ceiling)`——**装载一次全量、不可变，过滤在查询时**
+  （`runtime_config` 热生效语义，过滤进装载期会让热改配置失效，蕴含自检第 13 行）；
+  band 语义 = **交集可见**：allowed = {6:{primary}, 9:{primary,junior}, 16:全}，
+  可见 ⟺ `set(stages) ∩ allowed ≠ ∅`（收窄主动选择面，非隔离）；ceiling ∉ {6,9,16} → raise
+  （回退是 `runtime_config` 的职责，loader 只校验）。
 - **⚠️ 已解除（2026-11-26 实读）**：`seed_grade_ceiling()` 在 **`app/core/runtime_config.py:338`**，
   docstring 明写"6=只小学 / 9=小学+初中 / 16=全部，缺失/非法回退 16，只收窄能主动选什么、
-  不管复习与诊断回溯" → band 映射 6→仅 primary、9→+junior、16→+senior **与现网语义一致，不新造配置键**。
-  注意 `grade` 是 TEXT 列，过滤要 `func.cast(KnowledgeSeed.grade, Integer)`（现网 `api/seed.py:26` 同款写法）。
-- **DoD 要点**：缺文件/空数组 → 空索引不阻塞服务（仿 `seed/bank.py`）；
-  **join 判据沿用 P6-1 的集合相等口径**（裁定 10），不写 0.99 阈值；
-  band 映射 6/9/16 三档**写判定规则不写词数**；**不写 SQLite**（装载后零写入断言，守 §14）；
-  顶层结构非法 fail-fast，不静默空库。
-- **禁止**：把词表灌进 SQLite；运行时调 OCR/网络；在本票自造复习调度。
+  不管复习与诊断回溯" → band 映射与现网语义一致，不新造配置键。
+- **跨源规则**：roots 倒排 `word → [(family.root, path, mnemonic)]` 聚合不覆盖（多根词合法）；
+  `wordroot_meaning` key 不匹配 → ECDICT 段置 None、engra `mnemonic` 保留（不 fail-fast）；
+  detail 字段**原样透传**（ECDICT 原文含 `\r\n` 与 `\\n`，不得改写——渲染清洗归前端票）。
+- **DoD（每条都要有"因不 X 而红"的测试；合成 fixture，不依赖真数据；不写会漂的计数）**：
+  1. band 三档行为：ceiling 6 / 9 / 16 各一测（蕴含表 4/5/6/7）。
+  2. ceiling 非法值 7 → 红（不静默回退）。
+  3. `stages` 未知值 → 红（fail-fast；值域白名单 `{"primary","junior","senior"}`）。
+  4. 缺文件 → 空索引不阻塞（stats 记 missing）；坏顶层 → `VocabFormatError`。
+  5. 多根词聚合、wordroot 缺 key 容忍、`\r\n` 与官方形态原样透传。
+  6. 零 SQLite：`inspect.getsource(app.seed.vocab)` 不含 `sqlalchemy` / `sqlite3` / `Session`。
+  7. 真仓互证：`levels.words` 与 `words.words` 的 word 集合相等；`words.json` 全 null 详情集合 ==
+     `_source_vocab.json.no_detail`；stats 与 `_source_vocab.json.counts` 相等——两数相等判据，
+     **测试不写死 3318 / 150 / 501 / 3066 / 17 等数字**。
+  8. 全量 `pytest -q` = 开工基线 + 本票新增条数（基线 `--collect-only` 实取，现值 1002）；
+     `ruff check --no-cache .` 全仓绿；`test_repo_eol.py` 全绿（新文件 LF / UTF-8 / 无 BOM）。
+- **蕴含自检（13 条，审核方已纸面推演，你须复跑确认；有推不出的立刻停下上报，别硬凑）**：
+  1 缺 levels.json → 绿（容忍）；2 顶层是数组 → 红（fail-fast）；3 stages 含 "gaokao" → 红（白名单）；
+  4 ceiling 6 时 junior-only 词不可见 → 绿；5 ceiling 6 时 a/an 可见 → 绿；6 ceiling 9 时
+  senior-only 不可见 → 绿；7 ceiling 16 全可见 → 绿；8 ceiling 7 → 红（非法）；9 loader 源码含
+  sqlalchemy/sqlite3 → 红（零 DB 断言）；10 多根词聚合两根 → 绿；11 wordroot 缺 key → 绿（容忍）；
+  12 fixture 的 translation 含 `\r\n` 被改写 → 红（原样透传）；13 band 过滤放进装载参数 → 红
+  （查询时语义）。
+- **必改清单**：`wengu-api/app/seed/vocab.py`（新增）/
+  `wengu-api/tests/unit/test_vocab_index.py`（新增）/ `目录结构.md`（`app/seed/` 节加 `vocab.py`）/
+  `CHANGELOG.md` / `docs/STATUS.md`（交付区新增本票 + 头部快照/基线/全量数 +
+  **§1 内所有「当前待审」指针句一并翻转** + §2 路线表 Phase 6 行）。
+- **禁止**：碰 `recitation_items`、任何迁移、`requirements.txt`（零新依赖，pymupdf 式懒加载本票
+  也不需要）；建 `get_vocab()` 服务缓存或接线 `main.py`/`app/services/**`（消费方是 P6-4 与词卡页，
+  接线随消费方的票走）；把词表灌进 SQLite；改写 ECDICT 原文（含 `\r\n`）；做 band 以外的
+  过滤/排序；写死计数；测试里调 subprocess；在本票做 API 端点、灌库逻辑（P6-4）、词卡 UI（另票）。
+- **残留风险（交付时如实报告）**：`root_family` 倒排覆盖率是 engra 树的自然覆盖（预计稀疏），
+  本票只保证索引正确、不保证覆盖；detail 原文含 `\r\n` 与 `\\n`，渲染清洗归前端票；
+  装载 roots.json 5.5MB 的常驻内存归消费方接线票；band 过滤查询时语义 = 同进程改配置后
+  下一次 `visible()` 自动生效（设计目标不是缺陷）。
 
 ### P6-4 课标词表灌进 recitation_items（seed import，复用背诵引擎）【骨架】
 - **依赖**：P6-2 + P6-3。**交付**：家长触发的 service 函数（API 端点与前端另票）——

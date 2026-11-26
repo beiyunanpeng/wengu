@@ -4463,3 +4463,126 @@ P6-3 细化时先定 `forms` 消费用途。其余残留与裁定同（verbatim 
 **下一张可投**：P6-3（内存索引 loader）——卡内两个 ⚠️ 已于取证轮解除（`seed_grade_ceiling()` 实读
 `app/core/runtime_config.py:338`、join 判据沿用裁定 10 集合相等），依赖 P6-1 产物已就绪；
 细化成完整卡另走一次文档票。
+
+---
+
+## P6-3 —— 背单词内存索引 loader（app/seed/vocab.py，零 SQLite 写入；零新依赖、纯标准库；基线 = P6-1 合并后的 main）
+
+你在 wengu 仓库工作。开工前先完整读三处并以其为准：仓库根 AGENTS.md（顶部 v2.5 横幅 + §8
+提交纪律与卡面纪律）、`docs/specs/architecture/StudyDesk-设计说明文档-v2.md` §14（SQLite 只存动态数据）
+与 §19、`TICKETS.md` 的 **Phase 6 全段**（十一条口径裁定 / 复用现网引擎的核实结论 /
+P6-1 完整卡——本票消费它的产物）。再读现网代码校准，别按文档旧描述：
+- `wengu-api/app/seed/bank.py`（loader 样板真源：缺文件容忍 / 顶层非法 fail-fast /
+  frozen dataclass / stats 派生 / `get_settings().seeds_dir` 默认路径）；
+- `wengu-api/app/core/runtime_config.py:338`（`seed_grade_ceiling()`：6=只小学 / 9=小学+初中 /
+  16=全部；`SEED_GRADE_CEILINGS = frozenset({6, 9, 16})`，默认 16）；
+- `wengu-api/tests/unit/test_vocab_seed.py`（P6-1 刚落的产物测试写法，本票 DoD 仿它）；
+- 本票消费的五份产物结构（2026-11-26 实读，写 fixture 与断言时逐字以此为准，见下方【产物实读】）。
+
+【全局纪律】一条 ticket = 一个可跑增量 = 一个 PR；交付附运行态证据。**本票零 SQLite 写入、
+零新依赖、纯标准库**；`app/seed/vocab.py` 是本票唯一新增的 app 文件；
+不碰 `recitation_items`、任何迁移、`requirements.txt`；不做 API/前端/灌库（P6-4）/词卡 UI（另票）。
+
+【产物实读（2026-11-26 实测，fixture 与断言逐字以此为准）】
+- `seeds/vocab/levels.json`：`{meta:{counts:{union:3318, primary:501, junior:1751, senior:3066,
+  supplement:150}}, words:[3318 行 {word, forms, stages, senior_tier, block, unaudited}]}`；
+  `stages` 值域实测恰为 {"primary","junior","senior"}；block 行带 `unaudited` 字段。
+- `seeds/vocab/words.json`：`{meta:{counts:{words:3318, matched:3301, no_detail:17}},
+  words:[3318 行 {word, matched, match_kind, phonetic, definition, translation, pos, exchange,
+  collins, oxford, tag, bnc, frq, exam_badges{collins,oxford,tags}}]}`；
+  ⚠️ detail 文本原样保留 ECDICT 的换行与 `\r\n`（首条 translation 即含 `\r\n`）——装载原样透传，不得改写。
+- `seeds/vocab/roots.json`：`{meta:{counts:{families:2233, word_nodes:23982}},
+  families:[2233 棵 {root, root_meaning, tags, source_file, source_sha256,
+  words:[{word, root, path, phonetic, mnemonic, meaning}]}]}`；
+  树内词（如 anemia）与三档词表命名空间**不同**，倒排覆盖多少算多少，不做模糊匹配。
+- `seeds/vocab/wordroot_meaning.json`：`{meta:{count:611}, entries:[611 条 {key, class, example, …}]}`；
+  key 含后缀形态（如 `-ability, -ibility…`），与 engra family 的 `root` 名**不一一对应**。
+- `seeds/vocab/_source_vocab.json`：`no_detail` 17 条、`counts` 11 个数——本票测试用它互证，不写死数字。
+
+【定案（决策人 2026-11-26 确认；蕴含自检见下表，13 条全部推演过）】
+A. **band 语义 = 查询时过滤**：`runtime_config.seed_grade_ceiling` 热生效（PUT /api/config 免重启），
+   所以 `load_vocab(seeds_dir)` **装载全量索引、一次、不可变**；band 过滤是索引上的查询方法
+   `visible(ceiling)`；allowed = {6:{primary}, 9:{primary,junior}, 16:全}；
+   可见 ⟺ `set(stages) ∩ allowed ≠ ∅`（收窄主动选择面，非隔离——与现网 seed 语义一致）；
+   ceiling ∉ {6,9,16} → raise（回退是 `runtime_config` 的职责，loader 只校验）。
+B. **缺文件容忍、坏结构 fail-fast**（仿 bank.py）：任一 JSON 缺失 → 该源为空、索引照常构建
+   （stats 记 missing）；文件在但顶层/关键字段非法 → `VocabFormatError(ValueError)`；
+   `stages` 出现白名单外的值 → fail-fast（本票自己的闸门）。
+C. **跨源查找失败容忍**：word 在 roots.json 无命中 → `root_family` 空元组（stats.rootless 计数），
+   不 fail-fast；wordroot key 不匹配 → ECDICT 段置 None，engra `mnemonic` 保留。
+D. **零 SQLite**：模块 source 不得含 `sqlalchemy` / `sqlite3` / `Session` 字面；装载全程无 DB 参数。
+E. **不做服务接线**：`main.py` lifespan、`app/services/**` 一律不碰——消费方是 P6-4（灌库）
+   与词卡页（另票），接线随消费方的票走。本票 = `app/seed/vocab.py` + 测试。
+
+【任务】
+A) 新增 `wengu-api/app/seed/vocab.py`：`VocabFormatError(ValueError)`；
+   frozen dataclass `VocabWord`（word / forms / stages / senior_tier / block / unaudited / matched /
+   match_kind / phonetic / definition / translation / pos / exchange / collins / oxford /
+   exam_badges / bnc / frq / root_family / root_meaning）、`VocabStats`、
+   `VocabIndex`（不可变容器 + `visible(ceiling)` 查询）；`load_vocab(seeds_dir=None)` 仿 `load_bank`，
+   装载五份产物建倒排（word→family 聚合）与 per-word 详情；缺文件容忍、坏结构 fail-fast；
+   stats 全部派生，不写死任何计数。
+B) 新增 `wengu-api/tests/unit/test_vocab_index.py`：
+   合成 fixture（tmp_path 最小五件套，含 `\r\n`、多根词、括号/斜杠官方形态）覆盖蕴含表 13 条；
+   一条对真仓 `seeds/vocab/` 的结构互证（levels 与 words 的 word 集合相等、no_detail 17 词全部
+   block、stats 与 `_source_vocab.json.counts` 相等——两数相等判据）；零 SQLite source 断言。
+C) `目录结构.md` 的 `app/seed/` 节补 `vocab.py`；`CHANGELOG.md` 新增条目；
+   `docs/STATUS.md` 交付区新增本票 + 头部快照/基线/全量数 +
+   **§1 内所有「当前待审」指针句一并翻转** + §2 路线表 Phase 6 行（P6-3 状态更新）。
+
+【DoD（要运行态证据；每条都要有"因不 X 而红"的测试；合成 fixture 不依赖真数据；不写会漂的计数）】
+1. band 三档行为：ceiling 6 / 9 / 16 各一测（蕴含表 4/5/6/7）。
+2. ceiling 非法值 7 → 红（不静默回退）。
+3. `stages` 未知值 → 红（fail-fast）。
+4. 缺文件 → 空索引不阻塞（stats 记 missing）；坏顶层 → `VocabFormatError`。
+5. 多根词聚合、wordroot 缺 key 容忍、`\r\n` 与官方形态原样透传。
+6. 零 SQLite：`inspect.getsource(app.seed.vocab)` 不含 `sqlalchemy` / `sqlite3` / `Session`。
+7. 真仓互证：`levels.words` 与 `words.words` 的 word 集合相等；
+   `words.json` 全 null 详情集合 `== _source_vocab.json.no_detail`；
+   stats 与 `_source_vocab.json.counts` 相等——两数相等判据，测试不写死数字。
+8. 全量 `pytest -q` = 开工基线 + 本票新增条数（基线 `--collect-only` 实取，现值 1002）；
+   `ruff check --no-cache .` 全仓绿；`test_repo_eol.py` 全绿（新文件 LF / UTF-8 / 无 BOM）。
+
+【蕴含自检（审核方已纸面推演，你须复跑确认；有推不出的立刻停下上报，别硬凑）】
+| # | DoD 靶 | 期望 | 由哪条规则推出 |
+|---|---|---|---|
+| 1 | 缺 `levels.json` 的目录 | **绿**（空索引） | 定案 B：缺文件容忍仿 bank.py |
+| 2 | `levels.json` 顶层是数组而非 {meta, words} | 红 | 定案 B：顶层非法 fail-fast（`VocabFormatError`） |
+| 3 | fixture 里 `stages: ["gaokao"]` | 红 | 定案 B：stages 白名单，未知值 fail-fast |
+| 4 | ceiling=6 时 `stages=["junior"]` 的词不可见 | 绿（不可见） | 定案 A：可见 ⟺ stages ∩ allowed ≠ ∅ |
+| 5 | ceiling=6 时 `a/an`（primary）可见 | 绿（可见） | 定案 A 同上 |
+| 6 | ceiling=9 时 senior-only 词不可见 | 绿（不可见） | 定案 A 同上 |
+| 7 | ceiling=16 时全可见 | 绿 | 定案 A 同上 |
+| 8 | ceiling=7（非法值） | 红 | `SEED_GRADE_CEILINGS={6,9,16}`，loader 校验拒绝 |
+| 9 | loader 源码 import sqlalchemy/sqlite3 | 红 | 定案 D：零 SQLite source 断言 |
+| 10 | 同一 word 出现在两个 family | 绿（聚合两根） | 任务 A：倒排聚合不覆盖 |
+| 11 | `wordroot_meaning` 无该 key | 绿（mnemonic 保留、ECDICT 段置 None） | 定案 C：查找失败容忍 |
+| 12 | fixture 的 translation 含 `\r\n` 装载后被改写 | 红 | 定案"detail 原样透传"（断言 load 后 == JSON 原文） |
+| 13 | 把 band 过滤放进 `load_vocab` 参数 | 红 | 定案 A：过滤必须在查询时（热生效语义） |
+
+【必改清单】`wengu-api/app/seed/vocab.py`（新增）/
+`wengu-api/tests/unit/test_vocab_index.py`（新增）/ `目录结构.md`（`app/seed/` 节加 `vocab.py`）/
+`CHANGELOG.md` / `docs/STATUS.md`（交付区新增本票 + 头部快照日期/基线/全量数 +
+**§1 内所有「当前待审」指针句一并翻转** + §2 路线表 Phase 6 行）。
+
+【禁止】
+- 碰 `recitation_items`、任何迁移、`requirements.txt`（零新依赖——pymupdf 式懒加载本票也不需要）。
+- 建 `get_vocab()` 服务缓存或接线 `main.py` / `app/services/**`（消费方接线随消费方的票走）。
+- 把词表灌进 SQLite；改写 ECDICT 原文（含 `\r\n`）；做 band 以外的过滤/排序；写死计数。
+- 在本票做 API 端点、灌库逻辑（P6-4）、词卡 UI（另票）。
+- 在测试里调 subprocess 跑 git/alembic（沙箱内 dubious ownership 会假红，本仓已复发四次）。
+
+【残留风险（交付时如实报告）】
+- `root_family` 倒排覆盖率是 engra 树的自然覆盖（预计稀疏），本票只保证索引正确、不保证覆盖；
+  覆盖率与词根质量归 P6-4 之后的试用反馈。
+- detail 文本原样含 `\r\n` 与 `\\n`，词卡 UI 渲染时的清洗归前端票。
+- 装载 5.5MB `roots.json` 的常驻内存归消费方接线票；band 过滤查询时语义 =
+  同进程改配置后下一次 `visible()` 自动生效（这是设计目标不是缺陷）。
+- 本票交付后背单词**仍不可用**：灌库在 P6-4、词卡页另票。
+
+【投单纪律】`git fetch origin; git switch -c feat/p6-3-vocab-index origin/main`；
+一票一 PR 分支冻结；中文 commit 用 `git commit -F <仓库外 UTF-8 文件>`；
+提交前 `git diff --name-only` 核对并贴清单（越界即停）；
+交付贴八条 DoD 的运行态输出、蕴含表 13 条靶各 RED→GREEN（合成 fixture 直接可复现）、
+真仓互证输出、全量 pytest/ruff/行尾守卫尾部统计；单列「审核方需复核的点」；
+卡面与盘上不符时以盘上为准并上报，不要硬凑。
