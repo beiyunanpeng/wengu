@@ -9,6 +9,16 @@
 
 ### Added
 
+- **P6-3 背单词内存索引 loader（Phase 6 数据层；零 SQLite 写入、零新依赖、纯标准库）**（2026-11-26，基线 `main` `b63dc54`）：
+  新增 `wengu-api/app/seed/vocab.py`，一次读入 `seeds/vocab/` 五份 JSON，提供冻结的 `VocabWord` / `VocabStats`
+  与深层不可变的 `VocabIndex`；缺文件按固定顺序记录并返回空源，已有文件的非法结构、关键字段缺失或未知 stage
+  立即抛 `VocabFormatError`。`visible(ceiling)` 在查询时按 6→primary、9→primary+junior、16→全学段过滤，
+  非法 ceiling（含 7）拒绝；词根按词聚合多个家族，缺 `wordroot_meaning` 键时保留 engra 助记且 `root_meaning=None`，
+  ECDICT 详情（含 `\r\n`）原样透传。实测 3318 词，visible 计数 6/9/16 = 501/1775/3318，加载约 0.25s。
+  新增 14 条单测覆盖缺文件、坏结构、stage/ceiling、跨源 join、词根聚合、原文透传与真实 seed 集合；
+  13 个蕴含靶全部 RED→GREEN 且源码还原 sha256 一致。全量 **1016 passed**（开工基线 1002 + 14）、
+  ruff 全仓绿、`test_repo_eol.py` 6 passed；两个新文件均为 LF / UTF-8 / 无 BOM。
+  **不做 API/前端、不灌库、不接服务、不碰迁移或 `recitation_items`；背单词仍不可用，P6-4 才接持久化。**
 - **P6-1 背单词 seed 数据 + 构建期抽取器 + 授权署名（Phase 6 数据层；零运行时、零 schema、零新依赖）**（2026-11-26，基线 `main` `4d49c0a`）：
   新增 `seeds/vocab/` 五份分发真源：`levels.json`（小学/初中/高中/附录补充块合并范围）、
   `words.json`（ECDICT 两级精确 join 详情）、`roots.json`（engra 词根家族）、
