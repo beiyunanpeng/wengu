@@ -3101,10 +3101,14 @@ seeds/vocab/
   - `roots.json` 依赖 engra 2233 棵树的展平口径，本票只保证 sha256 与条数一致，不保证词根家族
     与单词的映射质量（质量归 P6-3 的 join 断言与后续试用反馈）。
 
-### P6-3 背单词内存索引 loader（`app/seed/vocab.py`，零 SQLite 写入）【完整卡，可投】
+### P6-3 背单词内存索引 loader（`app/seed/vocab.py`，零 SQLite 写入）【完整卡，已合并】
 
-- **状态**：**可投**（口径已定案：band 交集可见 / roots 聚合留在本票 / 不做服务接线，
-  决策人 2026-11-26 确认；蕴含自检 13 条全部推演通过，见投单块）。
+- **状态**：**已合并（PR #79 → main `a46b4a8`，2026-11-27）**。交付 = `app/seed/vocab.py`（334 行，
+  frozen `VocabWord` / `VocabExamBadges` / `VocabStats` / `VocabFormatError`，`VocabIndex` 用
+  `MappingProxyType` 深层不可变，band 查询时过滤 501/1775/3318）+ `tests/unit/test_vocab_index.py`
+  （14 条，蕴含表 13 靶 + 真仓互证）。实测 rootless 1041/3318（engra 自然覆盖）。
+  口径三条定案（band 交集可见 / roots 聚合留在本票 / 不做服务接线）由决策人 2026-11-26 确认；
+  蕴含自检 13 条全部推演通过（见投单块）。
 - **依赖**：P6-1（产物已合并 PR#78 → `118c7e8`）。**本票性质**：**零 SQLite 写入、零新依赖、
   纯标准库**；`app/seed/vocab.py` 是本票唯一新增的 app 文件。
 - **交付**：`load_vocab(seeds_dir=None)` → `VocabIndex`（frozen `VocabWord` / `VocabStats` /

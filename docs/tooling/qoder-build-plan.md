@@ -4466,6 +4466,48 @@ P6-3 细化时先定 `forms` 消费用途。其余残留与裁定同（verbatim 
 
 ---
 
+## P6-3 交付后补记（2026-11-27，PR #79 → main `a46b4a8`）
+
+单 commit `660032b`（5 文件恰为白名单，+660/−12；`app/**` 仅 `seed/vocab.py`，迁移 / requirements /
+CI / scripts / seeds 零改动）。PR CI 三作业全绿（`api` 5m48s / `web` 23s / `transcribe` 6s）。
+合并后 main 复跑 **1016 passed / 0 failed**（unit+e2e 726 / 79.56s + integration 分三批
+65+154+71=290 / 145s+303s+172s）、ruff 全仓绿。远端分支假删（第十二次），手工补删后
+`ls-remote` 只剩 `main`，main 线性到 `a46b4a8`。
+
+**审核方复验要点**：
+- `app/seed/vocab.py` 334 行全读：frozen dataclass + `MappingProxyType` 深层不可变；
+  `visible()` 明确拒绝 bool / 非整数 / 非 {6,9,16}（不静默回退）；缺文件容忍（`stats.missing`
+  五件名单）；未知 stage / 重复 word / 坏顶层 fail-fast；`wordroot` 缺 key → ECDICT 段 None +
+  engra mnemonic 保留；detail 原样透传（含 `\r\n`）；零 SQLAlchemy / sqlite3 / Session。
+- 测试无写死计数（grep 3318/150/501/3066/17 零命中）；蕴含 #13 用
+  `inspect.signature(load_vocab).parameters == ("seeds_dir",)` 字面断言钉住"过滤不在装载期"。
+- 合并后 main 复跑 **1016 passed / 0 failed**（unit+e2e 726 / 68.36s + integration 分三批
+  65+154+71=290）、ruff 全仓绿。
+
+**审核方自主 13 靶**（全部进程内 + tmp fixture，与施工方 13 靶不重复）：
+- **交集语义分水岭**：`stages=["junior","senior"]` 在 ceiling=9 **绿**——交集非空即可见；
+  "全部 stage 都得在 allowed 内"的另一种语义会把它隐藏，施工方写对了（这是本票最关键的正确性点）。
+- ceiling `"9"` / `6.0` / `True` 红 × 3（bool 显式拒绝实测有效——Python 里 bool 是 int 子类，
+  不显式拦的话 `True` 会静默匹配失败）。
+- levels / words 重复 word 红 × 2（fail-fast 有牙）；`wordroot_meaning.json` 整件缺失 →
+  mnemonic 保留（per-file 缺文件容忍）；`roots.json` 整件缺失 → 全 rootless 不炸；
+  `_source_vocab.json` 顶层是数组 → 红；`visible()` 返回 tuple。
+- 真仓复核：visible(6/9/16) = 501/1775/3318（1775 = 501 primary + 1751 junior − 477 双档重叠，
+  自证交集语义）、rootless = 1041/3318（31.4%，engra 自然覆盖）、missing = ()。
+- 审核方复验脚本自身一笔记账 bug（对期望 RED 的靶误比对 `== "GREEN"` 导致 exit code 1）
+  已确认 13 靶全 `[OK]`，记审核方、不记施工方。
+
+**施工方交付自述数字（1016、visible 三档、rootless 1041、装载 0.25s×3）逐项复核一致。**
+六条「审核方需复核的点」全部追认（forms 子形不完整 / 防覆盖字面边界 / 重算与 vendored 同源 /
+17 条缺口 / 词根映射未审 / 背单词仍不可用——均已在 STATUS §7 或交付区如实登记）。
+
+**下一张可投**：P6-4（课标词表灌进 recitation_items，Phase 6 最后一张数据票）——
+卡内三条实测已落地（`create_item` 无 `source` 参数须本票加、`due_items` 无过滤天然共用队列、
+casefold 边界分母 133 条须二选一定成断言），依赖 P6-2+P6-3 产物已就绪；
+细化成完整卡另走一次文档票（casefold 二选一由决策人拍板）。
+
+---
+
 ## P6-3 —— 背单词内存索引 loader（app/seed/vocab.py，零 SQLite 写入；零新依赖、纯标准库；基线 = P6-1 合并后的 main）
 
 你在 wengu 仓库工作。开工前先完整读三处并以其为准：仓库根 AGENTS.md（顶部 v2.5 横幅 + §8
