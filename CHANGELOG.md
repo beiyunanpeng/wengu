@@ -9,6 +9,21 @@
 
 ### Added
 
+- **P6-4 课标词表灌入共享背诵池（Phase 6 最后一张数据票；零 schema、零新依赖、零 API/UI 接线）**（2026-11-27，基线 `origin/main` `0857a10`）：
+  `create_item` 增加 `source: str = "manual"`，既有手填/CSV/候选调用零改动；新增
+  `wengu-api/app/services/recitation_seed.py`，调用时解析热配置 band 与冻结 `VocabIndex`，
+  按 exact → 非 seed casefold → seed casefold 放行三级查重，同批新行即时进入映射。
+  seed 行固定 `source='seed'`，prompt 保留官方大小写与多词短语，answer 原样透传 `translation`，
+  无详情保持 NULL；exact 命中含 retired，绝不复活旧行，零 mistakes 写入。
+  新增 12 条集成测试（合成 `VocabIndex` + 真仓逐条互证）：真仓 band=16 实测
+  `seen=created=3318`、`duplicate_exact=0`、`duplicate_casefold=0`、`null_answer=17`、
+  `due_total=3318`、`mistakes=0`，单事务灌库 **8.629s**；二次调用 `created=0`。
+  蕴含自检 1–10、12 均实际 RED→GREEN，11 为现状 GREEN 回归守卫；两个源文件还原后
+  sha256 一致。定向新增 12 + 既有背诵 27 全绿；全量 **1028 passed**（开工基线 1016 + 12）、
+  `ruff check --no-cache .` 全仓绿、`test_repo_eol.py` 6 passed；新文件 LF / UTF-8 / 无 BOM。
+  **本票交付后背单词服务可用，但家长触发端点与词卡 UI 仍各另票；不自动灌库、不碰迁移/前端。**
+  残留：家长 CSV 仍 `.strip().lower()`，seed `China` 与后续 CSV `China` 可形成大小写两轨；
+  10 个多词短语与 91 条大写专名的词卡展示效果归前端票；逐词 SELECT+INSERT 的 8.629s 为当前单事务实测。
 - **P6-3 背单词内存索引 loader（Phase 6 数据层；零 SQLite 写入、零新依赖、纯标准库）**（2026-11-26，基线 `main` `b63dc54`）：
   新增 `wengu-api/app/seed/vocab.py`，一次读入 `seeds/vocab/` 五份 JSON，提供冻结的 `VocabWord` / `VocabStats`
   与深层不可变的 `VocabIndex`；缺文件按固定顺序记录并返回空源，已有文件的非法结构、关键字段缺失或未知 stage
