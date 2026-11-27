@@ -4753,3 +4753,23 @@ D) `CHANGELOG.md` 新增条目；`docs/STATUS.md` 交付区新增本票 + 头部
 交付贴十条 DoD 的运行态输出、蕴含表 12 条靶各 RED→GREEN、真仓灌库互证输出
 （含灌库耗时）、全量 pytest/ruff/行尾守卫尾部统计；单列「审核方需复核的点」；
 卡面与盘上不符时以盘上为准并上报，不要硬凑。
+
+---
+
+## P6-4 交付后补记（2026-11-27，PR #80 → main `cdf90fe`，squash）
+
+- 交付单 commit `81ef6d0`（6 文件恰为白名单 +569/−19；`recitation.py` 仅 `create_item`
+  签名与构造两行，既有调用方零改动）。审核方合并前复验：全量 **1028 passed / 0 failed**、
+  ruff 全仓绿、EOL 守卫绿；自主 **7 靶**（与施工方蕴含表 12 靶不重叠）行为全部正确——
+  N1/N6 首报 MISMATCH 为审核方脚本 want 标签写反，实际 `duplicate_casefold=1 / created=0`
+  恰为闸②正确行为，非施工方问题。
+- 合并后 main `cdf90fe` 复跑 **1028 passed / 0 failed**（unit+e2e 729 / 85.87s + integration
+  背诵 4 文件 39 + 其余 35 文件 99+152 + `tests/unit/` 内集成标的 9），ruff 全仓绿。
+- 施工方自由裁量：seed 行 `created_by='seed'`（卡面未申报该字段值）。查重键 subject+prompt
+  不含 created_by、无判定语义，审核方判可接受；决策人 2026-11-27 知悉，不要求补记。
+- 真仓灌库互证：union 3318 行一次灌入，band=16 / seen=created=3318 / duplicate_exact=0 /
+  duplicate_casefold=0 / null_answer=17 / 单事务 8.629s / mistakes=0；二次调用 created=0。
+  与卡面十条 DoD 逐条相符。
+- 残留（已登 `docs/STATUS.md` §7 第 22 条）：家长 CSV 导入 `.strip().lower()` 与 seed 官方
+  大小写轨并存，`China` 双轨并存由试用观察，出现时另票。
+- **Phase 6 数据层至此收官，背单词数据层可用**；家长灌库触发端点与词卡 UI 各另票待出卡。

@@ -3156,9 +3156,10 @@ seeds/vocab/
   装载 roots.json 5.5MB 的常驻内存归消费方接线票；band 过滤查询时语义 = 同进程改配置后
   下一次 `visible()` 自动生效（设计目标不是缺陷）。
 
-### P6-4 课标词表灌进 recitation_items（seed import，复用背诵引擎）【完整卡，可投】
+### P6-4 课标词表灌进 recitation_items（seed import，复用背诵引擎）【完整卡，已合并】
 
-- **状态**：**可投**（Phase 6 最后一张数据票。casefold 边界 (a)/(b) 由决策人 2026-11-27 拍板选
+- **状态**：**已合并**（2026-11-27，PR #80 → main `cdf90fe`，squash；审核方合并后 main 复跑
+  1028 passed / 0 failed、ruff 全仓绿。casefold 边界 (a)/(b) 由决策人 2026-11-27 拍板选
   **(b) 保留官方原样 + due 队列去重断言**；蕴含自检 12 条全部推演通过，见投单块）。
 - **依赖**：P6-2 + P6-3（均已合并，产物就绪）。**本票性质**：只加 service 函数与
   `create_item` 的 `source` 参数；不碰 `recitation_import.py` / `add_candidate_words` /
