@@ -3156,40 +3156,101 @@ seeds/vocab/
   装载 roots.json 5.5MB 的常驻内存归消费方接线票；band 过滤查询时语义 = 同进程改配置后
   下一次 `visible()` 自动生效（设计目标不是缺陷）。
 
-### P6-4 课标词表灌进 recitation_items（seed import，复用背诵引擎）【骨架】
-- **依赖**：P6-2 + P6-3。**交付**：家长触发的 service 函数（API 端点与前端另票）——
-  按 band 选词批量入库 `recitation_items(subject='英语', prompt=word, answer=<ECDICT 中文释义>, source='seed')`；
-  与错题候选词、家长手填并列；`create_item` 加 `source` 参数（默认 `'manual'` 向后兼容）。
-- **⚠️ 已解除（2026-11-26 实测）**：`create_item` 现签名
-  `(session, *, subject, prompt, answer=None, unit=None, created_by="parent", now=None)` **确无 `source`**
-  → 本票必须加参数且默认 `'manual'` 保持向后兼容；
-  `due_items(session, today, *, limit=None, daily_limit=None)` **不含 source 过滤**
-  → seed 词与候选词**天然共用同一到期队列**，这条 DoD 不需要改代码，只需要测试证明；
-  `_normalize_text` 只 `strip()` 不 `lower()`，而候选路径（`recitation.py:217`、
-  `recitation_import.py:281`）都 `.strip().lower()` → **候选词永远小写、永远不含空格**。
-- **裁定 5 的落地断言（本票新增，P6-2 不含）**：`miss` 与 `Miss` **两行并存**——
-  已实测坐实（`prompt` 列无 `COLLATE NOCASE`，临时库两行插入成功）。
-  seed 导入路径**不做 `lower()` 归一**，须各入一条、各排一轨；候选词路径仍 `strip().lower()`。
-  测试要同时覆盖这两条路径的大小写行为差异。
-- **裁定 11 的落地断言（本票新增）**：10 个高中多词短语（`according to` 等）作为 `prompt` **原样入库**；
-  因候选路径产不出含空格条目，须断言"含空格 prompt 的条目其 `source` 只能是 `seed`"，
-  防止将来有人给候选路径加短语切分时把空格条目误标。
-- **专名 casefold 边界（原"概率极低"已升级为可断言的实测规模）**：seed 侧在裁定 8 新口径下实测
-  **113 条首字母大写 / 124 条含空格 / 小写化后与自身不同 133 条**
-  （旧产物上只有 3 条含空格、0 条大写，因为官方形态被抽取器拆掉了——
-  所以这条边界的分母**因 P6-1 而变大**，两票必须连着看）；
-  `China`(seed) 与 `china`(candidate) **会两行并存**，破坏"一词一条记忆轨"。
-  本票必须二选一并写成断言：
-  (a) seed 普通词入库前也 `strip().lower()`、仅 vendored 补充块专名保留原样；
-  (b) 保持两行并存，但断言"同一词的大小写变体至多一条参与 due 队列"。
-  细化本票时由决策人拍板，**不在 P6-1 里顺手定**。
-- **DoD 要点**：同 `word` 幂等（二次调用 created=0）；
-  不新建 mistake；补充块专名无释义 → `answer` 留 null 不编造；
-  **去重语义复用现网**：已存在 `(subject='英语', prompt=word)` 行——无论 manual/candidate、
-  无论 active/retired——一律走 `create_item` 抛 `RecitationDuplicate` → 只报告、跳过、
-  **不改 source、不覆盖 answer、不复活 retired**（与 `import_items`/`add_candidate_words` 逐字一致）。
-- **禁止**：把音标/词根家族/变形塞进 `answer`；在本票做前端；无家长确认的自动入库；
-  把 `source` 纳入唯一键。
+### P6-4 课标词表灌进 recitation_items（seed import，复用背诵引擎）【完整卡，可投】
+
+- **状态**：**可投**（Phase 6 最后一张数据票。casefold 边界 (a)/(b) 由决策人 2026-11-27 拍板选
+  **(b) 保留官方原样 + due 队列去重断言**；蕴含自检 12 条全部推演通过，见投单块）。
+- **依赖**：P6-2 + P6-3（均已合并，产物就绪）。**本票性质**：只加 service 函数与
+  `create_item` 的 `source` 参数；不碰 `recitation_import.py` / `add_candidate_words` /
+  `mistakes` 表 / API 路由 / 前端 / 迁移 / `requirements.txt` / `app/seed/vocab.py`（P6-3 产物冻结）。
+- **盘上实读（2026-11-27 实测，写断言时逐字以此为准）**：
+  ① `create_item` 现签名 `(session, *, subject, prompt, answer=None, unit=None,
+  created_by="parent", now=None)` **确无 `source` 参数**（本票必须加，默认 `"manual"` 向后兼容）；
+  查重是 `subject + prompt` **精确匹配**（无 `COLLATE NOCASE`，临时库实测 miss/Miss 两行并存成功），
+  命中即抛 `RecitationDuplicate`（:84 定义，:358/:374/:402 三处 raise），**不区分 active/retired、
+  不区分 source**；
+  ② `extract_word_candidates`（recitation.py:225 附近）的 `existing` 集用
+  `prompt.strip().casefold()` 构造，docstring 明写"无论 active/retired 都视为已有条目
+  （大小写不敏感）"→ **候选路径对 seed 大写变体已有保护**（seed `China` 存在时候选 `china`
+  会被拦下，本票不改候选路径、只加回归守卫钉住）；
+  ③ `due_items(session, today, *, limit=None, daily_limit=None)` **不含 source 过滤**，
+  返回全部 active 条目（新条目无历史即到期）→ seed 词与候选词天然共用队列；
+  ④ 候选/CSV 导入路径均 `.strip().lower()`（recitation.py:217、recitation_import.py:281/:110）
+  → 候选词永远小写、永远不含空格。
+- **交付**：
+  1. `app/services/recitation.py`：`create_item` 加 `source: str = "manual"` 参数
+     （仅签名与 `RecitationItem` 构造两处，其余零改动）。
+  2. 新增 `app/services/recitation_seed.py`：
+     `seed_vocab_items(session, *, vocab_index=None, ceiling=None, now=None) -> VocabSeedReport`
+     （frozen dataclass：band / seen / created / duplicate_exact / duplicate_casefold /
+     null_answer，全部派生计数）——按 `vocab_index.visible(ceiling)` 逐词走三级查重闸后
+     `create_item(subject='英语', prompt=word, answer=translation, source='seed', now=now)`；
+     10 个多词短语 prompt 原样（含空格）；`miss`/`Miss` 两行并存；
+     17 条 no_detail 的 `answer=None`；`answer` 原样透传（含 `\r\n`）。
+  3. 新增 `tests/integration/test_recitation_seed.py`：合成 `VocabIndex` fixture
+     （直接构造 dataclass）+ 真仓 `seeds/vocab/` 互证（灌库后行数/来源/大小写/短语与
+     `_source_vocab.json` 一致——两数相等判据）。
+- **灌库查重闸（三级，灌库函数内实现，不改 create_item 查重语义）**：
+  ① exact 命中任意现存行（无论 source/status，含 retired）→ `duplicate_exact` 报告跳过（现网语义）；
+  ② casefold 命中**非 seed** 现存行（manual/candidate）→ `duplicate_casefold` 报告跳过
+  （**一词一轨**：seed 不与非 seed 大小写变体并存——裁定 (b) 的核心）；
+  ③ casefold 命中 **seed** 现存行 → 不拦（裁定 5：miss/Miss 两行并存）。
+  实现提示：灌库开始时一次性查 `subject='英语'` 全部现存行的 `(prompt, source)` 建 casefold
+  映射，逐词判级；**同批内先灌的行也要进映射**（防同批碰撞漏检——miss/Miss 除外）。
+- **band**：service 签名含 `ceiling: int | None = None`，None → `seed_grade_ceiling()` 现值
+  （热生效语义）；`vocab_index: VocabIndex | None = None`，None → `load_vocab()`
+  （测试注入合成 fixture，不 monkeypatch）。
+- **DoD（每条都要有"因不 X 而红"的测试；合成 fixture + 真仓互证；不写会漂的计数）**：
+  1. `create_item` 加参数后**既有 recitation 全套测试绿**（默认值向后兼容实测）。
+  2. 灌库幂等：二次调用 `created == 0`（全部 exact duplicate）。
+  3. 裁定 5：`miss` 与 `Miss` **两行并存**、均 `source='seed'`、各排一轨（`due_items` 均含）。
+  4. 查重闸②：预置 manual `china` → 灌 `China` → 报告 `duplicate_casefold`、库中仍一行、
+     原行 `source='manual'` 不动；还原重测。
+  5. 裁定 11：10 个多词短语 prompt 原样入库（含空格），`source='seed'`。
+  6. `answer` 透传：抽查真仓灌库后 `translation` 与 `words.json` 原文逐字节一致（含 `\r\n`）；
+     no_detail 条目的 `answer is None`（真仓实测 17 条，判定规则不写死数字）。
+  7. 共用队列：灌库后 `due_items(today)` 含 seed 词（新条目到期语义实测）。
+  8. 零 mistakes 写入：灌库前后 `mistakes` 表行数相等。
+  9. band 过滤：注入合成 index + ceiling=6 → 只灌 primary 档（判定规则，不写死数字）。
+  10. 全量 `pytest -q` = 开工基线 + 本票新增条数（基线 `--collect-only` 实取，现值 1016）；
+      `ruff check --no-cache .` 全仓绿；新文件 LF / UTF-8 / 无 BOM。
+- **蕴含自检（12 条，审核方已纸面推演，你须复跑确认；有推不出的立刻停下上报，别硬凑）**：
+  1 预置 manual `china`，灌 `China` 仍创建第二行 → 红（查重闸② casefold 命中非 seed 行）；
+  2 灌 `miss` + `Miss` 只落一行 → 红（闸③ seed-vs-seed 不拦，裁定 5）；
+  3 二次调用 created > 0 → 红（① exact 全命中 → 跳过）；
+  4 17 条 no_detail 的 answer 非 null → 红（定案 D 不编造）；
+  5 灌库写 mistakes 表 → 红（零 mistakes 写入断言）；
+  6 seed 词不在 due_items → 红（共用队列断言）；
+  7 retired 行被复活 → 红（① exact 命中任意 status → 跳过不改行）；
+  8 10 个多词短语被拆/丢弃 → 红（裁定 11 prompt 原样入库）；
+  9 seed 行 source 落 manual → 红（任务 A source 参数 + 灌库传 'seed'）；
+  10 answer 中 `\r\n` 被改写 → 红（定案 D 原样透传）；
+  11 seed `China` 存在时候选 `china` 进候选 → 红（现网 casefold 集回归守卫，预期现在就绿，
+  本票不得破坏）；
+  12 既有调用方因 source 参数破坏 → 红（DoD 1 既有全套绿）。
+- **必改清单**：`wengu-api/app/services/recitation.py`（`create_item` 加 `source` 参数）/
+  `wengu-api/app/services/recitation_seed.py`（新增）/
+  `wengu-api/tests/integration/test_recitation_seed.py`（新增）/ `CHANGELOG.md` /
+  `docs/STATUS.md`（交付区新增本票 + 头部快照/基线/全量数 +
+  **§1 内所有「当前待审」指针句一并翻转** + §2 路线表 Phase 6 行）/
+  `目录结构.md`（`services/` 节加 `recitation_seed.py`）。
+- **禁止**：把音标/词根家族/变形塞进 `answer`；做 API 端点/前端/词卡 UI（各另票）；
+  无家长确认的自动入库（本票只交付 service 函数，不接线任何自动触发）；
+  把 `source` 纳入唯一键；改写 `answer` 原文（含 `\r\n`）；
+  对 seed-vs-seed 做 casefold 拦截（裁定 5）；复活 retired；写死计数；
+  碰 `recitation_import.py` / `add_candidate_words` / `mistakes` 表 / 迁移 /
+  `requirements.txt` / `app/seed/vocab.py`；做进度条/分页/批量上限（词表自身即边界，
+  反过度工程）；在测试里调 subprocess 跑 git/alembic（沙箱内 dubious ownership 会假红，
+  本仓已复发四次）。
+- **残留风险（交付时如实报告）**：
+  - 家长 CSV 导入路径（`import_items`）一律 `.strip().lower()`——seed `China` 落库后，
+    家长再导入含 `China` 的 CSV 会生成小写变体第二行（P3-3b 现网行为，本票不修）；
+    登 `docs/STATUS.md` §7 欠账，试用出现时另票处理。
+  - 10 个多词短语与 91 条大写专名作为 prompt 的词卡展示效果归前端票。
+  - 灌库 3318 行逐词 `create_item`（每词一次 SELECT + INSERT）的单次耗时——
+    SQLite 单事务实测后如实报告；如超常再议批量优化（另票，不预设）。
+  - 本票交付后背单词**可用**：家长触发 `seed_vocab_items` 即灌入当前 band 全部词；
+    词卡 UI 与触发端点另票（先用集成测试证明服务可用）。
 
 ### 延后（各另票，不在数据层内）
 背单词前端页（词卡展示音标/释义/变形/词根家族/中文助记/语源）；`dictation_sheets` 对 seed 词的复用；

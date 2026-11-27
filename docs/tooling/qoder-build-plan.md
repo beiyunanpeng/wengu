@@ -4628,3 +4628,128 @@ C) `目录结构.md` 的 `app/seed/` 节补 `vocab.py`；`CHANGELOG.md` 新增�
 交付贴八条 DoD 的运行态输出、蕴含表 13 条靶各 RED→GREEN（合成 fixture 直接可复现）、
 真仓互证输出、全量 pytest/ruff/行尾守卫尾部统计；单列「审核方需复核的点」；
 卡面与盘上不符时以盘上为准并上报，不要硬凑。
+
+---
+
+## P6-4 —— 课标词表灌进 recitation_items（seed import，复用背诵引擎；Phase 6 最后一张数据票；零新依赖；基线 = P6-3 合并后的 main）
+
+你在 wengu 仓库工作。开工前先完整读三处并以其为准：仓库根 AGENTS.md（顶部 v2.5 横幅 + §8
+提交纪律与卡面纪律）、`docs/specs/architecture/StudyDesk-设计说明文档-v2.md` §14 与 §19、
+`TICKETS.md` 的 **Phase 6 全段**（十一条口径裁定 / 复用现网引擎的核实结论 / P6-1 / P6-3 完整卡 /
+本票完整卡——含灌库查重闸三级定义与 casefold (b) 定案）。再读现网代码校准，别按文档旧描述：
+- `wengu-api/app/services/recitation.py`（`create_item` 查重 / `RecitationDuplicate` :84 /
+  `due_items` :478 / `extract_word_candidates` 的 casefold 去重 :225 附近——2026-11-27 实读）；
+- `wengu-api/app/services/recitation_import.py`（候选入库与 CSV 导入现网语义）；
+- `wengu-api/app/seed/vocab.py`（P6-3 刚合并的 `load_vocab` / `VocabIndex.visible(ceiling)` /
+  `VocabWord` 字段——本票消费它）。
+
+【全局纪律】一条 ticket = 一个可跑增量 = 一个 PR。**本票只加 service 函数与 `create_item` 的
+`source` 参数**；不碰 `recitation_import.py` / `add_candidate_words` / `mistakes` 表 / API 路由 /
+前端 / 迁移 / `requirements.txt`（零新依赖）/ `app/seed/vocab.py`（P6-3 产物冻结）。
+
+【盘上实读（2026-11-27 实测，写断言时逐字以此为准）】
+- `create_item` 现签名 `(session, *, subject, prompt, answer=None, unit=None,
+  created_by="parent", now=None)` **确无 `source` 参数**；查重是 `subject + prompt` **精确匹配**
+  （无 `COLLATE NOCASE`，临时库实测 miss/Miss 两行并存成功），命中即抛 `RecitationDuplicate`
+  （:84 定义，:358/:374/:402 三处 raise），**不区分 active/retired、不区分 source**。
+- `extract_word_candidates` 的 `existing` 集用 `prompt.strip().casefold()` 构造，
+  docstring 明写"无论 active/retired 都视为已有条目（大小写不敏感）"→
+  **候选路径对 seed 大写变体已有保护**（seed `China` 存在时候选 `china` 会被拦下，
+  本票不改候选路径、只加回归守卫钉住）。
+- `due_items` **不含 source 过滤**，返回全部 active 条目（新条目无历史即到期）→
+  seed 词与候选词天然共用队列。
+- 候选/CSV 导入路径均 `.strip().lower()` → 候选词永远小写、永远不含空格。
+
+【必须遵守的口径裁定（TICKETS.md Phase 6 已定案，不要重开、不要"顺手改好"）】
+1. `create_item` 加 `source: str = "manual"` 参数（仅签名与构造两处，既有调用方零改动）。
+2. 灌库传 `source='seed'`；seed 行 `source` 不得落 `manual`。
+3. **casefold (b) 定案**：seed 保留官方原样（大小写/含空格短语原样），灌库加
+   **三级查重闸**：① exact 命中任意现存行 → skip；② casefold 命中**非 seed** 现存行
+   （manual/candidate）→ skip；③ casefold 命中 **seed** 现存行 → 不拦（裁定 5 miss/Miss）。
+   实现提示：灌库开始时一次性查全部现存行建 casefold 映射，逐词判级；
+   同批内先灌的行也要进映射。
+4. band = 调用时取：`ceiling=None` → `seed_grade_ceiling()` 现值（热生效语义）；
+   `vocab_index=None` → `load_vocab()`（测试注入合成 fixture，不 monkeypatch）。
+5. `answer` = words.json 的 `translation`（原样含 `\r\n`）；no_detail 条目（全 null 详情）→
+   `answer=None` 不编造。
+6. 高中词表含 **10 个多词短语** → prompt 原样（含空格），禁止拆分或丢弃。
+7. 幂等：二次调用 `created == 0`（全部 exact duplicate）。
+8. 零 mistakes 写入；retired 行不复活。
+
+【任务】
+A) `wengu-api/app/services/recitation.py`：`create_item` 加 `source: str = "manual"` 参数。
+B) 新增 `wengu-api/app/services/recitation_seed.py`：
+   `seed_vocab_items(session, *, vocab_index=None, ceiling=None, now=None) -> VocabSeedReport`
+   （frozen dataclass：band / seen / created / duplicate_exact / duplicate_casefold / null_answer，
+   全部派生计数）；逐词走三级查重闸后 `create_item(subject='英语', prompt=word,
+   answer=translation, source='seed', now=now)`。
+C) 新增 `wengu-api/tests/integration/test_recitation_seed.py`：
+   合成 `VocabIndex` fixture（直接构造 dataclass）+ 真仓 `seeds/vocab/` 互证
+   （灌库后行数/来源/大小写/短语与 `_source_vocab.json` 一致——两数相等判据）。
+D) `CHANGELOG.md` 新增条目；`docs/STATUS.md` 交付区新增本票 + 头部快照/基线/全量数 +
+   **§1 内所有「当前待审」指针句一并翻转** + §2 路线表 Phase 6 行（P6-4 状态更新，
+   Phase 6 数据层收官）；`目录结构.md` 的 `services/` 节补 `recitation_seed.py`。
+
+【DoD（要运行态证据；每条都要有"因不 X 而红"的测试；合成 fixture + 真仓互证；不写会漂的计数）】
+1. `create_item` 加参数后**既有 recitation 全套测试绿**（默认值向后兼容实测）。
+2. 灌库幂等：二次调用 `created == 0`（全部 exact duplicate）。
+3. 裁定 5：`miss` 与 `Miss` **两行并存**、均 `source='seed'`、各排一轨（`due_items` 均含）。
+4. 查重闸②：预置 manual `china` → 灌 `China` → 报告 `duplicate_casefold`、库中仍一行、
+   原行 `source='manual'` 不动；还原重测。
+5. 裁定 11：10 个多词短语 prompt 原样入库（含空格），`source='seed'`。
+6. `answer` 透传：抽查真仓灌库后 `translation` 与 `words.json` 原文逐字节一致（含 `\r\n`）；
+   no_detail 条目的 `answer is None`（真仓实测 17 条，判定规则不写死数字）。
+7. 共用队列：灌库后 `due_items(today)` 含 seed 词（新条目到期语义实测）。
+8. 零 mistakes 写入：灌库前后 `mistakes` 表行数相等。
+9. band 过滤：注入合成 index + ceiling=6 → 只灌 primary 档（判定规则，不写死数字）。
+10. 全量 `pytest -q` = 开工基线 + 本票新增条数（基线 `--collect-only` 实取，现值 1016）；
+    `ruff check --no-cache .` 全仓绿；新文件 LF / UTF-8 / 无 BOM。
+
+【蕴含自检（审核方已纸面推演，你须复跑确认；有推不出的立刻停下上报，别硬凑）】
+| # | DoD 靶 | 期望 | 由哪条规则推出 |
+|---|---|---|---|
+| 1 | 预置 manual `china`，灌 `China` 仍创建第二行 | 红 | 查重闸② casefold 命中非 seed 行 |
+| 2 | 灌 `miss` + `Miss` 只落一行 | 红 | 查重闸③ seed-vs-seed 不拦（裁定 5） |
+| 3 | 二次调用 created > 0 | 红 | ① exact 全命中 → 跳过 |
+| 4 | 17 条 no_detail 的 answer 非 null | 红 | 定案 5：无详情 → None 不编造 |
+| 5 | 灌库写 mistakes 表 | 红 | 零 mistakes 写入断言 |
+| 6 | seed 词不在 due_items | 红 | 共用队列断言（现网无 source 过滤） |
+| 7 | retired 行被复活 | 红 | ① exact 命中任意 status → 跳过不改行 |
+| 8 | 10 个多词短语被拆/丢弃 | 红 | 裁定 11：prompt 原样入库 |
+| 9 | seed 行 source 落 manual | 红 | 任务 A source 参数 + 灌库传 'seed' |
+| 10 | answer 中 `\r\n` 被改写 | 红 | 定案 5 原样透传 |
+| 11 | seed `China` 存在时候选 `china` 进候选 | 红 | 现网 casefold 集回归守卫（预期现在就绿，本票不得破坏） |
+| 12 | 既有调用方因 source 参数破坏 | 红 | DoD 1 既有全套绿 |
+
+【必改清单】`wengu-api/app/services/recitation.py`（`create_item` 加 `source` 参数）/
+`wengu-api/app/services/recitation_seed.py`（新增）/
+`wengu-api/tests/integration/test_recitation_seed.py`（新增）/ `CHANGELOG.md` /
+`docs/STATUS.md`（交付区新增本票 + 头部快照日期/基线/全量数 +
+**§1 内所有「当前待审」指针句一并翻转** + §2 路线表 Phase 6 行）/
+`目录结构.md`（`services/` 节加 `recitation_seed.py`）。
+
+【禁止】
+- 碰 `recitation_import.py` / `add_candidate_words` / `mistakes` 表 / API 路由 / 前端 /
+  迁移 / `requirements.txt` / `app/seed/vocab.py`（P6-3 产物冻结）。
+- 把 `source` 纳入唯一键；改写 `answer` 原文（含 `\r\n`）；对 seed-vs-seed 做 casefold 拦截
+  （裁定 5）；复活 retired；写死计数。
+- 做进度条/分页/批量上限（词表自身即边界，反过度工程）。
+- 在本票做词卡 UI（另票）。
+- 在测试里调 subprocess 跑 git/alembic（沙箱内 dubious ownership 会假红，本仓已复发四次）。
+
+【残留风险（交付时如实报告）】
+- 家长 CSV 导入路径（`import_items`）一律 `.strip().lower()`——seed `China` 落库后，
+  家长再导入含 `China` 的 CSV 会生成小写变体第二行（P3-3b 现网行为，本票不修）；
+  登 `docs/STATUS.md` §7 欠账，试用出现时另票处理。
+- 10 个多词短语与 91 条大写专名作为 prompt 的词卡展示效果归前端票。
+- 灌库 3318 行逐词 `create_item` 的单次耗时——SQLite 单事务实测后如实报告；
+  如超常再议批量优化（另票，不预设）。
+- 本票交付后背单词**可用**：家长触发 `seed_vocab_items` 即灌入当前 band 全部词；
+  词卡 UI 与触发端点另票（先用集成测试证明服务可用）。
+
+【投单纪律】`git fetch origin; git switch -c feat/p6-4-vocab-seed-items origin/main`；
+一票一 PR 分支冻结；中文 commit 用 `git commit -F <仓库外 UTF-8 文件>`；
+提交前 `git diff --name-only` 核对并贴清单（越界即停）；
+交付贴十条 DoD 的运行态输出、蕴含表 12 条靶各 RED→GREEN、真仓灌库互证输出
+（含灌库耗时）、全量 pytest/ruff/行尾守卫尾部统计；单列「审核方需复核的点」；
+卡面与盘上不符时以盘上为准并上报，不要硬凑。
