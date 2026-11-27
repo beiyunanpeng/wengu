@@ -1,10 +1,9 @@
 # STATUS.md — 开发计划与完成情况
 
-> 快照日期：2026-11-27（**P6-3 背单词内存索引 loader 已合并 PR #79 → `a46b4a8`**；P6-1 已合并 PR #78 → `118c7e8`，P5-20 已合并 PR #77 → `da2a718`，P6-2 已合并 PR #76 → `10f731b`）
-> 基线：`main` = `a46b4a8`（P6-3 / PR #79 已合并）；P6-1 / PR #78 → `118c7e8`、P5-20 / PR #77 → `da2a718`、P6-2 / PR #76 → `10f731b`、P5-19 / PR #75 → `e951e80`、P3-5 / PR #74 → `1478476` 已合并
-> 全量测试：**1016 passed**（2026-11-27 **审核方在合并后 `main` 复跑**：unit+e2e 726（79.56s）+ integration 分三批 65+154+71=290（145s/303s/172s）= 1016 passed / 0 failed；= 开工基线 1002 + 本票新增 14）；
-> `ruff check --no-cache .` 全仓绿；`wengu-api/tests/unit/test_repo_eol.py` **6 passed**；两个新文件均为 LF / UTF-8 / 无 BOM；
-> PR #79 CI 三作业全绿：`api` 5m48s / `web` 23s / `transcribe` 6s
+> 快照日期：2026-11-27（**P6-4 课标词表灌库服务已完成待审**，分支 `feat/p6-4-vocab-seed-items`，基线 `origin/main` `0857a10`；P6-3 背单词内存索引 loader 已合并 PR #79 → `a46b4a8`，P6-1 已合并 PR #78 → `118c7e8`，P5-20 已合并 PR #77 → `da2a718`，P6-2 已合并 PR #76 → `10f731b`）
+> 基线：`origin/main` = `0857a10`（P6-4 完整卡落盘）；P6-3 / PR #79 → `a46b4a8`、P6-1 / PR #78 → `118c7e8`、P5-20 / PR #77 → `da2a718`、P6-2 / PR #76 → `10f731b`、P5-19 / PR #75 → `e951e80`、P3-5 / PR #74 → `1478476` 已合并
+> 全量测试：**1028 passed**（2026-11-27，开工基线 1016 + 本票新增 12；P6-4 尚未推送/开 PR，CI 未运行）
+> `ruff check --no-cache .` 全仓绿；`wengu-api/tests/unit/test_repo_eol.py` **6 passed**；P6-4 两个新文件均为 LF / UTF-8 / 无 BOM；
 > Alembic head：`0026_recitation_source`（P6-2 新增，本票不变）；业务表 **23 张**（当前态由 `wengu-api/tests/unit/test_docs_current_state.py` 字面守卫钉住）
 
 本文件是**状态快照**，不替代以下事实源；冲突时以它们为准：
@@ -456,6 +455,16 @@
   RED→GREEN 且源码还原 sha256 一致；全量 **1016 passed**、ruff 全仓绿、行尾守卫 6 passed。
   零 SQLite 写入、零新依赖、纯标准库；不做 API/前端/灌库/服务接线，不碰迁移与
   `recitation_items`。**背单词仍不可用，持久化与导入归 P6-4，词卡 UI 另票。**
+- **P6-4 课标词表灌库服务已完成待审（2026-11-27，分支 `feat/p6-4-vocab-seed-items`，基线 `origin/main` `0857a10`）**：
+  `create_item` 增加默认 `manual` 的 `source` 参数；新增 `services/recitation_seed.py`，按调用时
+  `seed_grade_ceiling()` / `VocabIndex.visible()` 取 band，三级查重为 exact（任意 source/status）→
+  非 seed casefold 拦截 → seed casefold 放行，同批新行即时进映射。seed 行固定 `source='seed'`，
+  prompt 官方大小写/多词短语原样，answer 透传 translation（无详情 NULL），retired 不复活、零 mistakes 写入。
+  真仓 band=16 实测 `seen=created=3318`、`duplicate_exact=0`、`duplicate_casefold=0`、
+  `null_answer=17`、`due_total=3318`、`mistakes=0`，单事务 **8.629s**；二次调用 `created=0`。
+  新增 12 条集成测试；蕴含靶 1–10、12 均 RED→GREEN，11 保持现状 GREEN，还原 sha256 一致。
+  定向新增 12 + 既有背诵 27 全绿；全量 **1028 passed**、ruff 全仓绿、EOL 6 passed。
+  **背单词服务至此可用，但 API 触发端点与词卡 UI 仍各另票；本票不自动接线、不碰迁移/前端。**
 - **P6-3 审核方合并前复验（单 commit `660032b`，5 文件恰为白名单，`app/**` 仅 `seed/vocab.py`、
   迁移 / requirements / CI / scripts / seeds 零改动）**：
   全量复跑 **1016 passed / 0 failed**（unit+e2e 726 / 68.36s + integration 分三批 65+154+71=290）、
@@ -585,20 +594,18 @@
   并遗留一条 **D2（第 407 行「不借每日目标」）与 §5.7 第三句「家长与 AI 共创长期目标」的待裁决口径**
   ——审核方不自行定案，裁决前不得据此出卡。**Phase 6 背单词数据层已登记（2026-11-25 决策轮）**：
   P6-1（课标词表 seed + 构建期抽取器 + 授权署名）**已合并 PR#78 → `118c7e8`**，P6-2（source 列）已合并 PR#76 → `10f731b`；
-  P6-3（内存索引 loader）**已完成待审**（分支 `feat/p6-3-vocab-index`，基线 `b63dc54`），依赖推进为
-  `P6-4(需 P6-2+P6-3；P6-3 合并后可细化)`。
+  P6-3（内存索引 loader）**已合并 PR#79 → `a46b4a8`**；P6-4（课标词表灌库服务）
+  **已完成待审**（分支 `feat/p6-4-vocab-seed-items`，基线 `0857a10`）。
   上游更新检查脚本已随 P5-12 合并（PR#65 → `caf3b45`）：
   手动跑、只读 GET、零写入；**上游同步永远是另一票**（重导入 + §19-F-1 重取证 + 重新策展，人工决定）。
   **PWA 已砍**（设计文档 §17-A / §12 反清单）。
   扩科同步已随 P5-16 完成（PR#69 → `7ca7014`，10 学科 / 3557 点 / 5132 边 / 14375 题）；
   P5-17 行尾根治已合并（PR#70 → `2daa331`）；P5-18 对照审计脚本已合并（PR#71 → `2b8b033`）；
-  **当前待审 = 无**（P6-3 已合并 PR#79 → `a46b4a8`）；P5-20 已合并 PR#77 → `da2a718`、
+  **当前待审 = P6-4**（课标词表灌库服务，分支 `feat/p6-4-vocab-seed-items`，基线 `0857a10`）；
+  P6-3 已合并 PR#79 → `a46b4a8`；P5-20 已合并 PR#77 → `da2a718`、
   P6-1 已合并 PR#78 → `118c7e8`、
   P6-2 已合并 PR#76 → `10f731b`、P5-19 已合并 PR#75 → `e951e80`、P3-5 已合并 PR#74。
-  **下一张可投 = P6-4**（课标词表灌进 recitation_items，Phase 6 最后一张数据票；
-  卡内三条 ⚠️ 已于取证轮/裁定 8 落地——`create_item` 无 `source` 参数须本票加、
-  `due_items` 无过滤天然共用队列、casefold 边界分母 133 条须二选一定成断言）；
-  **下一张可投 = P6-4**（背单词 seed 灌库服务；需 P6-2 + P6-3，待 P6-3 合并后细化）；
+  **Phase 6 数据层已全部交付待审**；家长灌库触发端点与词卡 UI 不在本票，需各另立卡。
   P3-4b 已合并，按 §19-G-3 定案三处置 B：化学 2 环 + 15 条缺失/反向边
   攒批提上游 issue（另票人工决定），本地补（C）与兜底（A）不预先动手。
 
@@ -615,7 +622,7 @@
 各自触发条件已写死 |
 | Phase 4 | 基础设施演进 | 进行中 | **P4-1 Tailscale 可达性 + 默认只绑回环已合并**（PR#39；两项待试用机实测：`tailscale serve` CLI 形式、sidecar 路径 A 运行时验证）；**P4-1b 部署面命令体检已合并**（PR#40 → `6f6c4cf`；死 `make backup`/`.PHONY restore` 删除、`make dev-api` 默认回环、`make lint --no-cache`、`seeds/README.md --src` 层级、`docs/manuals` 空骨架清理）；P4-1c 命令行备份入口已合并（PR#41 → `8bbef94`；CLI 只调 `create_backup`，与 UI 同目录同命名同 10 份轮转、无 PIN、Windows 计划任务示例已实测）；**P4-4 后端健壮性与可观测性小修已合并**（2026-11-13，PR#51 → `cb6ab4c`；seed 显式降级 + 迁移 0023 `occurred_at` 索引 + `save_config` 改 `to_thread` + 0013/0019 回退说明）；**P4-6 公式题判分已合并**（2026-11-13，PR#53 → `6a4346a`；受限 LaTeX 子集 + `sympy` 等值、不可判降级自评标 `formula_fallback`、不引入 antlr、`requirements.txt` 零变化）；P4-2 可移植部署、P4-3 可选本地模型未开始 |
 | Phase 5 | 开源分发与打包 | 部分完成 | LICENSE / README / CHANGELOG / `.env.example` / 第三方署名已就位；**P5-5 开源基线收口已合并**（2026-11-16，PR#61 → `0928104`；LICENSE 恢复纯 MIT + 数据许可另置 `LICENSE-data.md` + 独立隐私声明 `PRIVACY.md` + seed 快照 provenance 钉死 `d58785ce`（P5-16 起已换 `8b57f2e`，见 §1 P5-16 条） + `--upstream-commit` 显式探测；英文 README 已合并（PR#67 → `847bc03`），仓库元数据/首个 Release 属审核方侧 GitHub 动作：v0.7.0 已发布（2026-11-17，tag→`9bbcb6b`）、description/topics 已设；homepage 留空、Discussions 未做）；P5-2 备份 v1（导出一致性快照 + 停机恢复脚本）已交付；**P5-1b 首次运行向导已合并（PR#33 → `285fba7`）**；**P5-16 全量同步扩科已交付待评审（2026-11-19，10 学科 / 快照 `8b57f2e`）**；工程欠账 **P5-20 文档当前态自述对齐 + 字面守卫已合并（2026-11-26，PR#77 → `da2a718`）**——治的是 `wengu-api/README.md` / §4.8 / §5.2 三处过实的 head 与业务表数自述（第 34 次卡面缺陷的欠账面），当前态由 `test_docs_current_state.py` 从盘上派生钉住；在线恢复、云备份 / 清空级联、鉴权开关、教材包安装器未做 |
-| Phase 6 | 背单词数据层（不含前端页） | 进行中 | 2026-11-25 决策轮登记；依赖 `P6-3(需 P6-1) → P6-4(需 P6-2+P6-3)`；**P6-2 已合并**（PR#76 → `10f731b`，迁移 0026，head 推至 `0026_recitation_source`，审核方合并后 main 复跑 985 passed）；**P6-1 已合并**（PR#78 → `118c7e8`，union 3318 / matched 3301 / no_detail 17 / roots 2233 家族 23,982 词节点 / wordroot 611，四份衍生 JSON 在审核方克隆上逐字节复现，合并后 main 复跑 1002 passed）；**P6-3 已合并**（PR#79 → `a46b4a8`，查询时 band 过滤 501/1775/3318，交集可见语义、缺文件容忍、零 SQLite 写入/零新依赖/无服务接线，审核方合并后 main 复跑 1016 passed；`rootless` 1041/3318 为 engra 自然覆盖）；P6-4 灌库服务待细化（Phase 6 最后一张数据票，卡内 casefold 边界分母 133 条须二选一定成断言） |
+| Phase 6 | 背单词数据层（不含前端页） | 数据层完成待审 | 2026-11-25 决策轮登记；依赖 `P6-3(需 P6-1) → P6-4(需 P6-2+P6-3)`；**P6-2 已合并**（PR#76 → `10f731b`，迁移 0026，head 推至 `0026_recitation_source`，审核方合并后 main 复跑 985 passed）；**P6-1 已合并**（PR#78 → `118c7e8`，union 3318 / matched 3301 / no_detail 17 / roots 2233 家族 23,982 词节点 / wordroot 611，四份衍生 JSON 在审核方克隆上逐字节复现，合并后 main 复跑 1002 passed）；**P6-3 已合并**（PR#79 → `a46b4a8`，查询时 band 过滤 501/1775/3318，交集可见语义、缺文件容忍、零 SQLite 写入/零新依赖/无服务接线，审核方合并后 main 复跑 1016 passed；`rootless` 1041/3318 为 engra 自然覆盖）；**P6-4 已完成待审**（分支 `feat/p6-4-vocab-seed-items`，基线 `0857a10`；三级查重、热 band、seed 来源与共用 due 队列，真仓一次灌入 3318 行 / no_detail 17 / 8.629s，二次 created=0，全量 1028 passed）；API 触发端点与词卡 UI 另票 |
 
 ## 3. Phase 1 工单完成情况（v2.5 收口后）
 
@@ -1096,9 +1103,14 @@
 
 - **定位**：v2.6 的档③"自评间隔重复"。内容来源按 B → A → C 推进，本票只做 **A 家长手填**：
   零模型、不做相似条目猜测；**背诵条目不是错题**，也不进 `attempts`（作答语义）。
-- **数据（迁移 0020，可逆）**：`recitation_items`（`subject / prompt / answer? / unit? /
-  status(active|retired) / created_by / created_at`，`UNIQUE(subject,prompt)` +
-  `CHECK status`）与 `recitation_reviews`（`verdict(remembered|forgot) / rung /
+- **P6-4 课标词表灌库服务（已完成待审，未接 API/UI）**：`seed_vocab_items()` 按调用时
+  `seed_grade_ceiling()` 取 band，把 `VocabIndex.visible()` 的词以 `source='seed'` 写入同一
+  `recitation_items` 池；exact 命中任意行即跳过，casefold 只拦非 seed，seed-vs-seed 允许
+  `miss`/`Miss` 并存。prompt/answer 保留官方原文，retired 不复活，新 seed 词无历史即进入既有
+  `due_items`；不写 mistakes，不改记忆阶梯。家长触发端点、首次导入向导与词卡 UI 各另票。
+- **数据（迁移 0020，可逆；0026 增 source 列）**：`recitation_items`（`subject / prompt / answer? / unit? /
+  status(active|retired) / created_by / created_at / source(seed|manual|candidate)`，`UNIQUE(subject,prompt)` +
+  `CHECK status` / `CHECK source`）与 `recitation_reviews`（`verdict(remembered|forgot) / rung /
   reviewed_on / scheduled_next? / event_id / created_at`，`UNIQUE(item_id, reviewed_on)` +
   `CHECK verdict`；条目 FK `ON DELETE CASCADE`、事件 FK `ON DELETE RESTRICT`）。
   备份 `COUNT_TABLES` 加入两表（manifest 计数 11 → 13 项），业务表 19 → **21**。
@@ -1333,8 +1345,8 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
     （代表既往错题），按 P2-6 规则回退 `occurred_at` 计入当天，因此家长“确认导入”也可能
     点亮当日打卡；P3-3a 起 `recitation_reviewed` 也计入（只背诵也算打卡）。streak 仅做习惯
     展示，**不得据此推断学习效果**（与掌握度解耦）。
-11. **背诵无内容质量校验**：条目内容完全由家长手填、从其词表导入或从错题抽词（P3-3b/3c
-    只做格式/体积/长度/重复校验），系统不判断释义正确性；`answer` 可空、不参与任何判分。
+11. **背诵无内容质量校验**：条目内容由家长手填、从其词表导入、从错题抽词或来自课标 seed（P3-3b/3c
+    与 P6-4 只做格式/体积/长度/重复校验），系统不判断释义正确性；`answer` 可空、不参与任何判分。
     P3-3c 抽词不做词形还原（`practice`/`practiced` 视为两个词）、停用词是硬编码起步集、
     题面全中文时无候选；候选只按「出现错题数」排序，不做任何权重/语义筛选。
 11. **日队列配置与统计成本**：P5-1a 起配置真源是 `<data_dir>/app-config.json`（随 data 卷走），
@@ -1411,6 +1423,12 @@ P3-1b 后题库相关端点（练习记录、组卷、到期考核、看板 gap�
     当前闭环（P6-3 按 word join、P6-4 以 word 作 prompt）不消费这些子形。
     处置：P6-3 细化时先定 `forms` 的消费用途，再决定是否扩抽取语义，不在 P6-1 顺手扩；
     P6-3 的 join 判据沿用裁定 10 的"两级查找 + 集合相等"口径，与 P6-1 同源。
+22. **seed 与家长 CSV 的大小写轨尚未统一（P6-4 残留）**：seed 保留官方 prompt 大小写，
+    家长 CSV 导入仍 `.strip().lower()`；seed `China` 落库后再导入含 `China` 的 CSV 会创建
+    小写 `china` 第二行。P6-4 明确不修 `recitation_import.py`，试用出现时另票统一口径。
+23. **背单词入口仍缺 API 与词卡 UI（P6-4 边界）**：灌库 service 已可用且复用到期/记忆阶梯，
+    但家长不能从现有页面触发，也没有词卡展示；10 个多词短语与 91 条大写专名的展示效果
+    需在前端票验证。自动导入、进度条、分页与批量上限均不在本票。
 
 ## 8. 工程不变量（已落地，后续不得回退）
 

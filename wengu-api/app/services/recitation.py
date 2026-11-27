@@ -340,6 +340,7 @@ async def create_item(
     answer: str | None = None,
     unit: str | None = None,
     created_by: str = "parent",
+    source: str = "manual",
     now: datetime | None = None,
 ) -> RecitationItem:
     subject = _normalize_text(subject, "subject")
@@ -365,6 +366,7 @@ async def create_item(
         status=ITEM_ACTIVE,
         created_by=created_by,
         created_at=now or datetime.now(UTC),
+        source=source,
     )
     try:
         async with session.begin_nested():
