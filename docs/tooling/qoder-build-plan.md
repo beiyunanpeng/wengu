@@ -4927,7 +4927,7 @@ D) `CHANGELOG.md` 新条目；`docs/STATUS.md` 六处翻新（见必改清单）
 各 RED→GREEN、三道 409 的响应体原文、全量 pytest/ruff/行尾守卫尾部统计；单列「审核方需复核的点」
 （R6 的 `to_thread` 与"闸门在事务前"属读码项）；卡面与盘上不符时以盘上为准并上报，不要硬凑。
 
-### P6-5 交付后补记（2026-11-28，分支 `feat/p6-5-seed-vocab-endpoint`，待审未合并）
+### P6-5 交付后补记（2026-11-28，交付时分支 `feat/p6-5-seed-vocab-endpoint` 待审未合并；**其后已合并 PR #81 → main `c23480c`**，见下方审核方复验补记）
 
 - **落地范围**：仅 `app/api/recitations.py`、新测试 `test_recitation_seed_api.py` 与本票四份文档；
   service / seed / models / migrations / requirements / 前端均零改动。新增 `SeedVocabResponse` 六计数、
@@ -4958,3 +4958,30 @@ D) `CHANGELOG.md` 新条目；`docs/STATUS.md` 六处翻新（见必改清单）
 - **审核方读码复核点**：三道闸门与 `load_vocab()` 均在 `async with session.begin()` 之前；
   装载确为 `await asyncio.to_thread(load_vocab)`；端点未接收 `ceiling`，由 service 每次读热配置；
   响应模型只有六计数字段，无 id 列表或请求体。
+
+### P6-5 审核方复验补记（2026-11-28，PR #81 → main `c23480c`，squash）
+
+- **白名单**：6 文件恰为本票必改清单（`recitations.py` +70 / 新测试 +363 / 四份文档），
+  `app/services/**`、`app/seed/**`、`app/models/**`、`migrations/**`、`requirements.txt`、
+  `wengu-web/**` diff 全空；工作区干净；交付 commit `f164fda` 基线 = `9374bc8`（本投单块落盘提交）。
+- **独立运行态**：分五批实跑 **1037 passed / 0 failed**（729 + 背诵 48 + 99 + 152 + `tests/unit/`
+  内集成标 9），`--collect-only` 恰 1037；`ruff check --no-cache .` 全仓绿；EOL 6 + 文档当前态 5
+  passed。`f164fda` 与合并树 `c23480c` 的 tree 同为 `4a38365` → 该 1037 即合并后 main 的数。
+- **自主 7 靶（机制与施工方 M01–M12 不重叠）**：MA head 字面量换成 `0025_dictation_sheet_audio_ref`
+  → 7 failed（正常库被误判未迁移）；MB `index.stats.total == 0` 改 `< 0` → 1 failed；
+  MC 端点越权传 `ceiling=16` → 3 failed；MD head 闸门 409 改 422 → 2 failed；
+  ME 删「版本表不存在」保护 → 1 failed（空库转 500）；MG 响应模型多回 `rows` → 2 failed；
+  MF 去 `to_thread` → 9 passed **不红**，按 P4 定案确认它是读码项而非悬空 DoD。
+  逐条还原，最终源码 SHA-256 == `98f237ef6fa4b1c43af6b769ccc6f3cfb9b1ca4d7695a90a8b812e75f27db813`。
+- **真仓独立复现 band=9**：首灌 **6.779s** `{band:9, seen:1775, created:1775, duplicate_exact:0,
+  duplicate_casefold:0, null_answer:17}`、重跑 **0.486s**（`created=0 duplicate_exact=1775`），
+  响应键集合恰为六计数——与施工方自述 6.827s / 0.494s 同数。
+- **第 41 次卡面缺陷（蕴含类悬空靶，归审核方，不记施工方）**：蕴含表第 8 行原写「丢 exact 闸 →
+  `UNIQUE(subject,prompt)` 冲突 500」，与 P6-4 实码不符——`create_item`（`recitation.py:359`）
+  已按 subject+prompt 抛 `RecitationDuplicate`、`recitation_seed.py` 的 `except` 已计入
+  `duplicate_exact`，单删显式闸报告仍正确。施工方按投单纪律「以盘上为准并上报」，改用「同时破坏
+  冲突计数」证伪，并在 TICKETS 状态行如实标注而**未偷改蕴含表**。本票卡面第 8 行已就地修正。
+  根因与第 36–39 次同族：推靶时只推「删掉我写的这一处」，没顺着**被调方的既有兜底**再走一层，
+  于是造出恒绿靶。若决策人认可，建议把「推靶须同时检查被调方是否已拦同一件事」补进
+  AGENTS.md §8 那条蕴含自检纪律（本补记只登记，未擅自改 §8）。
+- **合并方式**：`gh pr merge 81 --squash --delete-branch` → main `c23480c`，本地 `--ff-only` 同步。

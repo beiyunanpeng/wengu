@@ -3255,7 +3255,8 @@ seeds/vocab/
 
 ### P6-5 家长灌库触发端点（`POST /api/recitations/seed-vocab`；Phase 6 接线票；零迁移零新依赖）
 
-- **状态**：**已交付待审（2026-11-28，分支 `feat/p6-5-seed-vocab-endpoint`；零迁移、零新依赖）**。四条口径由决策人 2026-11-28 拍板：**P1** 只收 POST、
+- **状态**：**已合并**（2026-11-28，PR #81 → main `c23480c`，squash，交付单 commit `f164fda`；
+  零迁移、零新依赖）。四条口径由决策人 2026-11-28 拍板：**P1** 只收 POST、
   不做只读概览端点；**P2** 首灌长事务顶穿 `busy_timeout` 只登 §7 欠账、本票不改代码；
   **P3** 前置闸门一律 **409**；**P4** 不写源码字面守卫，`to_thread` 一类的实现要求改由审核方
   读码复核。蕴含自检 12 条已复跑 RED→GREEN（第 8 条卡面推演与 P6-4 冲突兜底不符，见交付补记）。
@@ -3367,7 +3368,7 @@ seeds/vocab/
   | 5 | `VocabFormatError` 逃逸成 500 | 红 | R3③ | 坏结构 fail-fast 现网已实测；不捕获即 500 |
   | 6 | 六计数与库内行数不等 / fixture 空 | 红 | 任务 A 注入同一 index + DoD 6 存在性断言 | 手写字面 3/3/1；若无 `created>0`，空索引下全部相等恒真 |
   | 7 | seed 行 `source` 落 `manual` | 红 | R2 注入 + P6-4 定案 | `group by source` 必 == {('seed',3)} 且 `subject=='英语'` |
-  | 8 | 连点两次仍新建 | 红 | DoD 7（承 P6-4 闸①） | 端点若丢事务或 service 丢闸① → `UNIQUE(subject,prompt)` 冲突 500 |
+  | 8 | 连点两次仍新建 | 红 | DoD 7（承 P6-4 闸①） | **原推演有误，2026-11-28 修正并记第 41 次卡面缺陷（归审核方）**：单删 service 的显式 exact 闸**不会红**——`create_item`（:359）已按 subject+prompt 抛 `RecitationDuplicate`、`recitation_seed.py` 的 `except` 已计入 `duplicate_exact`，报告仍正确；须同时破坏冲突计数（`except` 分支不再 `+= 1`）才由幂等断言证伪 |
   | 9 | band 在导入期求值（缓存成常量） | 红 | R2 调用时取 | 实读 ⑩ 热生效每次重读文件 → 改档后 `seen` 必变；缓存则恒 3 |
   | 10 | 灌库写 `learning_events` 等四表 | 红 | 禁止项 + 实读 ⑦ | `create_item` 只 INSERT 条目；任一表 >0 即红（存在性由 `created==3` 兜住） |
   | 11 | 闸②降级成只比 exact | 红 | DoD 10（承 P6-4 裁定） | `China` 会新建第二行 → `created` 多 1、原行被视作未拦 |
