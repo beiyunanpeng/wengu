@@ -4985,3 +4985,154 @@ D) `CHANGELOG.md` 新条目；`docs/STATUS.md` 六处翻新（见必改清单）
   于是造出恒绿靶。若决策人认可，建议把「推靶须同时检查被调方是否已拦同一件事」补进
   AGENTS.md §8 那条蕴含自检纪律（本补记只登记，未擅自改 §8）。
 - **合并方式**：`gh pr merge 81 --squash --delete-branch` → main `c23480c`，本地 `--ff-only` 同步。
+
+---
+
+## P6-6 —— 背诵页灌库入口（家长区按钮 + 只读预览；Phase 6 UI 接线票；零迁移零新依赖；基线 = P6-5 合并后的 main）
+
+你在 wengu 仓库工作。开工前先完整读三处并以其为准：仓库根 AGENTS.md（顶部 v2.5 横幅 + §8 提交
+纪律与卡面纪律，尤其「状态类票的必改清单」「卡面引用盘上现状必须实读」「DoD 与断言口径必须先做
+蕴含自检」的 **① 蕴含 / ② 空集 / ③ 兜底** 三条）、`TICKETS.md` 的 **P6-5 完整卡 + P6-6 完整卡**
+（含 A–D 口径裁定、12 条有牙靶 + 2 条不列靶说明）、`docs/STATUS.md` §4.20 与 §7 第 22 / 23 条。
+再读现网代码校准，别按文档旧描述：
+- `wengu-api/app/api/recitations.py`（P6-5 刚合并的 `POST /seed-vocab` 与三道 409；
+  `SeedVocabResponse` 六字段；`asyncio.to_thread(load_vocab)` 的写法照它抄）；
+- `wengu-api/app/seed/vocab.py`（`VocabIndex.visible(ceiling)` / `stats.total` / `missing` /
+  `VocabFormatError` / `_read_json` 缺文件返回 None —— **冻结，一字节不改**）；
+- `wengu-api/app/services/recitation_seed.py`（P6-4 产物，**同样冻结**）；
+- `wengu-api/app/core/runtime_config.py`（`seed_grade_ceiling()` 每次调用重读配置、热生效）；
+- `wengu-web/src/pages/RecitationsPage.tsx`（1229 行；内联家长门 :568 / :575、`busyId` 防抖
+  :80 / :546、批量回执 Alert :674 / :814 —— 区块样式与文案照这几处，**但不要在它里面堆新逻辑**）；
+- `wengu-web/src/api/client.ts`（`DEFAULT_TIMEOUT_MS = 30_000`、
+  `requestJson(path, method, body?, timeoutMs)` —— **本票不改这个文件**）；
+- `wengu-web/src/api/{endpoints,types}.ts`（新函数与新接口落点，照 `listRecitations` /
+  `RecitationFilters` 现有风格）；`wengu-web/src/setup/gradeScope.ts`（三档标签可复用，
+  其注释禁止本地按它过滤）；`wengu-web/tests/gradeScope.test.ts`（`node:test` +
+  `assert/strict` 的写法样例）。
+
+【全局纪律】一条 ticket = 一个可跑增量 = 一个 PR。**白名单是 12 个文件**（见必改清单）。本票后端
+只加**一个只读**预览端点，前端只加一个家长区区块 + 三个纯函数；不改 service / seed / models /
+迁移 / `requirements.txt` / `client.ts` / `package.json`（零新依赖）。**本票交付物不是富词卡**——
+富词卡按裁定 B 押给 P6-7，本票出现任何音标 / 词根 / 助记 / 语源的端点或展示即为越票。
+
+【盘上实读（2026-11-28 审核方实测，写断言逐字以此为准）】
+- `ItemView` **无 `source`** 字段（`id/subject/prompt/answer/unit/status/created_by/created_at`）；
+  `RecitationFilters` 只有 `subject/status/limit/offset`。
+- `load_vocab` 全仓只在 `recitations.py:744` 被调一次；音标/词根家族/助记/语源在 HTTP 面上不存在。
+- 无预览端点（P6-5 裁定 P1 时写明"预览的消费者是 UI，归 UI 票"，本票兑现它）。
+- 家长门内联在页面里（`!unlocked` Alert + `unlocked && Card`）；`/recitations` 属孩子组、
+  非 `parentOnly` —— **不得改 nav 分组**。
+- 防抖惯例 `busyId` + `loading` / `disabled`；回执惯例 `Alert title={"导入完成：成功 N 条"}` +
+  重复计数 + >5 截断加"等"。
+- `requestJson` 第四参即 `timeoutMs`（默认 30_000）→ 本票**零改 client.ts**。
+- `GRADE_SCOPE_OPTIONS`（6/9/16，`as const`）注释明写"前端绝不按它过滤列表" → 只作展示标签。
+- 前端测试只有纯函数：`node --test "tests/*.test.ts"`，现 **61 tests / 0 fail**（node v24.14.1）；
+  **无组件测试框架、无 jsdom** → 渲染层表现一律写进【人工验收步骤】，不得伪装成自动靶。
+- 耗时实测：band=9 首灌 **6.779s**、band=16 首灌 **15.993s**、幂等重跑 **0.486s**；
+  `busy_timeout=5000`；默认档 **16 = 3318 条**，初中家庭需先调 9。
+- `目录结构.md` 是目录级 + 举例粒度（`components/` 行写"…等"、`lib/` 行只列 `dates.ts`、
+  `tests/` 行仍写"mergeSelection 单测"而实际十个文件）→ 本票**不改它**，已核实关闭。
+- 基线：后端 **1037 passed**（main `fa6e244`）、前端 **61 tests**、业务表 **23 张**、
+  head `0026_recitation_source`。
+
+【必须遵守的口径裁定（TICKETS.md P6-6 已定案，不要重开、不要"顺手改好"）】
+1. **A** 新增 `GET /api/recitations/seed-vocab/preview`，挂 `require_parent`，只读，返回
+   `{band, visible_total, seeded_total, not_installed}`；`band` **调用时取**热配置；
+   `visible_total = len(index.visible(band))`；`seeded_total` = `COUNT(*) WHERE
+   subject='英语' AND source='seed'`。
+2. **A 差异点**：预览遇词表缺失 / 坏结构一律 **200 + `not_installed=true` + `visible_total=0`**，
+   **禁止沿用 POST 侧 409**（按钮置灰靠它，409 会被渲染成错误弹窗）。
+3. **B** 不做富词卡、不加词表详情端点、不预留字段。
+4. **C** 前端拆文件：纯函数落 `wengu-web/src/lib/seedVocab.ts`（与 `nav.ts`/`dashboard.ts` 同类），
+   区块落 `wengu-web/src/components/SeedVocabPanel.tsx`（与 `AppLayout`/`QuizQuestionCard` 同类）；
+   `RecitationsPage.tsx` 只加一行挂载。**不新建子目录**（既有两目录语义相符）。
+5. **D** `ItemView` 与前端 `RecitationItem` 接口字段集合一字不改。
+6. seed 的 POST 显式传 `timeoutMs`，常量 `SEED_REQUEST_TIMEOUT_MS = 120_000` 落 `seedVocab.ts`
+   （字面值 + 必须 `> 30_000` 双断言）；预览用默认超时。
+7. 纯函数签名照此：`describeSeedReport(report)` / `parseSeedVocabError(err)` /
+   `seedButtonState({unlocked, busy, not_installed})`。渲染层表现走【人工验收步骤】。
+
+【任务】
+A) 后端：`SeedVocabPreviewResponse` + GET 预览端点（装载照 P6-5 走 `asyncio.to_thread`；只读；
+   **不改** P6-5 的 POST 与三道闸门）。
+B) 前端：新建 `src/lib/seedVocab.ts`（超时常量 + 三个纯函数）。
+C) 前端：新建 `src/components/SeedVocabPanel.tsx`（档位标签复用 `GRADE_SCOPE_OPTIONS`、
+   可灌/已灌计数、确认框 + 防抖 + loading、六计数回执 Alert、三种 409 差异化文案；超时文案必须
+   写"再点一次是安全的（幂等）"，不得写"失败请勿重试"）。
+D) 前端：`endpoints.ts` 加 `getSeedVocabPreview()` 与 `seedVocab(timeoutMs = SEED_REQUEST_TIMEOUT_MS)`；
+   `types.ts` 加两个接口；`RecitationsPage.tsx` 在家长维护卡之后挂 `<SeedVocabPanel />` 一处。
+E) 测试：`wengu-api/tests/integration/test_recitation_seed_preview.py` +
+   `wengu-web/tests/seedVocab.test.ts`。
+F) 文档：`CHANGELOG.md` 新条目；`docs/STATUS.md` 六处翻新；`TICKETS.md` 本票状态行翻转；
+   本文件交付后补记。
+
+【DoD（运行态证据；每条都要有"因不 X 而红"的测试；合成 fixture；不写会漂的计数）】
+1. 零改面：`app/services/**`、`app/seed/**`、`app/models/**`、`migrations/**`、
+   `requirements.txt`、`wengu-web/src/api/client.ts`、`wengu-web/package.json` diff 全空；
+   零迁移（head 0026、业务表 23 张、`test_migrations.py` 未改仍绿）。
+2. 预览未解锁 → **403**。
+3. `seeded_total` == **3**（fixture：1 英语 manual + 3 英语 seed + 1 数学 seed，手写字面值）。
+4. band 调用时取：改档 16→9 后 `band` 与 `visible_total` 同步变小，**两次数值必须不同**。
+5. 词表缺失与坏结构均 **200 + `not_installed=true` + `visible_total=0`**，不得 409。
+6. `describeSeedReport` 返回串同时含 `created/duplicate_exact/duplicate_casefold/null_answer`
+   四个数值与中文说明。
+7. `parseSeedVocabError` 对三个 code 各出**互不相同**且各含关键词的文案。
+8. `seedButtonState` 三个置灰条件逐条有效（`unlocked:false` / `busy:true` / `not_installed:true`）。
+9. `GET /api/recitations` 响应项键集合**不含 `source`**（同测试先断言原七键全在，防空集恒真）。
+10. `SEED_REQUEST_TIMEOUT_MS` 字面 **120_000** 且 `> 30_000`。
+11. 后端全量 `pytest -q` = 开工基线（`--collect-only` 实取，现值 1037）+ 本票新增条数；
+    `ruff check --no-cache .` 全仓绿。
+12. 前端 `node --test` = 基线（实取，现值 61）+ 本票新增、0 fail；`npm run lint` 绿、
+    `npm run build` 绿；新增文件 LF / UTF-8 / 无 BOM。
+- 【人工验收步骤】（交付要求，非断言）：贴界面回执原文，逐项确认档位与两计数、六计数回执、
+  灌库中不可重入、未解锁 / 未装词表的置灰文案、三种 409 提示语互不相同；另报真仓 band=9
+  首灌与重跑的实测耗时各一次。
+
+【蕴含自检（审核方已纸面推演；推不出就停下上报，别硬凑）】
+| # | 变异靶 | 期望 | 由哪条规则推出 |
+|---|---|---|---|
+| 1 | 摘预览端点 `require_parent` | 红 | 裁定 1 |
+| 2 | `seeded_total` 去 `source='seed'` | 红 | 裁定 1 的 COUNT 字面条件（manual 混入即 4） |
+| 3 | `seeded_total` 去 `subject='英语'` | 红 | 同上（数学 seed 混入即 4） |
+| 4 | `band` 写死 16 | 红 | 裁定 1"调用时取" + DoD 4 两次数值必须不同 |
+| 5 | 词表缺失沿用 409 | 红 | 裁定 2 差异点 + DoD 5 断言 200 |
+| 6 | `describeSeedReport` 漏计数 | 红 | DoD 6 逐数断言 |
+| 7 | 三码合一文案 | 红 | DoD 7 互不相同 |
+| 8 | `seedButtonState` 去 busy | 红 | DoD 8（承实读防抖惯例） |
+| 9 | 去 `!unlocked` | 红 | DoD 8（承内联门惯例） |
+| 10 | 去 `not_installed` | 红 | DoD 8（承裁定 2） |
+| 11 | 给 `ItemView` 加 `source` | 红 | 裁定 D + DoD 9 键集合（含七键存在性） |
+| 12 | 超时常量改 20_000 | 红 | 裁定 6 字面钉死 + DoD 10 双断言 |
+| 13 | 〔**不列靶**〕再点重复入库 | — | **§8 ③ 兜底**：P6-4 三级闸 + P6-5 幂等已钉，删本票前端任何一处都不会红 |
+| 14 | 〔**不列靶**〕灌库写 mistakes / learning_events | — | **§8 ③ 兜底**：P6-5 DoD 9 已在服务层断言，重列即假绿守卫 |
+
+【必改清单】共 **12 个文件**：`wengu-api/app/api/recitations.py` /
+`wengu-api/tests/integration/test_recitation_seed_preview.py`（新增）/
+`wengu-web/src/lib/seedVocab.ts`（新增）/ `wengu-web/src/components/SeedVocabPanel.tsx`（新增）/
+`wengu-web/src/pages/RecitationsPage.tsx`（仅挂载一处）/ `wengu-web/src/api/endpoints.ts` /
+`wengu-web/src/api/types.ts` / `wengu-web/tests/seedVocab.test.ts`（新增）/ `CHANGELOG.md` /
+`TICKETS.md` / `docs/STATUS.md`（头部三行 + 交付区新增本票 + **§1 全部「当前待审」指针句翻转** +
+§2 Phase 6 行 + §4.20 + §7 第 23 条补注）/ `docs/tooling/qoder-build-plan.md`。
+**明确不改**：`app/services/**`、`app/seed/**`、`app/models/**`、`migrations/**`、
+`requirements.txt`、`wengu-web/src/api/client.ts`、`package.json`、`README.md`、`目录结构.md`
+（粒度已实读核实，见上）。
+
+【禁止】给 `ItemView` / `RecitationItem` 加 `source` 或任何字段；建词表详情端点或富词卡（押 P6-7）；
+改 P6-5 的 POST 端点与三道闸门；改 `client.ts` 默认超时；按 `GRADE_SCOPE_OPTIONS` 本地过滤列表；
+预览端点返回 409；给按钮加轮询 / 自动触发 / 进度条 / 后台任务；在 `RecitationsPage.tsx` 堆新逻辑；
+把渲染层表现写成自动靶；`--skip` / `xfail`；测试里 subprocess 跑 git / alembic / npm。
+
+【残留风险（交付时如实报告）】
+- `AbortController` 中断**只中断前端等待，服务端事务照常完成** → 超时文案必须引导"再点一次
+  是安全的"；慢机实测耗时如实上报（band=16 实测已达 16.0s）。
+- 预览每次请求都 `load_vocab()`（实测装载 0.25s），本票不做缓存 / 常驻；若试用中该区块刷新
+  频繁导致可感知延迟，另票议（不预设）。
+- 富词卡、`source` 徽标、首次批量导入向导是否真需，全部等 12-01 试用反馈（裁定 B）。
+- 本票交付后孩子侧无变化，入口仅在家长区解锁时出现。
+
+【投单纪律】`git fetch origin; git switch -c feat/p6-6-seed-vocab-ui origin/main`；一票一 PR
+分支冻结；中文 commit 用 `git commit -F <仓库外 UTF-8 文件>`；提交前 `git diff --name-only`
+核对并贴清单（越界即停，白名单 12 文件）；交付贴十二条 DoD 运行态输出、蕴含表 1–12 各
+RED→GREEN、第 13 / 14 条"不列靶"的理由复述、【人工验收步骤】界面回执原文、后端 pytest / ruff /
+EOL 与前端 `node --test` / tsc / build 尾部统计；单列「审核方需复核的点」；卡面与盘上不符时
+以盘上为准并上报，不要硬凑。

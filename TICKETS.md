@@ -3407,8 +3407,181 @@ seeds/vocab/
   「审核方需复核的点」（R6 的 `to_thread` 与"闸门在事务前"属读码项，本票按 P4 定案不写字面守卫）；
   卡面与盘上不符时以盘上为准并上报，不要硬凑。
 
+### P6-6 背诵页灌库入口（家长区按钮 + 只读预览；Phase 6 UI 接线票；零迁移零新依赖）
+
+- **状态**：**可投**（2026-11-28 出卡。四条口径由决策人 2026-11-28 拍板：**A** 本票含只读预览
+  端点；**B** 富词卡（音标/释义原文/变形/词根家族/中文助记/语源）**不并入、另开 P6-7**；
+  **C** 前端拆新文件；**D** 不给 `ItemView` 加 `source` 字段。蕴含自检 12 条有牙靶 + 2 条
+  ③ 兜底注记，见下表与投单块）。
+- **标题改名说明**：本票原登记名"词卡 UI"（见下方「延后」清单既登记项）；因 B 定案把富词卡押给
+  P6-7，本票实际交付物是**灌库入口 + 只读预览**，卡名按实交付命名，「延后」清单的历史原句只加
+  指针括注、不改写。
+- **需求出处**：下方「延后」清单既登记项「背单词前端页」与「首次批量导入向导」；P6-5 卡面裁定
+  P1 时写明"预览的消费者是 UI，归 UI 票"——本票即该笔的兑现，非新造需求。
+- **依赖**：P6-5（`POST /api/recitations/seed-vocab` + 三道 409 闸门已合并 `c23480c`）。
+  **本票性质**：后端只加**一个只读预览端点**，前端加一个家长区区块 + 三个纯函数；零迁移、
+  零新表、零新依赖、零 service 改动、零 `client.ts` 改动。
+- **盘上实读（2026-11-28 审核方实测，写断言时逐字以此为准）**：
+  ① 后端 `ItemView` 字段为 `id / subject / prompt / answer / unit / status / created_by /
+  created_at`——**没有 `source`**；`RecitationFilters` 只有 `subject / status / limit / offset`，
+  无来源过滤。故前端无法区分 seed 与手填条目（与裁定 D 一致，本票不开这个口）。
+  ② 全仓 `load_vocab` 仅被 P6-5 端点调用一处（`recitations.py:744`）——音标/词根家族/助记/语源
+  在 HTTP 面上**完全不存在**，`recitation_items` 只有 `prompt` 与 `answer` 两列承载内容。
+  ③ 无"本档可灌多少 / 已灌多少"的预览口（P6-5 当时判给 UI 票）。
+  ④ 前端体量：`src/pages/RecitationsPage.tsx` **1229 行**（P3-3a/b/c + 默写 + 听写同页），
+  `src/api/endpoints.ts` 1107 行、`src/api/types.ts` 1023 行。
+  ⑤ 家长门是**页面内联**的：`{!unlocked && <Alert title="条目维护属于家长操作">}`（:568）+
+  `{unlocked && <Card>家长维护…</Card>}`（:575）；`/recitations` 在 `src/lib/nav.ts` 属**孩子组**、
+  非 `parentOnly`。新区块必须沿用这种内联门，**不得改 nav 分组**。
+  ⑥ 防抖惯例：`busyId` state（:80）+ `loading={busyId === …}` + `disabled={busyId !== null}`
+  （:546 / :555）。回执惯例：`Alert title={`导入完成：成功 ${n} 条`}` + "重复 M 条（未覆盖已有
+  条目）" + 列表 >5 截断加"等"（:674 / :814）。
+  ⑦ 请求层：`DEFAULT_TIMEOUT_MS = 30_000`（`src/api/client.ts:1`，`AbortController` 实现），
+  `requestJson<T>(path, method, body?, timeoutMs = DEFAULT_TIMEOUT_MS)`（:119-123）**第四参已支持
+  覆写**——本票零改 `client.ts`。
+  ⑧ `src/setup/gradeScope.ts` 有 `GRADE_SCOPE_OPTIONS = [{6,小学},{9,初中},{16,高中}]`
+  （`as const`）与 `parseGradeScope`，其注释明写"收窄发生在服务端，**前端绝不按它过滤列表**"——
+  本票只把它用作**档位标签展示**，不得据它做任何本地过滤。
+  ⑨ 前端测试面只有纯函数：`package.json` scripts `test = node --test "tests/*.test.ts"`、
+  `lint = tsc --noEmit`、`build = tsc --noEmit && vite build`；现 `tests/` 十个文件
+  **61 tests / 0 fail**（审核方 host 实跑，node v24.14.1）；**无组件测试框架、无 jsdom**。
+  ⑩ 耗时实测（审核方临时库）：band=9 首灌 **6.779s**、band=16 首灌 **15.993s**、幂等重跑
+  **0.486s**；`busy_timeout=5000`（`app/core/database.py`）；默认档位 **16 = 全量 3318 条**，
+  初中家庭需先调 9。
+  ⑪ 基线：后端全量 **1037 passed**（main `fa6e244`，交付时以 `--collect-only` 实取为准）；
+  前端 **61 tests**（交付时以 `node --test` 实取为准）；业务表 **23 张**、head
+  `0026_recitation_source` 本票不变。
+  ⑫ `目录结构.md` 是**目录级 + 举例粒度**（`components/` 行写"PomodoroTimer 等"、`lib/` 行只列
+  `dates.ts` 而实际六个、`tests/` 行仍写"mergeSelection 单测"而实际十个文件）→ 本票新增文件
+  **不改该文件**，已核实关闭。
+
+- **口径裁定（决策人已拍板，不要重开、不要"顺手改好"）**：
+  1. **A（含预览）** 新增 `GET /api/recitations/seed-vocab/preview`，挂 `require_parent`，只读，
+     返回 `{band, visible_total, seeded_total, not_installed}`；`band` 取 `seed_grade_ceiling()`
+     **调用时值**（与 P6-4/P6-5 同口径）；`visible_total = len(index.visible(band))`；
+     `seeded_total` = `COUNT(*) WHERE subject='英语' AND source='seed'`。
+  2. **A 的差异点**：预览是只读查询，词表缺失或坏结构一律 **200 + `not_installed=true` +
+     `visible_total=0`**，**不得沿用 POST 侧的 409**——按钮置灰靠它判定，返回 409 会让前端把
+     "没装词表"渲染成错误弹窗。
+  3. **B（不并）** 富词卡押给 P6-7：本票**不新增任何词表详情端点**、不展示音标/词根/助记/语源，
+     也不为此预留字段。
+  4. **C（拆文件）** 纯函数落 `wengu-web/src/lib/seedVocab.ts`（与 `nav.ts` / `dashboard.ts` /
+     `pomodoro.ts` 同类），区块落 `wengu-web/src/components/SeedVocabPanel.tsx`（与 `AppLayout` /
+     `QuizQuestionCard` 同类）；`RecitationsPage.tsx` **只加一处挂载**，不得在该页继续堆新逻辑。
+     两者均落既有目录，不新建子目录（理由见实读 ⑫）。
+  5. **D（不加 source）** `ItemView` 与前端 `RecitationItem` 接口字段集合**一字不改**；"已灌 M 条"
+     由裁定 1 的后端 COUNT 提供。凡"顺手给响应加字段"即越票。
+  6. **前端超时口径**：seed 的 POST 调用必须显式传 `timeoutMs`，常量落在 `seedVocab.ts` 名为
+     `SEED_REQUEST_TIMEOUT_MS`、字面值 **120_000**（> 默认 30_000；band=16 实测 16.0s，留余量）。
+     预览请求用默认超时。
+  7. **可验证性边界（本票如实承认，不许假装）**：渲染层无测试框架，故 UI 呈现类要求写进
+     【人工验收步骤】（交付要求、非断言）；只有纯函数与后端端点进 DoD 断言。
+
+- **任务**：
+  A) `wengu-api/app/api/recitations.py`：新增 `SeedVocabPreviewResponse` +
+     `GET /api/recitations/seed-vocab/preview`（`dependencies=[Depends(require_parent)]`、只读、
+     装载走 `asyncio.to_thread`、缺文件/坏结构 → 200 + `not_installed=true`）。
+     **不改** P6-5 的 POST 端点与三道闸门。
+  B) `wengu-web/src/lib/seedVocab.ts`（新）：`SEED_REQUEST_TIMEOUT_MS` +
+     `describeSeedReport(report): string` + `parseSeedVocabError(err): string` +
+     `seedButtonState({unlocked, busy, not_installed}): {disabled: boolean, hint: string}`。
+  C) `wengu-web/src/components/SeedVocabPanel.tsx`（新）：档位标签（复用 `GRADE_SCOPE_OPTIONS`
+     仅作展示）+ 可灌/已灌计数 + 灌库按钮（确认框 + 防抖 + loading）+ 六计数回执 Alert +
+     三种 409 的差异化文案 + 超时文案。
+  D) `wengu-web/src/api/{endpoints,types}.ts`：`getSeedVocabPreview()` 与
+     `seedVocab(timeoutMs = SEED_REQUEST_TIMEOUT_MS)` 两函数、两个接口；`RecitationsPage.tsx`
+     在家长维护卡之后挂 `<SeedVocabPanel />` 一处。
+  E) 测试：`wengu-api/tests/integration/test_recitation_seed_preview.py`（新）+
+     `wengu-web/tests/seedVocab.test.ts`（新）。
+  F) 文档：`CHANGELOG.md` 新条目；`docs/STATUS.md` 六处翻新（见必改清单）；本票状态行翻转；
+     「延后」清单的历史原句已加指针括注（本卡落盘时一并写，施工方不必再改）。
+
+- **DoD（要运行态证据；每条都要有"因不 X 而红"的测试；合成 fixture；不写会漂的计数）**：
+  1. 零改面：`app/services/**`、`app/seed/**`、`app/models/**`、`migrations/**`、
+     `requirements.txt`、`wengu-web/src/api/client.ts`、`wengu-web/package.json` diff 全空；
+     零迁移（head 仍 0026、业务表仍 **23 张**、`test_migrations.py` 未改仍绿）。
+  2. 预览端点未解锁 → **403**。
+  3. `seeded_total` 严格等于"英语 + seed"行数：fixture 置 `1 条英语 manual + 3 条英语 seed +
+     1 条数学 seed` → 断言手写字面 **3**。
+  4. `band` 调用时取：默认档断言一次，`PUT /api/config` 改 16→9 再断言 `band` 与 `visible_total`
+     同步变小（**两次数值必须不同**，防空集恒真）。
+  5. 词表缺失（删 `levels.json` + `words.json`）→ **200** 且 `not_installed=true` 且
+     `visible_total=0`；坏结构（`words.json` 写成数组）→ 同样 **200**；两者均**不得** 409。
+  6. `describeSeedReport` 返回串同时含 `created / duplicate_exact / duplicate_casefold /
+     null_answer` 四个数值与中文说明，缺一即红。
+  7. `parseSeedVocabError` 对 `db_not_migrated / vocab_not_installed / vocab_invalid` 三种 code
+     各出**互不相同**且各含关键词的文案；合并成通用文案即红。
+  8. `seedButtonState` 三个置灰条件逐条有效：`{unlocked:false}`、`{busy:true}`、
+     `{not_installed:true}` 各断言 `disabled === true`；去掉任一条件即红。
+  9. `GET /api/recitations` 响应项的键集合**不含 `source`**（同测试先断言原七键全在，防空集恒真）。
+  10. `SEED_REQUEST_TIMEOUT_MS` 字面 **120_000** 且 `> 30_000`；改成 20_000 即红。
+  11. 后端全量 `pytest -q` = 开工基线（`--collect-only` 实取，现值 1037）+ 本票新增条数；
+     `ruff check --no-cache .` 全仓绿。
+  12. 前端 `node --test` = 基线（实取，现值 61）+ 本票新增、**0 fail**；`npm run lint` 绿、
+     `npm run build` 绿；新增文件 LF / UTF-8 / 无 BOM。
+  - **【人工验收步骤】（交付要求，非断言——渲染层无测试框架，本票不假装）**：贴出实际界面回执
+    文本，逐项确认：解锁后看到档位与两计数 → 点一次出现六计数回执 → 灌库中按钮 loading 且重复
+    点击不叠加 → 未解锁 / 未装词表时按钮置灰且文案分别正确 → 三种 409 的提示语各不相同；
+    另报真仓 band=9 首灌与重跑的实测耗时各一次。
+
+- **蕴含自检（审核方已按 §8 三条自检逐条纸面推演；推不出的立刻停下上报，别硬凑）**：
+
+  | # | 变异靶 | 期望 | 由哪条规则推出 | 纸面推演 |
+  |---|---|---|---|---|
+  | 1 | 摘掉预览端点的 `Depends(require_parent)` | 红 | 裁定 1 | 现网 `require_parent` 未解锁必 403，摘掉即 200 |
+  | 2 | `seeded_total` 去掉 `source='seed'` | 红 | 裁定 1 的 COUNT 字面条件 | fixture 有 1 条英语 manual → 数全表得 4，断言 3 红 |
+  | 3 | `seeded_total` 去掉 `subject='英语'` | 红 | 同上 | 数学 seed 1 条混入 → 得 4 红 |
+  | 4 | `band` 写死 16（不读热配置） | 红 | 裁定 1"调用时取" | DoD 4 要求改档前后两次数值不同，写死则相同 → 红 |
+  | 5 | 词表缺失沿用 POST 侧 409 | 红 | 裁定 2（本票差异点） | DoD 5 断言 200 + `not_installed`；返回 409 即红 |
+  | 6 | `describeSeedReport` 漏一个计数 | 红 | 裁定 6 / 任务 B 签名 | DoD 6 逐数断言，缺串即红 |
+  | 7 | `parseSeedVocabError` 三码合一 | 红 | DoD 7 互不相同 | 合并后三断言至少两条相等 → 红 |
+  | 8 | `seedButtonState` 去 `busy` | 红 | 实读 ⑥ 防抖惯例 | `{busy:true}` 断言 disabled |
+  | 9 | 去 `!unlocked` | 红 | 实读 ⑤ 内联门 | 同上 |
+  | 10 | 去 `not_installed` | 红 | 裁定 2 | 同上 |
+  | 11 | 给 `ItemView` 加 `source` | 红 | 裁定 D | DoD 9 键集合不含 source；七键存在性防空集恒真 |
+  | 12 | `SEED_REQUEST_TIMEOUT_MS` 改 20_000 | 红 | 裁定 6 字面钉死 | DoD 10 双断言（== 120_000 且 > 30_000） |
+  | 13 | 〔**不列靶**〕"再点不会重复入库" | — | **§8 ③ 兜底** | 该行为由 P6-4 三级闸与 P6-5 幂等测试钉死，**删本票前端任何一处都不会红**——属恒绿靶，故不写进 DoD，仅在按钮文案引用其结论 |
+  | 14 | 〔**不列靶**〕"灌库不写 mistakes / learning_events" | — | **§8 ③ 兜底** | 已由 P6-5 DoD 9 在服务层断言；本票是调用方，重列即交出假绿守卫 |
+
+- **必改清单**（共 **12 个文件**）：`wengu-api/app/api/recitations.py` /
+  `wengu-api/tests/integration/test_recitation_seed_preview.py`（新增）/
+  `wengu-web/src/lib/seedVocab.ts`（新增）/ `wengu-web/src/components/SeedVocabPanel.tsx`（新增）/
+  `wengu-web/src/pages/RecitationsPage.tsx`（仅挂载一处）/ `wengu-web/src/api/endpoints.ts` /
+  `wengu-web/src/api/types.ts` / `wengu-web/tests/seedVocab.test.ts`（新增）/ `CHANGELOG.md` /
+  `TICKETS.md`（本票状态行）/ `docs/STATUS.md`（头部三行 + 交付区新增本票 +
+  **§1 内所有「当前待审」指针句一并翻转** + §2 路线表 Phase 6 行 + §4.20 状态词 +
+  §7 第 23 条补注）/ `docs/tooling/qoder-build-plan.md`（本投单块 + 交付后补记）。
+  **明确不改**：`app/services/**`、`app/seed/**`、`app/models/**`、`migrations/**`、
+  `requirements.txt`、`wengu-web/src/api/client.ts`（`requestJson` 第四参已够用）、
+  `wengu-web/package.json`（零新依赖）、`README.md`（用户可见特性段等 P6-7 一并写，避免两次改
+  口径）、`目录结构.md`（实读 ⑫ 已核实：目录级 + 举例粒度，新增文件不使其失真）。
+
+- **禁止**：给 `ItemView` / `RecitationItem` 加 `source` 或任何字段；新建词表详情端点或富词卡
+  （B 定案押 P6-7）；改 P6-5 的 POST 端点与三道闸门；改 `client.ts` 默认超时；按
+  `GRADE_SCOPE_OPTIONS` 在本地过滤列表（它自己的注释禁止）；把预览端点写成 409；给按钮加轮询 /
+  自动触发 / 进度条 / 后台任务；在 `RecitationsPage.tsx` 里堆新逻辑而不拆文件（C 定案）；
+  把渲染层表现写成"变异必红"的自动靶（无框架，写了就是假绿守卫）；`--skip` / `xfail`；
+  测试里 subprocess 跑 git / alembic / npm。
+
+- **残留风险（交付时如实报告）**：
+  - 慢机首灌可能逼近甚至超过放宽后的 120s——以实测为准上报；`AbortController` 中断**只中断前端
+    等待、服务端事务照常完成**，故超时文案必须写"再点一次是安全的（幂等）"，不得写"失败请勿重试"。
+  - 预览端点每次请求都 `load_vocab()`（实测装载 0.25s）——本票不做缓存与常驻；若试用中该区块
+    刷新频繁导致可感知延迟，另票议（不预设）。
+  - 富词卡、`source` 徽标、「首次批量导入向导」是否需要，全部等 12-01 试用反馈后定（裁定 B）。
+  - 本票交付后**孩子侧无变化**，入口仅在家长区解锁时出现。
+
+- **投单纪律**：`git fetch origin; git switch -c feat/p6-6-seed-vocab-ui origin/main`；一票一 PR
+  分支冻结；中文 commit 用 `git commit -F <仓库外 UTF-8 文件>`；提交前 `git diff --name-only`
+  核对并贴清单（越界即停，**白名单是 12 个文件**）；交付贴十二条 DoD 的运行态输出、蕴含表
+  1–12 各 RED→GREEN、第 13/14 两条"不列靶"的理由复述、【人工验收步骤】的界面回执原文、
+  后端 pytest / ruff / EOL 与前端 `node --test` / tsc / build 的尾部统计；单列「审核方需复核的点」；
+  卡面与盘上不符时以盘上为准并上报，不要硬凑。
+
 ### 延后（各另票，不在数据层内）
-背单词前端页（词卡展示音标/释义/变形/词根家族/中文助记/语源）；`dictation_sheets` 对 seed 词的复用；
+背单词前端页（词卡展示音标/释义/变形/词根家族/中文助记/语源）（**2026-11-28 拆分：灌库入口 +
+只读预览已出 P6-6 完整卡；富词卡与词表详情端点押 P6-7，等 12-01 试用反馈再定范围**）；
+`dictation_sheets` 对 seed 词的复用；
 ~~seed 导入的 parent API 端点~~（**已细化为上方 P6-5 完整卡，2026-11-28**）+ 首次批量导入向导
 （归词卡 UI 票）；OCR 逐字比对把初中正文升级到 verbatim。
 
