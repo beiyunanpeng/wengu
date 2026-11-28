@@ -4926,3 +4926,35 @@ D) `CHANGELOG.md` 新条目；`docs/STATUS.md` 六处翻新（见必改清单）
 `git diff --name-only` 核对并贴清单（越界即停）；交付贴十一条 DoD 的运行态输出、蕴含表 12 条靶
 各 RED→GREEN、三道 409 的响应体原文、全量 pytest/ruff/行尾守卫尾部统计；单列「审核方需复核的点」
 （R6 的 `to_thread` 与"闸门在事务前"属读码项）；卡面与盘上不符时以盘上为准并上报，不要硬凑。
+
+### P6-5 交付后补记（2026-11-28，分支 `feat/p6-5-seed-vocab-endpoint`，待审未合并）
+
+- **落地范围**：仅 `app/api/recitations.py`、新测试 `test_recitation_seed_api.py` 与本票四份文档；
+  service / seed / models / migrations / requirements / 前端均零改动。新增 `SeedVocabResponse` 六计数、
+  家长专属无 body 端点、迁移 head（含空库无版本表）/ 空词表/坏结构三道 409；
+  `load_vocab()` 经 `asyncio.to_thread` 后把同一 index 注入 service，写事务前显式结束只读事务。
+- **运行态 DoD**：新增集成测试 **9 passed**；未解锁 **403** 且零写入；0025 与从未迁移空库均
+  **409 db_not_migrated** 且零写入；缺词表 **409 vocab_not_installed**；坏结构
+  **409 vocab_invalid**；正常灌库返回 `band=6 / seen=3 / created=3 / duplicate_exact=0 /
+  duplicate_casefold=0 / null_answer=1`；二次 `created=0 / duplicate_exact=3`；配置 6→9 后
+  `seen=4 / created=1` 且旧三行逐字不动；manual `china` 触发 `duplicate_casefold=1` 且原行不变；
+  `learning_events` / `mistakes` / `recitation_reviews` / `review_schedules` 四表恒 0。
+- **三道 409 原文**：
+  `{"detail":{"message":"数据库尚未升级到课标词表灌库所需版本","code":"db_not_migrated"}}`；
+  `{"detail":{"message":"未安装课标词表","code":"vocab_not_installed"}}`；
+  `{"detail":{"message":"words.json 必须是对象","code":"vocab_invalid"}}`。
+- **全量验证**：`--collect-only` **1037 tests collected**（基线 1028 + 新增 9）；
+  `ruff check --no-cache .` 全绿；EOL 守卫 **6 passed**；迁移 **24 passed**；文档当前态守卫
+  **5 passed**；head 仍 `0026_recitation_source`，业务表仍 **23 张**。
+- **真仓临时库 band=9**：首灌 `seen=1775 / created=1775 / null_answer=17`，**6.827s**；
+  重跑 `created=0 / duplicate_exact=1775`，**0.494s**。首灌超过 `busy_timeout=5000` 的并发锁风险
+  已登 `docs/STATUS.md` §7 第 23 条；本票按定案不加锁/限流/后台任务，页面按钮与防抖仍归 UI 票。
+- **蕴含靶 12/12 RED→GREEN**：M01 摘家长依赖、M02 删 head 闸、M03 去空库兜底、
+  M04 去空索引闸、M05 放逃 `VocabFormatError`、M06 破坏六计数一致性、M07 seed 来源改 manual、
+  M08 同时破坏 exact 闸与冲突计数、M09 band 固化为 6、M10 写四张事实表、M11 casefold 降为 exact、
+  M12 多回 `created_ids`；每次改坏对应用例红，逐字还原后绿，源码 SHA-256 与改前一致。
+  **第 8 靶卡面推演与 P6-4 实码不符**：service 已捕获 `RecitationDuplicate`，只删 exact 闸仍会
+  正确计重复，故该靶按“同时把捕获冲突计成 created”实施，幂等计数断言才能证伪。
+- **审核方读码复核点**：三道闸门与 `load_vocab()` 均在 `async with session.begin()` 之前；
+  装载确为 `await asyncio.to_thread(load_vocab)`；端点未接收 `ceiling`，由 service 每次读热配置；
+  响应模型只有六计数字段，无 id 列表或请求体。

@@ -11,15 +11,20 @@ P3-4 默写卷：生成与回录挂 `require_parent`（判分主体是家长红�
 P3-4b 听写音频：音频列表与播放对孩子开放（听写必须让孩子听）；播放走 index 化
 端点返回 bytes + 嗅探 media_type + no-store，不挂 StaticFiles；挂接只在生成时
 校验（文件在 audio_dir 内 + 魔数嗅探），不提供改挂端点。
+
+P6-5 家长灌库：先校验迁移 head 与词表可读非空，再在线程中装载同一份 VocabIndex
+并注入 service；写事务只包灌库本身，响应仅回六计数。
 """
 
 from __future__ import annotations
 
+import asyncio
 from datetime import date, datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.session import require_parent
@@ -27,6 +32,7 @@ from app.core.config import Settings, get_settings
 from app.core.database import get_session
 from app.models import RecitationItem
 from app.models.recitation import DictationSheet
+from app.seed.vocab import VocabFormatError, load_vocab
 from app.services.dictation import (
     MAX_SHEET_ITEMS,
     RecordReport,
@@ -65,6 +71,7 @@ from app.services.recitation_import import (
     add_candidate_words,
     import_items,
 )
+from app.services.recitation_seed import seed_vocab_items
 
 router = APIRouter(tags=["recitations"])
 
@@ -265,6 +272,15 @@ class CandidateBatchResponse(BaseModel):
     created: list[CandidateCreatedView]
     duplicates: list[ImportDuplicateView]
     errors: list[ImportErrorView]
+
+
+class SeedVocabResponse(BaseModel):
+    band: int
+    seen: int
+    created: int
+    duplicate_exact: int
+    duplicate_casefold: int
+    null_answer: int
 
 
 def _item_view(item: RecitationItem) -> ItemView:
@@ -692,6 +708,60 @@ async def import_recitations(
             )
             for issue in report.issues
         ],
+    )
+
+
+@router.post(
+    "/api/recitations/seed-vocab",
+    response_model=SeedVocabResponse,
+    dependencies=[Depends(require_parent)],
+)
+async def seed_recitation_vocab(
+    session: AsyncSession = Depends(get_session),
+) -> SeedVocabResponse:
+    has_version_table = await session.scalar(
+        text(
+            "SELECT 1 FROM sqlite_master "
+            "WHERE type='table' AND name='alembic_version'"
+        )
+    )
+    revision = None
+    if has_version_table is not None:
+        revision = await session.scalar(
+            text("SELECT version_num FROM alembic_version")
+        )
+    await session.rollback()
+    if revision != "0026_recitation_source":
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "数据库尚未升级到课标词表灌库所需版本",
+                "code": "db_not_migrated",
+            },
+        )
+
+    try:
+        index = await asyncio.to_thread(load_vocab)
+    except VocabFormatError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"message": str(exc), "code": "vocab_invalid"},
+        ) from None
+    if index.stats.total == 0:
+        raise HTTPException(
+            status_code=409,
+            detail={"message": "未安装课标词表", "code": "vocab_not_installed"},
+        )
+
+    async with session.begin():
+        report = await seed_vocab_items(session, vocab_index=index)
+    return SeedVocabResponse(
+        band=report.band,
+        seen=report.seen,
+        created=report.created,
+        duplicate_exact=report.duplicate_exact,
+        duplicate_casefold=report.duplicate_casefold,
+        null_answer=report.null_answer,
     )
 
 
