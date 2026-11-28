@@ -9,6 +9,20 @@
 
 ### Added
 
+- **P6-5 家长灌库触发端点（`POST /api/recitations/seed-vocab`；零迁移、零新依赖、零 service/seed 改动）**（2026-11-28，基线 `origin/main` `9374bc8`，已交付待审）：
+  新增家长专属无请求体写端点，响应仅 `band / seen / created / duplicate_exact /
+  duplicate_casefold / null_answer` 六计数。写事务前依次校验 Alembic head（含空库无
+  `alembic_version` 表）、词表非空与结构可读，失败统一 409 +
+  `detail={message,code}`；`load_vocab()` 经 `asyncio.to_thread` 装载，并把同一份 index 注入
+  `seed_vocab_items(session, vocab_index=index)`，band 由 service 读取热配置。
+  新增 9 条集成测试，覆盖 403、旧库/空库/缺词表/坏词表四类闸门、六计数与库况一致、幂等、
+  6→9 热改档且旧行逐字不变、manual `china` 的 casefold 保护，以及四张事实表零写入。
+  12 个蕴含靶全部 RED→GREEN，源码还原 sha256 一致；其中第 8 条卡面推演与盘上不符——
+  P6-4 已捕获 `RecitationDuplicate`，单纯删 exact 闸仍会正确报重复，故该靶同时破坏冲突计数
+  才被幂等断言捕获。真仓临时库 band=9 首灌 `seen=created=1775 / null_answer=17` **6.827s**，
+  幂等重跑 `created=0 / duplicate_exact=1775` **0.494s**。全量 **1037 passed**（基线 1028 + 9）、
+  `ruff check --no-cache .` 全仓绿、`test_repo_eol.py` 6 passed；新文件 LF / UTF-8 / 无 BOM。
+  **家长界面仍无按钮，词卡 UI 与只读预览另票；首灌长事务超过 `busy_timeout=5000` 的并发写风险按定案留痕。**
 - **P6-4 课标词表灌入共享背诵池（Phase 6 最后一张数据票；零 schema、零新依赖、零 API/UI 接线）**（2026-11-27，基线 `origin/main` `0857a10`）：
   `create_item` 增加 `source: str = "manual"`，既有手填/CSV/候选调用零改动；新增
   `wengu-api/app/services/recitation_seed.py`，调用时解析热配置 band 与冻结 `VocabIndex`，
