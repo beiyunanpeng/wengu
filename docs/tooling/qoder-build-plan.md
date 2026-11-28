@@ -4773,3 +4773,156 @@ D) `CHANGELOG.md` 新增条目；`docs/STATUS.md` 交付区新增本票 + 头部
 - 残留（已登 `docs/STATUS.md` §7 第 22 条）：家长 CSV 导入 `.strip().lower()` 与 seed 官方
   大小写轨并存，`China` 双轨并存由试用观察，出现时另票。
 - **Phase 6 数据层至此收官，背单词数据层可用**；家长灌库触发端点与词卡 UI 各另票待出卡。
+
+---
+
+## P6-5 —— 家长灌库触发端点（`POST /api/recitations/seed-vocab`；Phase 6 接线票；零迁移零新依赖；基线 = P6-4 合并后的 main）
+
+你在 wengu 仓库工作。开工前先完整读三处并以其为准：仓库根 AGENTS.md（顶部 v2.5 横幅 + §8
+提交纪律与卡面纪律，尤其「状态类票的必改清单」「卡面引用盘上现状必须实读」「DoD 与断言口径
+必须先做蕴含自检」三条）、`TICKETS.md` 的 **P6-4 完整卡 + P6-5 完整卡**（含 R1–R6 口径裁定与
+蕴含自检 12 靶）、`docs/STATUS.md` §4.20 与 §7。再读现网代码校准，别按文档旧描述：
+- `wengu-api/app/api/recitations.py`（777 行；写端点三处惯例 :427 `POST /sheets` /
+  :602 `/candidates/batch` / :647 `/import`——`dependencies=[Depends(require_parent)]` +
+  handler 内 `async with session.begin():` + 异常转 `HTTPException(422, detail=str | {message,code})`）；
+- `wengu-api/app/api/seed.py`（docstring 自述"只读查询…零写入"——**本票不放这里**）；
+- `wengu-api/app/api/session.py:74`（`require_parent` 未解锁必 403）；
+- `wengu-api/app/services/recitation_seed.py`（P6-4 产物：`seed_vocab_items(session, *,
+  vocab_index=None, ceiling=None, now=None)` + `VocabSeedReport` 六字段 + 内部 `begin_nested`
+  ——**本票消费它，一个字节都不改**）；
+- `wengu-api/app/seed/vocab.py`（P6-3 产物：`load_vocab` / `VocabIndex.stats.total` /
+  `VocabFormatError` / `VOCAB_FILES` 五件 / `_read_json` 的 `FileNotFoundError → None`
+  ——**同样冻结**）；
+- `wengu-api/tests/integration/test_recitation_seed.py`（P6-4 测试的 `_migrated()` 用
+  **进程内** `command.upgrade(config, "head")` 构造库——本票造旧库照此，用 `"0025"`）；
+- `wengu-api/tests/integration/test_recitations_api.py`（`create_app()` + `httpx.ASGITransport`
+  + `PIN = "2468"` 的客户端与解锁惯例）；`wengu-api/tests/unit/test_vocab_index.py:29`
+  （`_write_json` 的 LF/UTF-8 写法——**参照写法，不跨文件 import 私有 helper**）。
+
+【全局纪律】一条 ticket = 一个可跑增量 = 一个 PR。**本票只在 API 层加一个家长专属写端点 +
+三道 409 前置闸门 + 一个新集成测试文件**；不改 service / seed / models / 迁移 / 前端 /
+`requirements.txt`（零新依赖）。**本票的价值不在"把 service 包一层"，而在补上裸包会漏的
+两个静默失败面**（见盘上实读 ② 与 ④）——只加路由不做闸门 = 本票未完成。
+
+【盘上实读（2026-11-28 审核方实测，写断言时逐字以此为准）】
+- `app/main.py::_lifespan` 只做 `load_seed` + inbox watcher，**启动不跑 alembic** →
+  "服务在跑但库没升到头"是真实可达状态（审核方本地 `data/wengu.db` 实测无 `source` 列、
+  `recitation_items` 0 行）。
+- 未升 0026 的库调 `seed_vocab_items` → 在**第一句查重 SELECT** 就抛
+  `sqlite3.OperationalError: no such column: recitation_items.source`（不是 INSERT 阶段；
+  审核方 `command.upgrade(cfg,"0025")` 临时库实测）。
+- `select version_num from alembic_version` 单值可读，head 实测 `0026_recitation_source`；
+  **从未迁移过的空库连这张表都没有**（SELECT 直接抛），闸门必须一并兜住。
+- `load_vocab` **缺文件容忍**：`_read_json` 把 `FileNotFoundError` 转 `None`、`_rows(None)` 返回
+  `[]` → `seeds/vocab/` 整目录缺失得到**空索引且不抛错** → 裸端点必回 `created=0` 的**假成功**。
+- 耗时实测（临时库 / `ceiling=16` / 3318 词）：首次 **15.993s**、幂等重跑 **0.698s**
+  （`created=0 duplicate_exact=3318`）；P6-4 施工方真仓自报 8.629s。
+- `app/core/database.py` 写死 `busy_timeout=5000` + `journal_mode=WAL` → 首灌事务**顶穿** 5s。
+- `create_item`（`recitation.py:361` 附近）只构造 `RecitationItem`，**不写** `learning_events` /
+  `mistakes` / `recitation_reviews`。
+- `get_settings` 是 `@lru_cache`（`config.py:79`）而 `load_vocab()` 内部直读
+  `get_settings().seeds_dir` → 测试改 `WENGU_SEEDS_DIR` **必须** `get_settings.cache_clear()`
+  并在用例结束恢复，否则假绿；`seed_grade_ceiling()` 每次调用重读配置文件（热生效，测试用
+  `WENGU_APP_CONFIG` 指路，P6-4 已实测钉住）。
+- `app/api/recitations.py` 现有 import **无** `asyncio` / **无** `sqlalchemy.text` / **无**
+  `app.seed.vocab` / **无** `app.services.recitation_seed`（`Query`/`Request`/`Response`/
+  `get_settings` 已在）；`VOCAB_FILES` 五件，但最小 fixture 只需 `levels.json` + `words.json`
+  （其余三份缺失只影响 roots/detail 聚合与 `missing` 记录，不抛）。
+- 全量基线：审核方合并后 main `cdf90fe` 复跑 **1028 passed / 0 failed**（交付时以
+  `--collect-only` 实取为准）；业务表 **23 张**、head `0026_recitation_source` 本票不变。
+
+【必须遵守的口径裁定（TICKETS.md P6-5 已定案，不要重开、不要"顺手改好"）】
+1. **R1** 新路由加在 `app/api/recitations.py`，**不放 `app/api/seed.py`**（后者自述只读零写入）。
+2. **R2** 端点**不收** `ceiling` 参数（改档走既有 `PUT /api/config`）；把闸门读到的 index
+   **注入** service：`seed_vocab_items(session, vocab_index=index)`，使空索引判据与实际灌库
+   用同一份索引；`ceiling` 不传 → 由 service 自取 `seed_grade_ceiling()` 现值。
+3. **R3** 三道前置闸门一律 **409** + `detail={"message","code"}`：
+   ① `alembic_version.version_num != "0026_recitation_source"`（**含表不存在**）→
+   `code="db_not_migrated"`；② `index.stats.total == 0` → `code="vocab_not_installed"`，
+   **绝不回 200 `created=0`**；③ `load_vocab` 抛 `VocabFormatError` → `code="vocab_invalid"`，
+   不得逃逸成裸 500。
+4. **R4** 响应只回 `VocabSeedReport` 六计数（band / seen / created / duplicate_exact /
+   duplicate_casefold / null_answer）；**不回** id 列表。
+5. **R5** 无请求体；不加 `dry_run` / `Idempotency-Key` / 进度 / 分页 / 批量上限 / 后台任务 /
+   应用层锁（幂等已使误点无害，实测重跑 0.698s）。
+6. **R6（本票按 P4 定案不写源码字面守卫，审核方读码复核）**：三道闸门与 `load_vocab()`
+   一律在 `async with session.begin()` **之前**完成；装载走 `await asyncio.to_thread(load_vocab)`
+   （实测装载 0.25s，出处 = P4-4 `save_config` 改 `to_thread` 同纪律）。
+
+【任务】
+A) `wengu-api/app/api/recitations.py`：新增 `POST /api/recitations/seed-vocab`
+   （`response_model=SeedVocabResponse`、`dependencies=[Depends(require_parent)]`、无请求体）
+   + `SeedVocabResponse`（六计数字段）+ 顶部 docstring 一段 P6-5 说明 + 补实读列出的四个 import。
+B) **零 service / 零 seed 改动**：`app/services/**`、`app/seed/**` 一个字节都不改。
+C) 新增 `wengu-api/tests/integration/test_recitation_seed_api.py`：自带 5 词最小 fixture 词表
+   构造器；客户端与解锁沿用 `test_recitations_api.py` 惯例；旧库用进程内
+   `command.upgrade(config, "0025")`，**禁止 subprocess 调 git / alembic**。
+D) `CHANGELOG.md` 新条目；`docs/STATUS.md` 六处翻新（见必改清单）；`TICKETS.md` 本票状态行翻转。
+
+【DoD（要运行态证据；每条都要有"因不 X 而红"的测试；合成 fixture；不写会漂的计数）】
+1. 白名单四项改动 + `app/services/**` / `app/seed/**` / `app/models/**` diff 为空 +
+   `requirements.txt` 零变化 + 零迁移（head 仍 0026、业务表仍 **23 张**、`test_migrations.py`
+   未改仍绿）。
+2. 未解锁家长 POST → **403**；既有背诵全套仍绿。
+3. head 闸门：0025 库 → **409** `db_not_migrated` 且 `recitation_items` 行数 0；
+   从未迁移的空库同样 **409**（不得 500）。
+4. 词表闸门：`WENGU_SEEDS_DIR` 指向无 `vocab/` 的目录 → **409** `vocab_not_installed`
+   （断言不是 200），库零写入。
+5. 结构闸门：`words.json` 写成非法结构（如顶层数组）→ **409** `vocab_invalid`，库零写入。
+6. 正常灌：5 词 fixture + band=6 → **200** 六计数 == 手写字面 `seen=3 / created=3 /
+   duplicate_exact=0 / duplicate_casefold=0 / null_answer=1 / band=6` == 库内实况
+   （含存在性断言 `created > 0`）。
+7. 幂等复证：连点两次 → 第二次 `created=0`、`duplicate_exact=3`、总行数仍 3。
+8. band 热生效：`PUT /api/config` 改 6→9 后再 POST → `seen=4 / created=1`、已灌三行逐字不动。
+9. 事实源不变量：同一测试内先 `assert created == 3`，再断言 `learning_events` / `mistakes` /
+   `recitation_reviews` / `review_schedules` 四表 count 恒 0。
+10. 闸②不覆盖既有：预置手填 `china`（`source='manual'`）→ band=16 灌 → `duplicate_casefold=1`、
+    原行 `answer` 与 `source` 逐字不变、不产生第二行。
+11. 全量 `pytest -q` = 开工基线（`--collect-only` 实取，现值 1028）+ 本票新增条数；
+    `ruff check --no-cache .` 全仓绿；新文件 LF / UTF-8 / 无 BOM。
+- **交付要求（非断言，别当靶）**：上报真仓 `band=9` 首灌与幂等重跑的实测耗时各一次。
+
+【蕴含自检（审核方已纸面推演，你须复跑确认；有推不出的立刻停下上报，别硬凑）】
+| # | DoD 靶 | 期望 | 由哪条规则推出 |
+|---|---|---|---|
+| 1 | 摘掉 `Depends(require_parent)` | 红 | R1 + 现网 `require_parent` 未解锁必 403 |
+| 2 | 删 head 闸门直接灌旧库 | 红 | R3① + 实读：service 首句 SELECT 抛 `OperationalError` → 500 |
+| 3 | 闸门只比 `version_num`、不兜"表不存在" | 红 | R3① 含空库；不兜则 SELECT 抛错 → 500 |
+| 4 | 词表缺失时回 200 `created=0` | 红 | R3② + 实读缺文件容忍得空索引 |
+| 5 | `VocabFormatError` 逃逸成 500 | 红 | R3③（P6-3 坏结构 fail-fast 的必然后果） |
+| 6 | 六计数与库内行数不等 / fixture 为空 | 红 | 任务 A 注入同一 index + DoD 6 存在性断言 |
+| 7 | seed 行 `source` 落 `manual` | 红 | R2 + P6-4 定案（`group by source == {('seed',3)}`） |
+| 8 | 连点两次仍新建 | 红 | DoD 7 承 P6-4 闸①；丢事务/丢闸则 `UNIQUE` 冲突 500 |
+| 9 | band 在模块导入期求值 | 红 | R2 调用时取 + 实读热生效每次重读文件 |
+| 10 | 灌库写 `learning_events` 等四表 | 红 | 禁止项 + 实读 `create_item` 只 INSERT 条目 |
+| 11 | 闸②降级成只比 exact | 红 | DoD 10 承 P6-4 裁定（`China` 会多建一行） |
+| 12 | 越界改动 / 加迁移 / 多回字段 | 红 | 白名单 + R4 响应键集合 == 六计数名 + 23 张表数断言 |
+
+【必改清单】`wengu-api/app/api/recitations.py`（新路由 + `SeedVocabResponse` + docstring +
+四个 import）/ `wengu-api/tests/integration/test_recitation_seed_api.py`（新增）/
+`CHANGELOG.md` / `TICKETS.md`（P6-5 状态行）/ `docs/STATUS.md`（头部三行 + 交付区新增本票 +
+**§1 内所有「当前待审」指针句一并翻转** + §2 路线表 Phase 6 行追加 P6-5 + §4.20 状态词 +
+§7 新增第 23 条欠账）/ `docs/tooling/qoder-build-plan.md`（本投单块 + 交付后补记）。
+**明确不改**：`README.md`（现无 P6 系列条目，本票后家长界面仍无按钮，写了即过实）、
+`目录结构.md`（零新 app 文件，且它不逐个列测试文件名）、`wengu-web/**`、`app/services/**`、
+`app/seed/**`、`migrations/**`、`requirements.txt`。
+
+【禁止】加迁移 / 新表 / 新依赖 / 新索引；改 service 或 seed 层任何字节；端点收 `ceiling` /
+`subject` 参数；加 `dry_run` / `Idempotency-Key` / 进度 / 分页 / 批量上限 / 后台任务 / 应用层锁；
+回 created 的 id 列表；在本票做词卡 UI 或只读概览端点；把 `created_by` 塞进响应或唯一键；
+`--skip` / `xfail`；测试里 subprocess 跑 git / alembic（沙箱 dubious ownership 已复发四次）。
+
+【残留风险（交付时如实报告）】
+- 首灌写事务 8.6–16s（实测）**> `busy_timeout=5000`** → 灌库期间并发写可能 `database is locked`；
+  按决策人 2026-11-28 定案本票**不改**，留痕时登 `docs/STATUS.md` §7 第 23 条，按钮防抖与
+  "预计耗时"提示归词卡 UI 票。
+- 本票交付后家长**界面上仍无入口**（只能 curl / 脚本调用），真正可用要等词卡 UI 票。
+- band 改档前"本档可灌多少词"无只读预览（现无该端点，同归 UI 票）。
+- head 闸门用**字面** `0026_recitation_source`：将来任何加迁移的票必须把
+  `app/api/recitations.py` 列入必改清单，否则正常库会被判为未迁移。
+
+【投单纪律】`git fetch origin; git switch -c feat/p6-5-seed-vocab-endpoint origin/main`；
+一票一 PR 分支冻结；中文 commit 用 `git commit -F <仓库外 UTF-8 文件>`；提交前
+`git diff --name-only` 核对并贴清单（越界即停）；交付贴十一条 DoD 的运行态输出、蕴含表 12 条靶
+各 RED→GREEN、三道 409 的响应体原文、全量 pytest/ruff/行尾守卫尾部统计；单列「审核方需复核的点」
+（R6 的 `to_thread` 与"闸门在事务前"属读码项）；卡面与盘上不符时以盘上为准并上报，不要硬凑。
